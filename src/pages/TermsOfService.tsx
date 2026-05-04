@@ -1,9 +1,18 @@
 import { Link } from 'react-router-dom';
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import termsContent from '../../terms_of_service.md?raw';
+import { setMetaDescription } from '../utils/seo';
 
 const TermsOfServicePage = () => {
+  React.useEffect(() => {
+    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 服务条款';
+    setMetaDescription(
+      'Read VFLOW AI Terms of Service covering usage rules, payments, refunds, intellectual property, acceptable content, and account responsibilities for all users.'
+    );
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#050505] text-zinc-100">
       <header className="border-b border-white/10">

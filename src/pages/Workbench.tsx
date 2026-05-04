@@ -50,6 +50,55 @@ import type { ViewType } from '../components/workbench/types';
 import { useLocation } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 import { normalizeThemeMode, type ThemeMode } from '../utils/theme';
+import { setMetaDescription } from '../utils/seo';
+
+const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
+  workbench: 'VFLOW AI - 工作台',
+  assets: 'VFLOW AI - 素材库',
+  product_images_clothing_swap: 'VFLOW AI - 商品图 - 换装',
+  product_images_first_frame: 'VFLOW AI - 商品图 - 首帧图',
+  product_images_smart_repair: 'VFLOW AI - 商品图 - 智能修复',
+  product_images_gallery: 'VFLOW AI - 商品图 - 商品套图',
+  product_images_text_separation: 'VFLOW AI - 商品图 - 文本分离',
+  replay_lab: 'VFLOW AI - Replay Lab',
+  templates: 'VFLOW AI - 模板',
+  history: 'VFLOW AI - 历史记录',
+  agent: 'VFLOW AI - Agent',
+  editor: 'VFLOW AI - 模板编辑',
+  profile: 'VFLOW AI - 设置',
+  billing: 'VFLOW AI - 计费',
+};
+
+const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
+  workbench:
+    'Use the VFLOW AI workspace to generate product videos and images, manage assets and templates, monitor tasks in real time, and export results for publishing.',
+  assets:
+    'Manage your asset library—products, backgrounds, audio, and virtual models—and reuse them across workflows for faster generation and consistent branding.',
+  product_images_clothing_swap:
+    'AI Clothing Swap: upload a garment photo and apply it to a model or scene while preserving fabric details to create clean, shop-ready product visuals.',
+  product_images_first_frame:
+    'Generate a high-quality first-frame product image for video covers and ads. Control style, scene, composition, and resolution to match your brand and platform.',
+  product_images_smart_repair:
+    'Fix imperfect product photos with AI Smart Repair. Remove artifacts, improve clarity, and restore details while keeping the original look for natural listings.',
+  product_images_gallery:
+    'Create AI product photo sets with virtual models or local uploads. Define scenes, ratios, and styles, preview outputs, and export a consistent store gallery.',
+  product_images_text_separation:
+    'Extract clean text layers from product images for faster editing. Automatically separate captions, labels, and design elements while keeping backgrounds intact.',
+  replay_lab:
+    'Replay Lab helps you reuse and iterate on previous scripts and structures, quickly generating new variations while keeping the creative direction consistent.',
+  templates:
+    'Browse templates for TikTok/Reels ads. Customize scenes, scripts, style, and branding to generate product videos faster and consistently across channels.',
+  history:
+    'Review your generation history, preview outputs, download results, and track task status across videos and product images in a searchable timeline dashboard.',
+  agent:
+    'Use Agent tools to experiment with advanced workflows and debugging features inside VFLOW AI, designed for power users, testing, and internal iteration.',
+  editor:
+    'Edit templates in detail—scenes, scripts, timing, and assets—so you can build reusable workflows in VFLOW AI that match your brand and publishing needs.',
+  profile:
+    'Update your profile, preferences, and security options. Manage account settings and integrations to keep your VFLOW AI workspace configured the way you want.',
+  billing:
+    'View your plan, balance, invoices, and usage. Manage payments and understand how credits are consumed for video and product image generation in one place.',
+};
 
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
@@ -111,6 +160,18 @@ const Workbench = () => {
   const [maydayCheckinTodayYmd, setMaydayCheckinTodayYmd] = useState<string>('');
   const [maydayCheckedInToday, setMaydayCheckedInToday] = useState(false);
   const [maydayRewarded, setMaydayRewarded] = useState<number | null>(null);
+
+  useEffect(() => {
+    const nextTitle = WORKBENCH_VIEW_TITLES[activeView] || 'VFLOW AI - 工作台';
+    if (typeof document !== 'undefined' && document.title !== nextTitle) {
+      document.title = nextTitle;
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    const nextDesc = WORKBENCH_VIEW_DESCRIPTIONS[activeView] || WORKBENCH_VIEW_DESCRIPTIONS.workbench;
+    setMetaDescription(nextDesc);
+  }, [activeView]);
 
   // Post-login reward popup: triggered only when the user has just logged in in this session,
   // NOT when the session is restored via /api/auth/me/ on page reload.

@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard, Folder } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { ClothingSwapView, FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
+import { ErrorModal } from './workflow/ErrorModal';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } from './GalleryBoardEditor';
-import { assetsApi } from '../../services/assets';
+import { assetsApi, seedanceApi, type SeedanceCharacter } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
 import { billingApi } from '../../services/billing';
@@ -17,6 +18,7 @@ import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingThe
 import { saveBlobWithPickerFallback } from '../../utils/browserDownload';
 import { useRequireAuth } from '../../utils/useRequireAuth';
 import { formatCreditAmount, roundCreditTenths } from '../../utils/credits';
+import { buildErrorModalData, type ErrorCategory, type ErrorModalData } from '../../utils/errorModalHelper';
 
 interface ProductImagesViewProps {
   activeView: ViewType;
@@ -156,6 +158,8 @@ type GalleryBulkRatioStrategy = 'recommended' | '1:1' | '4:5' | '9:16';
 type GalleryBulkBindingStrategy = 'none' | 'auto_primary';
 
 type GalleryOutputMode = 'custom' | 'ai';
+type GalleryBoardOnboardingStage = 'idle' | 'picker' | 'editor';
+type GalleryBoardPickerGuideStepKey = 'assets' | 'ratio' | 'confirm';
 type GalleryExampleTemplate = {
   id: string;
   title: string;
@@ -263,9 +267,9 @@ const GALLERY_EXAMPLE_TEMPLATES: GalleryExampleTemplate[] = [
     ],
     modelCards: [
       {
-        name: '模特-刘亦菲',
-        imageUrl: '/product-gallery-examples/1/model1.jpg',
-        modelInfo: '亚洲女模特 / 干净妆面',
+        name: '中国 18岁 女性 美甲师',
+        imageUrl: '/product-gallery-examples/1/model1.png',
+        modelInfo: '女 / 18岁 / 中国 / 美甲师 / 明媚',
       },
     ],
     sceneCards: [
@@ -414,6 +418,13 @@ const GALLERY_EXAMPLE_TEMPLATES: GalleryExampleTemplate[] = [
     subtitle: '高级感封面 + 海报，适合品牌调性',
     previewUrl: '/product-gallery-examples/3/result_3.jpeg',
     inputImageUrls: ['/product-gallery-examples/3/product_1.webp'],
+    modelCards: [
+      {
+        name: '中国 19岁 男 DJ/音乐制作人',
+        imageUrl: '/product-gallery-examples/3/model_1.png',
+        modelInfo: '中国 19岁 男 DJ/音乐制作人 活力'
+      },
+    ],
     settings: {
       productName: 'Nike 连帽拉链运动外套',
       productCategory: '服装鞋靴',
@@ -1079,7 +1090,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         return {
           icon: Clapperboard,
           title: t.ff_page_title,
-          subtitle: '',
+          subtitle: t.ff_page_subtitle,
         };
     }
   }, [currentValue, t]);
@@ -1165,6 +1176,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryBoardDraft, setGalleryBoardDraft] = useState<GalleryBoardDraft | null>(null);
   const [galleryBoardSelectedAssetIds, setGalleryBoardSelectedAssetIds] = useState<string[]>([]);
   const [galleryBoardCanvasRatio, setGalleryBoardCanvasRatio] = useState<'3:4' | '1:1' | '4:3' | '2:3' | '3:2' | '16:9' | '9:16'>('3:4');
+  const [galleryBoardOnboardingStage, setGalleryBoardOnboardingStage] = useState<GalleryBoardOnboardingStage>('idle');
+  const [galleryBoardPickerGuideStepIndex, setGalleryBoardPickerGuideStepIndex] = useState(0);
+  const [galleryBoardPickerGuidePanelStyle, setGalleryBoardPickerGuidePanelStyle] = useState<React.CSSProperties>({});
+  const [galleryBoardPickerGuideHighlightStyle, setGalleryBoardPickerGuideHighlightStyle] = useState<React.CSSProperties>({});
   const [isGalleryBoardLibraryPickerOpen, setIsGalleryBoardLibraryPickerOpen] = useState(false);
   const [galleryBoardLibraryAssetType, setGalleryBoardLibraryAssetType] = useState<'product' | 'scene'>('product');
   const [galleryBoardLibraryLoading, setGalleryBoardLibraryLoading] = useState(false);
@@ -1175,6 +1190,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryBoardLibraryCurrentFolderId, setGalleryBoardLibraryCurrentFolderId] = useState<string | null>(null);
   const [isGalleryBoardHistoryPickerOpen, setIsGalleryBoardHistoryPickerOpen] = useState(false);
   const galleryBoardPickerUploadRef = useRef<HTMLInputElement | null>(null);
+  const galleryBoardPickerAssetsRef = useRef<HTMLDivElement | null>(null);
+  const galleryBoardPickerRatioRef = useRef<HTMLDivElement | null>(null);
+  const galleryBoardPickerConfirmRef = useRef<HTMLButtonElement | null>(null);
   const [galleryTextEditor, setGalleryTextEditor] = useState<{ open: boolean; localId: string; imageUrl: string; layout: any } | null>(null);
   const [galleryTextDraftLayout, setGalleryTextDraftLayout] = useState<any | null>(null);
   const [isGalleryTextExporting, setIsGalleryTextExporting] = useState(false);
@@ -1355,6 +1373,191 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       title: title || t.pg_main_notice,
       message,
     });
+
+  const [galleryErrorModalData, setGalleryErrorModalData] = useState<ErrorModalData | null>(null);
+  const closeGalleryErrorModal = () => setGalleryErrorModalData(null);
+
+  const galleryErrorI18n = useMemo(() => ({
+    err_title_generation: t.err_title_generation,
+    err_title_script: t.err_title_script,
+    err_title_parse: t.err_title_parse,
+    err_title_recognize: t.err_title_recognize,
+    err_title_upload: t.err_title_upload,
+    err_title_network: t.err_title_network,
+    err_title_auth: t.err_title_auth,
+    err_title_unknown: t.err_title_unknown,
+    err_msg_generation: t.err_msg_generation,
+    err_msg_script: t.err_msg_script,
+    err_msg_parse: t.err_msg_parse,
+    err_msg_recognize: t.err_msg_recognize,
+    err_msg_upload: t.err_msg_upload,
+    err_msg_network: t.err_msg_network,
+    err_msg_auth: t.err_msg_auth,
+    err_msg_unknown: t.err_msg_unknown,
+    err_sug_retry: t.err_sug_retry,
+    err_sug_check_network: t.err_sug_check_network,
+    err_sug_check_params: t.err_sug_check_params,
+    err_sug_relogin: t.err_sug_relogin,
+    err_sug_contact_support: t.err_sug_contact_support,
+    err_sug_try_later: t.err_sug_try_later,
+    err_sug_manual_fill: t.err_sug_manual_fill,
+    err_btn_retry: t.err_btn_retry,
+    err_btn_feedback: t.err_btn_feedback,
+  }), [
+    t.err_btn_feedback,
+    t.err_btn_retry,
+    t.err_msg_auth,
+    t.err_msg_generation,
+    t.err_msg_network,
+    t.err_msg_parse,
+    t.err_msg_recognize,
+    t.err_msg_script,
+    t.err_msg_unknown,
+    t.err_msg_upload,
+    t.err_sug_check_network,
+    t.err_sug_check_params,
+    t.err_sug_contact_support,
+    t.err_sug_manual_fill,
+    t.err_sug_relogin,
+    t.err_sug_retry,
+    t.err_sug_try_later,
+    t.err_title_auth,
+    t.err_title_generation,
+    t.err_title_network,
+    t.err_title_parse,
+    t.err_title_recognize,
+    t.err_title_script,
+    t.err_title_unknown,
+    t.err_title_upload,
+  ]);
+
+  const openGalleryErrorModal = (
+    error: unknown,
+    opts?: { category?: ErrorCategory; onRetry?: () => void; messageOverride?: string },
+  ) => {
+    const data = buildErrorModalData({
+      error,
+      category: opts?.category,
+      onRetry: opts?.onRetry,
+      messageOverride: opts?.messageOverride,
+      i18n: galleryErrorI18n,
+    });
+    setGalleryErrorModalData(data);
+  };
+
+  const galleryBoardPickerGuideSteps = useMemo<Array<{ key: GalleryBoardPickerGuideStepKey; title: string; description: string }>>(
+    () => [
+      {
+        key: 'assets',
+        title: t.pg_img_picker_guide_assets_title,
+        description: t.pg_img_picker_guide_assets_desc,
+      },
+      {
+        key: 'ratio',
+        title: t.pg_img_picker_guide_ratio_title,
+        description: t.pg_img_picker_guide_ratio_desc,
+      },
+      {
+        key: 'confirm',
+        title: t.pg_img_picker_guide_confirm_title,
+        description: t.pg_img_picker_guide_confirm_desc,
+      },
+    ],
+    [
+      t.pg_img_picker_guide_assets_desc,
+      t.pg_img_picker_guide_assets_title,
+      t.pg_img_picker_guide_confirm_desc,
+      t.pg_img_picker_guide_confirm_title,
+      t.pg_img_picker_guide_ratio_desc,
+      t.pg_img_picker_guide_ratio_title,
+    ]
+  );
+  const isGalleryBoardPickerGuideOpen = galleryBoardOnboardingStage === 'picker' && isGalleryBoardAssetPickerOpen;
+  const activeGalleryBoardPickerGuideStep = isGalleryBoardPickerGuideOpen
+    ? galleryBoardPickerGuideSteps[galleryBoardPickerGuideStepIndex]
+    : null;
+
+  const getGalleryBoardPickerGuideTarget = useCallback(() => {
+    const map: Record<GalleryBoardPickerGuideStepKey, HTMLElement | null> = {
+      assets: galleryBoardPickerAssetsRef.current,
+      ratio: galleryBoardPickerRatioRef.current,
+      confirm: galleryBoardPickerConfirmRef.current,
+    };
+    const key = galleryBoardPickerGuideSteps[galleryBoardPickerGuideStepIndex]?.key;
+    return key ? map[key] || null : null;
+  }, [galleryBoardPickerGuideStepIndex, galleryBoardPickerGuideSteps]);
+
+  const updateGalleryBoardPickerGuidePosition = useCallback(() => {
+    const target = getGalleryBoardPickerGuideTarget();
+    const viewportPadding = 12;
+    const panelWidth = Math.min(400, window.innerWidth - viewportPadding * 2);
+    const panelHeight = 308;
+    const highlightPadding = 10;
+
+    if (!target) {
+      setGalleryBoardPickerGuidePanelStyle({
+        width: `${panelWidth}px`,
+        left: `${Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2))}px`,
+        top: `${Math.max(viewportPadding, Math.round((window.innerHeight - panelHeight) / 2))}px`,
+      });
+      setGalleryBoardPickerGuideHighlightStyle({ display: 'none' });
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    setGalleryBoardPickerGuideHighlightStyle({
+      left: `${Math.round(rect.left - highlightPadding)}px`,
+      top: `${Math.round(rect.top - highlightPadding)}px`,
+      width: `${Math.round(rect.width + highlightPadding * 2)}px`,
+      height: `${Math.round(rect.height + highlightPadding * 2)}px`,
+    });
+
+    let left = rect.right + 16;
+    if (left + panelWidth > window.innerWidth - viewportPadding) {
+      left = rect.left - panelWidth - 16;
+    }
+    if (left < viewportPadding) {
+      left = Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2));
+    }
+
+    let top = rect.top;
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+      top = window.innerHeight - panelHeight - viewportPadding;
+    }
+    if (top < viewportPadding) top = viewportPadding;
+
+    setGalleryBoardPickerGuidePanelStyle({
+      width: `${panelWidth}px`,
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+    });
+  }, [getGalleryBoardPickerGuideTarget]);
+
+  useEffect(() => {
+    if (!isGalleryBoardPickerGuideOpen) return;
+    const target = getGalleryBoardPickerGuideTarget();
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+
+    const timer = window.setTimeout(() => {
+      updateGalleryBoardPickerGuidePosition();
+    }, 260);
+
+    const onViewportChange = () => updateGalleryBoardPickerGuidePosition();
+
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [
+    galleryBoardPickerGuideStepIndex,
+    getGalleryBoardPickerGuideTarget,
+    isGalleryBoardPickerGuideOpen,
+    updateGalleryBoardPickerGuidePosition,
+  ]);
 
   const [galleryUserExampleTemplates, setGalleryUserExampleTemplates] = useState<GalleryExampleTemplate[]>([]);
 
@@ -1814,9 +2017,108 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     return `${prefix}${next}`;
   };
 
+  const [isGalleryModelPickerOpen, setIsGalleryModelPickerOpen] = useState(false);
+  const [galleryModelPickerCardId, setGalleryModelPickerCardId] = useState<string | null>(null);
+  const [galleryModelPickerItems, setGalleryModelPickerItems] = useState<SeedanceCharacter[]>([]);
+  const [galleryModelPickerLoading, setGalleryModelPickerLoading] = useState(false);
+  const [galleryModelPickerError, setGalleryModelPickerError] = useState<string | null>(null);
+  const [galleryModelPickerPage, setGalleryModelPickerPage] = useState(1);
+  const [galleryModelPickerHasMore, setGalleryModelPickerHasMore] = useState(true);
+  const galleryModelPickerLocalUploadInputRef = useRef<HTMLInputElement | null>(null);
+
+  const closeGalleryModelPicker = () => {
+    setIsGalleryModelPickerOpen(false);
+    setGalleryModelPickerCardId(null);
+    setGalleryModelPickerItems([]);
+    setGalleryModelPickerLoading(false);
+    setGalleryModelPickerError(null);
+    setGalleryModelPickerPage(1);
+    setGalleryModelPickerHasMore(true);
+  };
+
+  const loadGalleryModelPickerPage = async (page: number) => {
+    if (galleryModelPickerLoading) return;
+    setGalleryModelPickerLoading(true);
+    setGalleryModelPickerError(null);
+    try {
+      const resp = await seedanceApi.getCharacters({ page, page_size: 24 });
+      const items = Array.isArray(resp?.data?.results) ? resp.data.results : [];
+      const nextCount = Number(resp?.data?.count || 0);
+      const nextPageSize = Number(resp?.data?.page_size || 24);
+      const nextPage = Number(resp?.data?.page || page);
+      setGalleryModelPickerItems((prev) => (page === 1 ? items : [...prev, ...items]));
+      setGalleryModelPickerPage(nextPage);
+      setGalleryModelPickerHasMore(nextCount > nextPage * nextPageSize);
+    } catch (err: any) {
+      setGalleryModelPickerError(String(err?.message || '加载虚拟模特失败'));
+    } finally {
+      setGalleryModelPickerLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isGalleryModelPickerOpen) return;
+    void loadGalleryModelPickerPage(1);
+  }, [isGalleryModelPickerOpen]);
+
+  const openGalleryModelPicker = (cardId: string) => {
+    setGalleryModelPickerCardId(cardId);
+    setIsGalleryModelPickerOpen(true);
+  };
+
+  const triggerGalleryModelPickerLocalUpload = () => {
+    galleryModelPickerLocalUploadInputRef.current?.click();
+  };
+
+  const buildSeedanceModelInfo = (character: SeedanceCharacter) => {
+    const parts: string[] = [];
+    const gender = character.gender === 'Female' ? '女' : character.gender === 'Male' ? '男' : '';
+    if (gender) parts.push(gender);
+    if (Number.isFinite(character.age)) parts.push(`${character.age}岁`);
+    if (String(character.country || '').trim()) parts.push(String(character.country).trim());
+    if (String(character.occupation || '').trim()) parts.push(String(character.occupation).trim());
+    if (String(character.temperament || '').trim()) parts.push(String(character.temperament).trim());
+    return parts.join(' / ');
+  };
+
+  const chooseGalleryModelCharacter = async (character: SeedanceCharacter) => {
+    const cardId = String(galleryModelPickerCardId || '').trim();
+    if (!cardId) return;
+    setGalleryModelPickerLoading(true);
+    setGalleryModelPickerError(null);
+    try {
+      const resp = await seedanceApi.collectCharacter(character.id);
+      const fileUrl = String(resp?.data?.file_url || '').trim();
+      if (!fileUrl) {
+        throw new Error(String(resp?.message || '加载虚拟模特失败'));
+      }
+      setGalleryModelCards((prev) =>
+        prev.map((card) => {
+          if (card.id !== cardId) return card;
+          revokeGalleryModelPreviewUrl(card.imagePreviewUrl);
+          return {
+            ...card,
+            name: String(character.title || card.name || '').trim() || card.name,
+            modelInfo: String(card.modelInfo || '').trim() ? card.modelInfo : buildSeedanceModelInfo(character),
+            imageFile: null,
+            imagePath: fileUrl,
+            imagePreviewUrl: fileUrl,
+          };
+        })
+      );
+      closeGalleryModelPicker();
+    } catch (err: any) {
+      setGalleryModelPickerError(String(err?.message || '加载虚拟模特失败'));
+    } finally {
+      setGalleryModelPickerLoading(false);
+    }
+  };
+
   const addGalleryModelCard = () => {
-    setGalleryModelCards((prev) => [...prev, createGalleryModelCard(buildNextGalleryResourceName('模特', prev))]);
+    const nextCard = createGalleryModelCard(buildNextGalleryResourceName('模特', galleryModelCards));
+    setGalleryModelCards((prev) => [...prev, nextCard]);
     guideGalleryResourceSection('model');
+    openGalleryModelPicker(nextCard.id);
   };
 
   const addGallerySceneCard = () => {
@@ -2078,13 +2380,15 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryPreviewSource(source);
   };
 
-  const openGalleryBoardEditor = () => {
+  const openGalleryBoardEditor = (options?: { onboarding?: boolean }) => {
     const preservedIds = galleryBoardSessionAssets.map((item) => item.localId).filter(Boolean).slice(0, 9);
     const defaultIds = preservedIds.length > 0
       ? preservedIds
       : galleryBoardAssets.slice(0, 9).map((item) => item.localId);
     setGalleryBoardSelectedAssetIds(defaultIds);
     setGalleryBoardCanvasRatio(galleryBoardDraft?.templateRatioId || galleryBoardCanvasRatio || '3:4');
+    setGalleryBoardOnboardingStage(options?.onboarding ? 'picker' : 'idle');
+    setGalleryBoardPickerGuideStepIndex(0);
     setGalleryBoardLibraryCurrentFolderId(null);
     setGalleryBoardLibraryAssetType('product');
     setGalleryBoardPickerAssets([]);
@@ -2093,12 +2397,14 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   const closeGalleryBoardEditor = () => {
     setIsGalleryBoardEditorOpen(false);
+    setGalleryBoardOnboardingStage('idle');
   };
 
   const closeGalleryBoardAssetPicker = () => {
     setIsGalleryBoardAssetPickerOpen(false);
     setIsGalleryBoardLibraryPickerOpen(false);
     setIsGalleryBoardHistoryPickerOpen(false);
+    setGalleryBoardOnboardingStage('idle');
   };
 
   const confirmGalleryBoardAssetPicker = () => {
@@ -2121,6 +2427,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setIsGalleryBoardAssetPickerOpen(false);
     setIsGalleryBoardLibraryPickerOpen(false);
     setIsGalleryBoardHistoryPickerOpen(false);
+    setGalleryBoardOnboardingStage((prev) => (prev === 'picker' ? 'editor' : 'idle'));
     setIsGalleryBoardEditorOpen(true);
   };
 
@@ -4503,6 +4810,33 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           ? prev
           : prev.map((item) => ({ ...item, status: 'failed' as const, error: message }))
       );
+      const isFetchFailed = message.toLowerCase().includes('failed to fetch') || message.toLowerCase().includes('network');
+      if (isFetchFailed) {
+        let refunded = false;
+        try {
+          if (collectedImageUrls.length === 0) {
+            const resp = await apiRequest<any>('/api/projects/generate_product_gallery_refund', {
+              method: 'POST',
+              body: { client_history_id: clientHistoryId },
+              fallbackMessage: '退款请求失败',
+            });
+            refunded = Boolean(resp?.data?.refunded);
+          }
+        } catch {
+          refunded = false;
+        }
+
+        const messageOverride = refunded
+          ? '网络请求失败，无法连接服务器。本次生成已发起退款，请稍后重试。'
+          : '网络请求失败，无法连接服务器。请检查网络后重试；如本次已扣费且未生成成功，系统会自动退回。';
+
+        openGalleryErrorModal(err, {
+          category: 'network_error',
+          messageOverride,
+          onRetry: () => void handleGalleryGenerate(),
+        });
+        return;
+      }
       openGalleryAlert(message);
     } finally {
       if (galleryPollRunIdRef.current === runId) {
@@ -4513,11 +4847,23 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
   return (
     <div className="flex flex-col h-full z-10">
+      <ErrorModal
+        isOpen={Boolean(galleryErrorModalData)}
+        title={galleryErrorModalData?.title || ''}
+        code={galleryErrorModalData?.code}
+        message={galleryErrorModalData?.message || ''}
+        details={galleryErrorModalData?.details}
+        suggestions={galleryErrorModalData?.suggestions}
+        actions={galleryErrorModalData?.actions}
+        trackingId={galleryErrorModalData?.trackingId}
+        onClose={closeGalleryErrorModal}
+      />
       <AppDialog
         isOpen={galleryAlert.open}
         title={galleryAlert.title}
         onClose={closeGalleryAlert}
         widthClassName="max-w-sm"
+        overlayClassName="z-[320]"
         footer={
           <button
             type="button"
@@ -4600,6 +4946,92 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           />
           {galleryAiOutputPlanner.error ? (
             <div className="text-xs text-red-400">{galleryAiOutputPlanner.error}</div>
+          ) : null}
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isGalleryModelPickerOpen}
+        title={(t as any).pg_img_select_virtual_model || '选择虚拟模特'}
+        onClose={closeGalleryModelPicker}
+        widthClassName="max-w-4xl"
+        overlayClassName="z-[180]"
+        footer={
+          <button
+            type="button"
+            onClick={closeGalleryModelPicker}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 transition"
+          >
+            {t.pg_main_btn_close || '关闭'}
+          </button>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-zinc-500">
+              {(t as any).pg_img_model_picker_desc || '可从素材库选择虚拟模特，或从本地上传图片'}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={triggerGalleryModelPickerLocalUpload}
+                disabled={galleryModelPickerLoading}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-200 hover:bg-zinc-800 disabled:opacity-60 transition"
+              >
+                <Upload className="w-4 h-4" />
+                {(t as any).pg_img_upload_local_model || '从本地上传'}
+              </button>
+              <input
+                ref={galleryModelPickerLocalUploadInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  e.target.value = '';
+                  const cardId = String(galleryModelPickerCardId || '').trim();
+                  if (!cardId) return;
+                  handleGalleryModelCardFileSelection(cardId, files);
+                  closeGalleryModelPicker();
+                }}
+              />
+            </div>
+          </div>
+          {galleryModelPickerError ? <div className="text-xs text-red-400">{galleryModelPickerError}</div> : null}
+          <div className="max-h-[60vh] overflow-y-auto custom-scroll pr-1">
+            <div className="grid grid-cols-3 gap-3">
+              {galleryModelPickerItems.map((item) => {
+                const cover = String(item.image_thumb_url || item.image_url || '').trim();
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={galleryModelPickerLoading}
+                    onClick={() => void chooseGalleryModelCharacter(item)}
+                    className="group rounded-2xl border border-white/10 bg-black/20 overflow-hidden text-left transition hover:border-orange-500/30 hover:bg-black/30 disabled:opacity-60"
+                  >
+                    <div className="relative aspect-[4/3] w-full bg-black/30">
+                      {cover ? <img src={cover} alt={item.title} className="h-full w-full object-cover opacity-90 group-hover:opacity-100 transition" /> : null}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+                      <div className="absolute inset-x-3 bottom-3">
+                        <div className="text-sm font-extrabold text-white/95 line-clamp-1">{item.title}</div>
+                        <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{buildSeedanceModelInfo(item)}</div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {galleryModelPickerHasMore ? (
+            <button
+              type="button"
+              onClick={() => void loadGalleryModelPickerPage(galleryModelPickerPage + 1)}
+              disabled={galleryModelPickerLoading}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-zinc-300 hover:bg-white/10 disabled:opacity-60"
+            >
+              {galleryModelPickerLoading ? '加载中...' : '加载更多'}
+            </button>
           ) : null}
         </div>
       </AppDialog>
@@ -5381,6 +5813,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             </button>
             <button
               type="button"
+              ref={galleryBoardPickerConfirmRef}
               onClick={confirmGalleryBoardAssetPicker}
               className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400"
             >
@@ -5392,7 +5825,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-zinc-400">已选 {galleryBoardSelectedAssetIds.length} / 9</div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div ref={galleryBoardPickerRatioRef} className="flex flex-wrap items-center gap-2">
               <div className="text-xs text-zinc-500">海报比例</div>
               {(['3:4', '1:1', '4:3', '2:3', '3:2', '16:9', '9:16'] as const).map((ratio) => (
                 <button
@@ -5457,7 +5890,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             </button>
           </div>
 
-          <div className="grid max-h-[62vh] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-4">
+          <div ref={galleryBoardPickerAssetsRef} className="grid max-h-[62vh] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-4">
             {galleryBoardCandidateAssets.map((asset) => {
               const checked = galleryBoardSelectedAssetSet.has(asset.localId);
               return (
@@ -5485,6 +5918,85 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           </div>
         </div>
       </AppDialog>
+      {isGalleryBoardPickerGuideOpen ? (
+        <div
+          className="fixed inset-0 z-[230]"
+          onClick={() => setGalleryBoardOnboardingStage('idle')}
+        >
+          <div
+            className="absolute rounded-2xl border-2 border-orange-400/90 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.72),0_0_32px_rgba(249,115,22,0.35)]"
+            style={galleryBoardPickerGuideHighlightStyle}
+          />
+          <div
+            className="absolute rounded-2xl border border-orange-500/30 bg-zinc-950/95 p-4 shadow-2xl shadow-black/60 backdrop-blur"
+            style={galleryBoardPickerGuidePanelStyle}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-base font-bold text-white">{t.pg_img_picker_guide_title}</div>
+                <div className="mt-1 text-xs text-zinc-400">
+                  {t.wb_guide_step} {galleryBoardPickerGuideStepIndex + 1} / {galleryBoardPickerGuideSteps.length}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGalleryBoardOnboardingStage('idle')}
+                className="text-zinc-400 transition hover:text-white"
+                title={t.wb_guide_close}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+              <div className="text-sm font-bold text-orange-200">{activeGalleryBoardPickerGuideStep?.title || ''}</div>
+              <div className="mt-2 text-xs leading-5 text-zinc-300">{activeGalleryBoardPickerGuideStep?.description || ''}</div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {galleryBoardPickerGuideSteps.map((step, index) => (
+                <button
+                  key={step.key}
+                  type="button"
+                  onClick={() => setGalleryBoardPickerGuideStepIndex(index)}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                    galleryBoardPickerGuideStepIndex === index
+                      ? 'border-orange-500/70 bg-orange-500/20 text-orange-200'
+                      : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'
+                  }`}
+                >
+                  {index + 1}. {step.title}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setGalleryBoardPickerGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                disabled={galleryBoardPickerGuideStepIndex <= 0}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+              >
+                {t.wb_guide_prev}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (galleryBoardPickerGuideStepIndex >= galleryBoardPickerGuideSteps.length - 1) {
+                    confirmGalleryBoardAssetPicker();
+                    return;
+                  }
+                  setGalleryBoardPickerGuideStepIndex((prev) => Math.min(galleryBoardPickerGuideSteps.length - 1, prev + 1));
+                }}
+                className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400"
+              >
+                {galleryBoardPickerGuideStepIndex >= galleryBoardPickerGuideSteps.length - 1 ? t.pg_img_guide_enter_board : t.wb_guide_next}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <AppDialog
         isOpen={isGalleryBoardLibraryPickerOpen}
@@ -5695,7 +6207,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         isOpen={isGalleryBoardEditorOpen}
         title={t.pg_main_dialog_board_editor_title}
         onClose={closeGalleryBoardEditor}
-        widthClassName="max-w-[96rem]"
+        widthClassName="max-w-[110rem]"
+        contentClassName="overflow-hidden"
       >
         {isGalleryBoardEditorOpen ? (
           <GalleryBoardEditor
@@ -5708,6 +6221,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             initialSubtitle={gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ')}
             initialLocalAssets={galleryBoardLocalAssets}
             initialDraft={galleryBoardDraft}
+            shouldAutoOpenGuide={galleryBoardOnboardingStage === 'editor'}
             onLocalAssetsChange={setGalleryBoardLocalAssets}
             onDraftChange={setGalleryBoardDraft}
             onAlert={openGalleryAlert}
@@ -6026,7 +6540,16 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           isVisible={currentValue === 'product_images_gallery'}
           panelClassName={panelClassName}
           t={t}
-          galleryExamples={galleryExampleTemplates.map(({ id, title, subtitle, previewUrl, isUserSnapshot }) => ({ id, title, subtitle, previewUrl, isUserSnapshot: Boolean(isUserSnapshot) }))}
+          galleryExamples={galleryExampleTemplates.map((template) => ({
+            id: template.id,
+            title: template.title,
+            subtitle: template.subtitle,
+            previewUrl: template.previewUrl,
+            isUserSnapshot: Boolean(template.isUserSnapshot),
+            inputImageUrls: (Array.isArray(template.inputImageUrls) && template.inputImageUrls.length > 0)
+              ? template.inputImageUrls
+              : (Array.isArray(template.settings?.uploadedImagePaths) ? template.settings.uploadedImagePaths : []),
+          }))}
           applyGalleryExample={applyGalleryExample}
           isGalleryApplyingExample={Boolean(galleryExampleApplyingId)}
           saveGalleryExampleSnapshot={saveGalleryExampleSnapshot}
@@ -6061,6 +6584,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           addGalleryModelCard={addGalleryModelCard}
           removeGalleryModelCard={removeGalleryModelCard}
           clearGalleryModelCardImage={clearGalleryModelCardImage}
+          openGalleryModelPicker={openGalleryModelPicker}
           handleGalleryModelCardFileSelection={handleGalleryModelCardFileSelection}
           galleryTargetScene={galleryTargetScene}
           setGalleryTargetScene={setGalleryTargetScene}
@@ -6096,6 +6620,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           setGalleryRightPanel={setGalleryRightPanel}
           setIsGalleryHistoryManaging={setIsGalleryHistoryManaging}
           setGalleryHistorySelectedKeys={setGalleryHistorySelectedKeys}
+          galleryBoardCanvasRatio={galleryBoardCanvasRatio}
           openGalleryBoardEditor={openGalleryBoardEditor}
           galleryPreviewItems={galleryPreviewItems}
           openGalleryImagePreview={openGalleryImagePreview}

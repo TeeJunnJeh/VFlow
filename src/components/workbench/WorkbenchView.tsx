@@ -15,6 +15,7 @@ import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
 import { assetsApi, subjectGroupApi, type Asset as LibraryAsset, type AssetFolder, type SubjectGroup } from '../../services/assets';
 import { tiktokApi } from '../../services/tiktok';
+import { authApi } from '../../services/auth';
 import { billingApi } from '../../services/billing';
 import { formatCreditAmount, roundCreditTenths } from '../../utils/credits';
 import { getDebugModeEnabled } from '../../services/debugMode';
@@ -590,6 +591,192 @@ const loadLocalProjectStore = (userId?: string | number | null): LocalProjectSto
   }
 };
 
+export type GuestPromoteStats = {
+  workspaceCount: number;
+  projectCount: number;
+  uploadedFileCount: number;
+  totalScriptCount: number;
+  totalAssetQueueCount: number;
+};
+
+/**
+ * 游客->登录瞬间的迁移结果。
+ *
+ * 状态：
+ *  - `no_window` / `no_guest_data` / `guest_pristine` / `storage_error`：无需打扰用户，
+ *    migrate 函数已经把 localStorage 处理好（如清掉 pristine 占位）。
+ *  - `auto_migrated`：guest 有内容 + target 是空的，自动搬完。
+ *  - `needs_confirmation`：guest 和 target 都有 meaningful 内容，**migrate 函数不动 localStorage**，
+ *    把两个 store 都返回让 UI 起弹窗，等用户决定。
+ */
+export type GuestPromoteOutcome =
+  | { status: 'no_window' }
+  | { status: 'no_guest_data' }
+  | { status: 'guest_pristine' }
+  | { status: 'storage_error' }
+  | { status: 'auto_migrated'; stats: GuestPromoteStats }
+  | { status: 'needs_confirmation'; guestStore: LocalProjectStore; targetStore: LocalProjectStore; stats: GuestPromoteStats };
+
+/**
+ * 检查一个 LocalProjectStore 是否包含「实质内容」——
+ * 至少一个 workspace 有用户操作过的痕迹（上传过文件、产出过脚本、有 asset queue、
+ * 或填了商品名 / 生成 prompt 等等）。
+ */
+const projectStoreHasMeaningfulContent = (raw: unknown): boolean => {
+  if (!raw || typeof raw !== 'object') return false;
+  const workspaces = (raw as { workspaces?: Record<string, unknown> }).workspaces;
+  if (!workspaces || typeof workspaces !== 'object') return false;
+  const entries = Object.values(workspaces);
+  if (entries.length === 0) return false;
+  return entries.some((wsRaw) => {
+    if (!wsRaw || typeof wsRaw !== 'object') return false;
+    const ws = wsRaw as Record<string, unknown>;
+    if (typeof ws.uploadedFile === 'string' && ws.uploadedFile.trim().length > 0) return true;
+    if (typeof ws.lastUploadedUrl === 'string' && ws.lastUploadedUrl.trim().length > 0) return true;
+    if (typeof ws.selectedAssetUrl === 'string' && ws.selectedAssetUrl.trim().length > 0) return true;
+    if (Array.isArray(ws.scripts) && ws.scripts.length > 0) return true;
+    if (Array.isArray(ws.assetQueue) && ws.assetQueue.length > 0) return true;
+    if (typeof ws.productName === 'string' && ws.productName.trim().length > 0) return true;
+    if (typeof ws.genPrompt === 'string' && ws.genPrompt.trim().length > 0) return true;
+    if (typeof ws.referenceScript === 'string' && ws.referenceScript.trim().length > 0) return true;
+    return false;
+  });
+};
+
+const computeGuestPromoteStats = (raw: unknown): GuestPromoteStats => {
+  const stats: GuestPromoteStats = {
+    workspaceCount: 0,
+    projectCount: 0,
+    uploadedFileCount: 0,
+    totalScriptCount: 0,
+    totalAssetQueueCount: 0,
+  };
+  if (!raw || typeof raw !== 'object') return stats;
+  const projects = (raw as { projects?: unknown[] }).projects;
+  if (Array.isArray(projects)) stats.projectCount = projects.length;
+  const workspaces = (raw as { workspaces?: Record<string, unknown> }).workspaces;
+  if (workspaces && typeof workspaces === 'object') {
+    const entries = Object.values(workspaces);
+    stats.workspaceCount = entries.length;
+    for (const wsRaw of entries) {
+      if (!wsRaw || typeof wsRaw !== 'object') continue;
+      const ws = wsRaw as Record<string, unknown>;
+      if (typeof ws.uploadedFile === 'string' && ws.uploadedFile.trim().length > 0) {
+        stats.uploadedFileCount += 1;
+      }
+      if (Array.isArray(ws.scripts)) stats.totalScriptCount += ws.scripts.length;
+      if (Array.isArray(ws.assetQueue)) stats.totalAssetQueueCount += ws.assetQueue.length;
+    }
+  }
+  return stats;
+};
+
+/**
+ * 把 raw JSON 字符串解析成 LocalProjectStore，规范化和 loadLocalProjectStore 一致；
+ * 区别是这里返回 null 表示「没有」，方便上层做"双方是否都有内容"判断。
+ */
+const parseProjectStoreRawStrict = (raw: string | null): LocalProjectStore | null => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<LocalProjectStore>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return null;
+    const currentProjectId = typeof parsed.currentProjectId === 'string' && parsed.currentProjectId
+      ? parsed.currentProjectId
+      : parsed.projects[0].id;
+    return {
+      currentProjectId,
+      projects: (parsed.projects as LocalProjectMeta[]).map(p => ({
+        ...p,
+        createdAt: p.createdAt || p.updatedAt || Date.now(),
+      })),
+      workspaces: (parsed.workspaces as Record<string, ProjectWorkspaceState>) || {},
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 游客->登录瞬间的迁移决策入口。
+ *
+ * 行为分流（2026-04-30 v2）：
+ *  - guest 没数据 / pristine：no-op（清掉 pristine 占位也不打扰用户）
+ *  - guest 有数据 + target 空：自动搬，沿用旧体验
+ *  - guest 有数据 + target 也有数据：**不动 localStorage**，把两个 store 都解析好
+ *    返给调用方，由 UI 弹窗让用户从 合并 / 覆盖 / 丢弃 中选。
+ */
+// Module-level cache：让 migrate 函数对相同 userId 幂等。
+// React 18 strict mode 在 dev 下会对 useState lazy init / useEffect 双跑，第二次跑必须返回
+// 第一次的结果，不能重复改 localStorage——否则会出现「第一次 migrate 写入 → 第二次 SAVE 把空
+// 数据写回去 → 第二次 migrate 读到空数据当作 no_guest_data」的级联 race（实测踩到过）。
+const _guestMigrationCache = new Map<string, GuestPromoteOutcome>();
+
+const migrateGuestProjectStoreOnLogin = (targetUserId: string | number): GuestPromoteOutcome => {
+  if (typeof window === 'undefined') return { status: 'no_window' };
+  if (targetUserId === null || targetUserId === undefined || targetUserId === '') {
+    return { status: 'no_guest_data' };
+  }
+
+  // 幂等：同一 userId 的第二次及之后调用直接返回首次结果，不重复改 localStorage。
+  const cacheKey = String(targetUserId);
+  const cached = _guestMigrationCache.get(cacheKey);
+  if (cached) return cached;
+
+  const guestKey = getLocalProjectStoreKey(null);
+  const targetKey = getLocalProjectStoreKey(targetUserId);
+  if (guestKey === targetKey) return { status: 'no_guest_data' };
+
+  try {
+    const guestRaw = localStorage.getItem(guestKey);
+    if (!guestRaw) return { status: 'no_guest_data' };
+
+    const guestParsed = JSON.parse(guestRaw);
+    if (!projectStoreHasMeaningfulContent(guestParsed)) {
+      // Guest 仅是默认占位，没必要搬，但也清掉避免下次干扰。
+      localStorage.removeItem(guestKey);
+      const outcome: GuestPromoteOutcome = { status: 'guest_pristine' };
+      _guestMigrationCache.set(cacheKey, outcome);
+      return outcome;
+    }
+
+    const targetRaw = localStorage.getItem(targetKey);
+    const targetMeaningful = (() => {
+      if (!targetRaw) return false;
+      try {
+        return projectStoreHasMeaningfulContent(JSON.parse(targetRaw));
+      } catch {
+        return false;
+      }
+    })();
+
+    if (targetMeaningful) {
+      // 双方都有内容——把两个 store 解析好返给调用方，等用户决定。
+      const guestStore = parseProjectStoreRawStrict(guestRaw);
+      const targetStore = parseProjectStoreRawStrict(targetRaw);
+      if (!guestStore || !targetStore) return { status: 'storage_error' };
+      const outcome: GuestPromoteOutcome = {
+        status: 'needs_confirmation',
+        guestStore,
+        targetStore,
+        stats: computeGuestPromoteStats(guestParsed),
+      };
+      _guestMigrationCache.set(cacheKey, outcome);
+      return outcome;
+    }
+
+    // target 是空的或者格式坏掉——直接搬。
+    const stats = computeGuestPromoteStats(guestParsed);
+    localStorage.setItem(targetKey, guestRaw);
+    localStorage.removeItem(guestKey);
+    const outcome: GuestPromoteOutcome = { status: 'auto_migrated', stats };
+    _guestMigrationCache.set(cacheKey, outcome);
+    return outcome;
+  } catch {
+    return { status: 'storage_error' };
+  }
+};
+
 const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], excludeId?: string): string => {
   const baseName = (rawName || '').trim() || 'Project';
   const names = new Set(
@@ -605,6 +792,65 @@ const ensureUniqueProjectName = (rawName: string, projects: LocalProjectMeta[], 
     nextName = `${baseName}(${suffix})`;
   }
   return nextName;
+};
+
+/**
+ * 合并 guest 的工作台到 target，返回合并后的新 store。
+ * - 给每个 guest 项目重新生成 ID，避开 target 中已存在的 ID（最常见碰撞：双方都用了
+ *   `project_alpha_01` 这个默认 ID）
+ * - workspaces map 的 key 同步换成新 ID
+ * - 项目名按现有 `ensureUniqueProjectName` 兜底冲突
+ * - `currentProjectId` 切到 guest 当前项目的新 ID——让用户登录后第一眼看到刚上传的内容
+ *
+ * 不修改入参对象。
+ */
+const mergeGuestStoreIntoTarget = (
+  guestStore: LocalProjectStore,
+  targetStore: LocalProjectStore,
+): LocalProjectStore => {
+  const newProjectId = (): string => `proj-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const idMap: Record<string, string> = {};
+  const renamedGuestProjects: LocalProjectMeta[] = [];
+  for (const p of guestStore.projects) {
+    let candidateId = newProjectId();
+    // 极小概率撞 target 已有 ID，重生几次
+    let safety = 0;
+    while (
+      safety < 8 &&
+      (targetStore.projects.some((tp) => tp.id === candidateId) ||
+        renamedGuestProjects.some((rp) => rp.id === candidateId))
+    ) {
+      candidateId = newProjectId();
+      safety += 1;
+    }
+    idMap[p.id] = candidateId;
+    const uniqueName = ensureUniqueProjectName(
+      p.name,
+      [...targetStore.projects, ...renamedGuestProjects],
+    );
+    renamedGuestProjects.push({
+      ...p,
+      id: candidateId,
+      name: uniqueName,
+      updatedAt: Date.now(),
+    });
+  }
+
+  const renamedGuestWorkspaces: Record<string, ProjectWorkspaceState> = {};
+  for (const [oldId, ws] of Object.entries(guestStore.workspaces)) {
+    const newId = idMap[oldId];
+    if (newId) renamedGuestWorkspaces[newId] = ws;
+  }
+
+  const newCurrentProjectId =
+    idMap[guestStore.currentProjectId] || targetStore.currentProjectId;
+
+  return {
+    currentProjectId: newCurrentProjectId,
+    projects: [...targetStore.projects, ...renamedGuestProjects],
+    workspaces: { ...targetStore.workspaces, ...renamedGuestWorkspaces },
+  };
 };
 
 const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -1362,7 +1608,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return () => window.removeEventListener('vflow:queue-focus', handleQueueFocus as EventListener);
   }, [aiOptimizeResults.length, isAiOptimizeOpen]);
 
-  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => loadLocalProjectStore(user?.id ?? null));
+  const [projectStore, setProjectStore] = useState<LocalProjectStore>(() => {
+    // 关键：在 loadLocalProjectStore 之前先 migrate 一次，让初始 React state
+    // 直接读到 migrate 完的 _<userId>。否则后续 SAVE effect 第一次 fire 会把
+    // 默认占位数据写回 _<userId>，覆盖 migrate 的成果（strict mode 双 fire 会
+    // 进一步放大这个 race）。migrate 函数自带模块级缓存，幂等。
+    if (typeof window !== 'undefined' && user?.id !== null && user?.id !== undefined && user.id !== '') {
+      try {
+        migrateGuestProjectStoreOnLogin(user.id);
+      } catch {
+        // 静默兜底，绝不阻塞 mount
+      }
+    }
+    return loadLocalProjectStore(user?.id ?? null);
+  });
   const [projectStoreOwner, setProjectStoreOwner] = useState<string>(() => getLocalProjectStoreOwner(user?.id ?? null));
   const [projectStoreLoadVersion, setProjectStoreLoadVersion] = useState(0);
 
@@ -2479,11 +2738,98 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     window.dispatchEvent(new CustomEvent('vflow-workbench-projects-updated'));
   }, [projectStore, projectStoreOwner, user?.id]);
 
+  // 游客->登录 + 双方都有数据时，弹窗等用户决定怎么处理。
+  // pending 期间 UI 已经按 target 加载（不空白）；等用户点了按钮再二次更新。
+  type PendingGuestMigration = {
+    guestStore: LocalProjectStore;
+    targetStore: LocalProjectStore;
+    stats: GuestPromoteStats;
+  };
+  const [pendingGuestMigration, setPendingGuestMigration] = useState<PendingGuestMigration | null>(null);
+
   useEffect(() => {
+    const nextOwner = getLocalProjectStoreOwner(user?.id ?? null);
+
+    // 只要当前是已登录态，就检查 `_guest` localStorage 是否有遗留数据等待迁移。
+    // 注意不要用 useRef 检测 "guest→auth 瞬时 transition"——因为登录通常会跳转
+    // `/login` 路由，导致 WorkbenchView 卸载重挂，ref 在新挂载里被初始化成已登录状态，
+    // 永远捕捉不到瞬时变化。改成"每次都看 `_guest` 有没有内容"就对所有挂载路径都鲁棒。
+    // migrate 函数本身已经在 useState lazy init 里跑过一次了，这里再调相当于读缓存（幂等），
+    // 用来决定要不要弹确认窗 / 上报 OpsLog。
+    if (user?.id !== null && user?.id !== undefined && user.id !== '') {
+      const outcome = migrateGuestProjectStoreOnLogin(user.id);
+      if (outcome.status === 'needs_confirmation') {
+        setPendingGuestMigration({
+          guestStore: outcome.guestStore,
+          targetStore: outcome.targetStore,
+          stats: outcome.stats,
+        });
+      } else if (outcome.status === 'auto_migrated') {
+        void authApi.reportGuestToAuthPromote({
+          migrated: true,
+          reason: 'auto_migrated',
+          stats: outcome.stats,
+        });
+      } else if (outcome.status === 'guest_pristine') {
+        // pristine 是一次性事件（清完就不会再触发了），值得记一笔便于后续转化分析
+        void authApi.reportGuestToAuthPromote({
+          migrated: false,
+          reason: 'guest_pristine',
+        });
+      }
+      // no_guest_data / no_window / storage_error 静默——前者是 99% 的常态
+    }
+
     setProjectStore(loadLocalProjectStore(user?.id ?? null));
-    setProjectStoreOwner(getLocalProjectStoreOwner(user?.id ?? null));
+    setProjectStoreOwner(nextOwner);
     setProjectStoreLoadVersion((prev) => prev + 1);
   }, [user?.id]);
+
+  // 三个按钮的 handler：merge / overwrite / discard。
+  // 三个 case 都会清掉 _guest key（用户已经表态过了，不留残余）+ 重新加载 projectStore + 上报 OpsLog。
+  const applyGuestMigrationChoice = useCallback(
+    (choice: 'merge' | 'overwrite' | 'discard') => {
+      if (!pendingGuestMigration) return;
+      const currentUserId = user?.id;
+      if (currentUserId === null || currentUserId === undefined || currentUserId === '') {
+        setPendingGuestMigration(null);
+        return;
+      }
+      const targetKey = getLocalProjectStoreKey(currentUserId);
+      const guestKey = getLocalProjectStoreKey(null);
+      const { guestStore, targetStore, stats } = pendingGuestMigration;
+
+      try {
+        if (choice === 'merge') {
+          const merged = mergeGuestStoreIntoTarget(guestStore, targetStore);
+          localStorage.setItem(targetKey, JSON.stringify(merged));
+        } else if (choice === 'overwrite') {
+          localStorage.setItem(targetKey, JSON.stringify(guestStore));
+        }
+        // discard: target 不动
+        localStorage.removeItem(guestKey);
+      } catch {
+        // 失败静默，不阻塞 UI
+      }
+
+      setProjectStore(loadLocalProjectStore(currentUserId));
+      setProjectStoreOwner(getLocalProjectStoreOwner(currentUserId));
+      setProjectStoreLoadVersion((prev) => prev + 1);
+      setPendingGuestMigration(null);
+
+      void authApi.reportGuestToAuthPromote({
+        migrated: choice !== 'discard',
+        reason:
+          choice === 'merge'
+            ? 'merged'
+            : choice === 'overwrite'
+              ? 'overwrote_target'
+              : 'discarded_guest',
+        stats,
+      });
+    },
+    [pendingGuestMigration, user?.id],
+  );
 
   useEffect(() => {
     if (isApplyingProjectWorkspaceRef.current) return;
@@ -3804,14 +4150,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const scriptPageBatchGenerateTotalCount = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.count, 0);
   const hasScriptPageBatchGeneratePlan = scriptPageBatchGenerateTotalCount > 0;
   const scriptPageBatchGenerateTotalSeconds = scriptPageBatchGenerateItems.reduce((sum, item) => sum + item.duration * item.count, 0);
-  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
+  const formatVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined, modelId?: string) => {
+    if (isSeedanceModel(modelId)) {
+      return t.wb_usage_based_billing || 'Pay as you go';
+    }
     const rate = Number(entry?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return '-';
     return `${formatCreditAmount(rate)}${t.wb_vpoints_per_sec || ''}`;
   };
-  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
-    const label = formatVideoRateLabel(entry);
-    if (label === '-') return label;
+  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined, modelId?: string) => {
+    const label = formatVideoRateLabel(entry, modelId);
+    if (label === '-' || isSeedanceModel(modelId)) return label;
     return `${t.wb_rate_approx_prefix || 'Approx. '}${label}`;
   };
   const estimatedVideoCost = useMemo(() => {
@@ -3828,7 +4177,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     return Math.max(0, roundCreditTenths(rate * Math.max(1, Math.min(4, Number(aiOptimizeCount) || 1))));
   }, [aiOptimizeCount, selectedImagePricing]);
 
-  const estimatedVideoCostLabel = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel)
+  const isSeedanceDelayedBilling = hasScriptPageBatchGeneratePlan && isSeedanceModel(selectedModel) && creationMode === 'fast';
+  const estimatedVideoCostLabel = isSeedanceDelayedBilling
     ? (t.wb_usage_based_billing || '按量付费')
     : (estimatedVideoCost > 0 ? `${formatCreditAmount(estimatedVideoCost)} ${t.v_points || 'V点'}` : '');
   const estimatedImageCostLabel = estimatedImageCost > 0 ? `-${formatCreditAmount(estimatedImageCost)} ${t.v_points || 'V点'}` : '';
@@ -9292,7 +9642,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
       const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
-      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
+      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'), opt.id);
       return (
         <button
           key={opt.id}
@@ -9353,7 +9703,22 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
                 ].join(' ')}
               >
-                {rateLabel}
+                {isSeedanceModel(opt.id) ? (
+                  <span className="relative inline-flex items-center gap-0.5 group/seedance-billing">
+                    <span>{rateLabel}</span>
+                    <Info className="h-3 w-3 text-zinc-600 hover:text-zinc-400 cursor-help" />
+                    <span className="pointer-events-none absolute bottom-full right-0 z-30 mb-1 w-64 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2.5 py-2 text-[10px] font-medium leading-relaxed text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/seedance-billing:opacity-100">
+                      {t.wb_seedance_billing_480p_no_video || '480p/720p 无视频输入：460 V点/百万 tokens'}<br />
+                      {t.wb_seedance_billing_480p_with_video || '480p/720p 含视频输入：280 V点/百万 tokens'}<br />
+                      {t.wb_seedance_billing_1080p_no_video || '1080p 无视频输入：510 V点/百万 tokens'}<br />
+                      {t.wb_seedance_billing_1080p_with_video || '1080p 含视频输入：310 V点/百万 tokens'}<br />
+                      <span className="mt-1 block border-t border-white/10 pt-1">
+                        {t.wb_seedance_billing_minimum || '最终扣费向上取整到 0.1 V点，最低 0.1 V点'}<br />
+                        {t.wb_seedance_billing_after_completion || '最终费用按生成完成后的实际 token 用量计算'}
+                      </span>
+                    </span>
+                  </span>
+                ) : rateLabel}
               </div>
             </div>
           )}
@@ -9399,6 +9764,47 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <ArrowRight className="w-3 h-3 text-zinc-500" />
                     {t.wb_render_power_title}
                   </h2>
+<<<<<<< HEAD
+=======
+                  <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
+                      <Video className="w-5 h-5 text-orange-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
+                        <div className="min-w-0 overflow-hidden">
+                          <div className="flex max-w-0 items-center gap-1.5 whitespace-nowrap opacity-0 transition-all duration-300 ease-out group-hover:max-w-[176px] group-hover:opacity-100">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <ImageIcon className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Video className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Music className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
+                              <Users className="h-3.5 w-3.5" />
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-center gap-2 shrink-0">
+                      <div
+                        className="model-check w-4 h-4 rounded-full border border-orange-500 bg-orange-500 flex items-center justify-center"
+                        aria-hidden="true"
+                      >
+                        <Check className="w-2.5 h-2.5 text-white" />
+                      </div>
+                      <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
+                        {formatApproxVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'), 'seedance2.0')}
+                      </div>
+                    </div>
+                  </div>
+
+>>>>>>> 36f4a8869a4cbd8d11e7ca1e5bede66edb53fff5
                 </div>
                 <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
               </div>
@@ -11302,6 +11708,100 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
         </AppDialog>
       )}
+      {pendingGuestMigration && (
+        <AppDialog
+          isOpen={!!pendingGuestMigration}
+          title={language === 'zh' ? '检测到游客模式数据' : 'Guest mode data detected'}
+          onClose={() => applyGuestMigrationChoice('discard')}
+          widthClassName="max-w-lg"
+          footer={
+            <>
+              <button
+                className="px-4 py-2 rounded-lg bg-orange-500 text-black text-sm font-bold hover:bg-orange-400 transition"
+                onClick={() => applyGuestMigrationChoice('merge')}
+                type="button"
+              >
+                {language === 'zh' ? '合并到现有工作台' : 'Merge into current workspace'}
+              </button>
+              <button
+                className="px-4 py-2 rounded-lg bg-white/10 text-zinc-200 text-sm font-bold hover:bg-white/20 transition"
+                onClick={() => applyGuestMigrationChoice('overwrite')}
+                type="button"
+              >
+                {language === 'zh' ? '用游客内容覆盖' : 'Overwrite with guest content'}
+              </button>
+              <button
+                className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-sm font-bold hover:bg-zinc-700 transition"
+                onClick={() => applyGuestMigrationChoice('discard')}
+                type="button"
+              >
+                {language === 'zh' ? '丢弃游客内容' : 'Discard guest content'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-3 text-sm text-zinc-300">
+            <p>
+              {language === 'zh'
+                ? '您在登录前以游客身份在这个浏览器上做了如下操作：'
+                : "You made the following changes as a guest on this browser before logging in:"}
+            </p>
+            <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-400">
+              <li>
+                {language === 'zh'
+                  ? `项目数：${pendingGuestMigration.stats.projectCount}`
+                  : `Projects: ${pendingGuestMigration.stats.projectCount}`}
+              </li>
+              <li>
+                {language === 'zh'
+                  ? `工作区：${pendingGuestMigration.stats.workspaceCount}`
+                  : `Workspaces: ${pendingGuestMigration.stats.workspaceCount}`}
+              </li>
+              <li>
+                {language === 'zh'
+                  ? `已上传素材：${pendingGuestMigration.stats.uploadedFileCount}`
+                  : `Uploaded assets: ${pendingGuestMigration.stats.uploadedFileCount}`}
+              </li>
+              <li>
+                {language === 'zh'
+                  ? `已生成脚本：${pendingGuestMigration.stats.totalScriptCount}`
+                  : `Generated scripts: ${pendingGuestMigration.stats.totalScriptCount}`}
+              </li>
+            </ul>
+            <p>
+              {language === 'zh'
+                ? '当前账号在这个浏览器也存有数据。请选择如何处理：'
+                : 'This account already has data on this browser. Please choose how to handle it:'}
+            </p>
+            <ul className="list-none space-y-1 text-xs text-zinc-400">
+              <li>
+                <span className="text-orange-300 font-semibold">
+                  {language === 'zh' ? '合并' : 'Merge'}
+                </span>
+                {language === 'zh'
+                  ? '：游客的项目作为新项目并入现有工作台，原有项目保留。登录后第一眼会看到刚刚上传的内容。'
+                  : ': Guest projects are added as new projects, your existing projects are kept. You\'ll land on the just-uploaded content.'}
+              </li>
+              <li>
+                <span className="text-zinc-200 font-semibold">
+                  {language === 'zh' ? '覆盖' : 'Overwrite'}
+                </span>
+                {language === 'zh'
+                  ? '：用游客内容替换现有工作台，原有项目会被清空（请确认）。'
+                  : ': Replace the existing workspace with guest content. Your existing projects will be removed.'}
+              </li>
+              <li>
+                <span className="text-zinc-300 font-semibold">
+                  {language === 'zh' ? '丢弃' : 'Discard'}
+                </span>
+                {language === 'zh'
+                  ? '：保留现有工作台，游客上传的临时数据会被清空。'
+                  : ': Keep the existing workspace; guest data will be discarded.'}
+              </li>
+            </ul>
+          </div>
+        </AppDialog>
+      )}
       {isConfirmOpen && (
         <AppDialog
           isOpen={isConfirmOpen}
@@ -12547,7 +13047,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           <span>{t.wb_batch_generate_setting || 'Batch generation setting'}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
-                        {isSeedanceModel(selectedModel) && batchGenerateCountForPage > 0 ? (
+                        {isSeedanceModel(selectedModel) && creationMode === 'fast' && batchGenerateCountForPage > 0 ? (
                           <span className="text-[11px] font-semibold text-zinc-400">
                             {t.wb_usage_based_billing || '按量付费'}
                           </span>

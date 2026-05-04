@@ -5,3 +5,12 @@
 export { ImageUploader } from './ImageUploader';
 export { LoadingProgress } from './LoadingProgress';
 export { ErrorDialog, type ErrorInfo, type ErrorSeverity } from './ErrorDialog';
+export { AspectRatioPicker, type AspectRatioPickerProps, type AspectRatioPickerLabels } from './AspectRatioPicker';
+export {
+  type AspectRatioConfig,
+  CLOTHING_SWAP_RATIOS,
+  GALLERY_RATIOS,
+  SMART_REPAIR_RATIOS,
+  firstFrameRatiosForModel,
+  ratioDescriptorsForLanguage,
+} from './aspectRatioOptions';

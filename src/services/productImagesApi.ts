@@ -3,9 +3,20 @@ import { parseApiError } from './errors';
 import type {
   FirstFrameParams,
   FirstFrameModel,
+  FirstFrameOpeningScene,
   GenerationStatusResponse,
   ProductImageResult,
+  SmartRepairAspectRatio,
+  SmartRepairModel,
   SmartRepairParams,
+  SmartRepairPendingItem,
+  SmartRepairPollResult,
+  SmartRepairPollStatus,
+  SmartRepairStrength,
+  SmartRepairSubmission,
+  SmartRepairSubmissionItem,
+  SmartRepairSubpage,
+  SmartRepairToolCode,
   ClothingSwapParams,
   ClothingSwapResult,
   ClothingSwapBackground,
@@ -98,11 +109,12 @@ async function uploadTempImage(file: File): Promise<string> {
 }
 
 async function generateFirstFrameOnce(options: {
-  referenceImagePath: string;
+  referenceImagePaths: string[];
   aspectRatio?: string;
   projectId?: string;
   model: string;
   prompt?: string;
+  openingScene?: string;
   category?: string;
   personType?: string;
   holdingStyle?: string;
@@ -112,11 +124,12 @@ async function generateFirstFrameOnce(options: {
   clientHistoryId?: string;
 }): Promise<{ imagePath: string; projectId?: string }> {
   const payload: Record<string, unknown> = {
-    reference_image_path: options.referenceImagePath,
+    reference_image_paths: options.referenceImagePaths,
     aspect_ratio: options.aspectRatio || '9:16',
     frame_type: 'first',
     model: options.model,
     prompt_override: options.prompt,
+    opening_scene: options.openingScene,
     category: options.category,
     person_type: options.personType,
     holding_style: options.holdingStyle,
@@ -190,11 +203,12 @@ async function generateFirstFrameOnce(options: {
 }
 
 async function createFirstFrameAsync(options: {
-  referenceImagePath: string;
+  referenceImagePaths: string[];
   aspectRatio?: string;
   projectId?: string;
   model: string;
   prompt?: string;
+  openingScene?: string;
   category?: string;
   personType?: string;
   holdingStyle?: string;
@@ -205,11 +219,12 @@ async function createFirstFrameAsync(options: {
   clientHistoryId?: string;
 }): Promise<GenerationStatusResponse> {
   const payload: Record<string, unknown> = {
-    reference_image_path: options.referenceImagePath,
+    reference_image_paths: options.referenceImagePaths,
     aspect_ratio: options.aspectRatio || '9:16',
     frame_type: 'first',
     model: options.model,
     prompt_override: options.prompt,
+    opening_scene: options.openingScene,
     category: options.category,
     person_type: options.personType,
     holding_style: options.holdingStyle,
@@ -303,7 +318,7 @@ export const productImagesApi = {
 
     const outputCount = params.outputCount || 1;
     const model = resolveFirstFrameModel(params);
-    const referenceImagePath = await uploadTempImage(images[0]);
+    const referenceImagePaths = await Promise.all(images.map((image) => uploadTempImage(image)));
     const clientHistoryId =
       (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -314,11 +329,12 @@ export const productImagesApi = {
 
     if (model === NANO_BANANA_FIRST_FRAME_MODEL) {
       return createFirstFrameAsync({
-        referenceImagePath,
+        referenceImagePaths,
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
         prompt: params.prompt,
+        openingScene: params.openingScene,
         category: params.category,
         personType: params.personType,
         holdingStyle: params.holdingStyle,
@@ -332,11 +348,12 @@ export const productImagesApi = {
 
     for (let i = 0; i < outputCount; i += 1) {
       const generated = await generateFirstFrameOnce({
-        referenceImagePath,
+        referenceImagePaths,
         aspectRatio: params.aspectRatio,
         projectId: resolvedProjectId,
         model,
         prompt: params.prompt,
+        openingScene: params.openingScene,
         category: params.category,
         personType: params.personType,
         holdingStyle: params.holdingStyle,
@@ -420,27 +437,30 @@ export const productImagesApi = {
       status: String(payload?.status || ''),
       imageUrl: toDisplayUrl(String(payload?.image_url || payload?.first_frame_path || '').trim()),
       error: String(payload?.error || ''),
-      metadata: payload?.metadata && typeof payload.metadata === 'object' ? payload.metadata : undefined,
+      metadata: {
+        ...(payload?.metadata && typeof payload.metadata === 'object' ? payload.metadata : {}),
+        historyRecordId: String(payload?.history_record_id || '').trim() || undefined,
+        historyAssetId: String(payload?.asset_id || '').trim() || undefined,
+        historyAssetIndex: Number.isFinite(Number(payload?.sort_order)) ? Number(payload.sort_order) : undefined,
+      },
     };
   },
 
-  async polishFirstFramePrompt(rawPrompt: string, outputLanguage?: string): Promise<string> {
+  async polishFirstFramePrompt(
+    rawPrompt: string,
+    openingScene: FirstFrameOpeningScene,
+    outputLanguage: string,
+  ): Promise<string> {
     const prompt = String(rawPrompt || '').trim();
     if (!prompt) {
       throw new Error('Please provide prompt requirements first');
     }
-
-    const payload: Record<string, unknown> = {
-      raw_prompt: prompt,
-      sound: 'off',
-    };
-
-    const language = String(outputLanguage || '').trim();
-    if (language) {
-      payload.output_language = language;
+    const lang = String(outputLanguage || '').trim();
+    if (!lang) {
+      throw new Error('output_language is required');
     }
 
-    const response = await fetch(`${PROJECTS_API_BASE}/generate_prompt_script`, {
+    const response = await fetch(`${PROJECTS_API_BASE}/polish_first_frame_image_prompt`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -448,7 +468,11 @@ export const productImagesApi = {
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        raw_prompt: prompt,
+        opening_scene: openingScene,
+        output_language: lang,
+      }),
     });
 
     if (!response.ok) {
@@ -456,7 +480,7 @@ export const productImagesApi = {
     }
 
     const data = await response.json();
-    const polished = String(data?.data?.prompt_script || '').trim();
+    const polished = String(data?.data?.polished_prompt || '').trim();
     if (!polished) {
       throw new Error('Prompt polish succeeded but no prompt text was returned');
     }
@@ -464,12 +488,19 @@ export const productImagesApi = {
     return polished;
   },
 
-  async generateSmartRepair(
+  /**
+   * 提交智能修复任务（异步）。立刻返回上游 request_id 数组，调用方需自行轮询
+   * `getSmartRepairResult` 拿最终结果。所有图片同源在后端做幂等扣费 + 失败退款。
+   */
+  async submitSmartRepair(
     sourceImage: File,
     params: SmartRepairParams,
-    projectId?: string,
-    referenceImage?: File
-  ): Promise<GenerationStatusResponse> {
+    options?: {
+      projectId?: string;
+      referenceImage?: File;
+      clientHistoryId?: string;
+    }
+  ): Promise<SmartRepairSubmission> {
     if (!sourceImage) {
       throw new Error('Please upload a source image first');
     }
@@ -480,7 +511,7 @@ export const productImagesApi = {
     }
 
     const sourceImagePath = await uploadTempImage(sourceImage);
-    const referenceImagePath = referenceImage ? await uploadTempImage(referenceImage) : undefined;
+    const referenceImagePath = options?.referenceImage ? await uploadTempImage(options.referenceImage) : undefined;
 
     const payload: Record<string, unknown> = {
       source_image_path: sourceImagePath,
@@ -492,13 +523,10 @@ export const productImagesApi = {
       subpage: params.subpage || 'product_object',
       tool_code: params.toolCode || 'custom_retouch',
     };
-
-    if (projectId) {
-      payload.project_id = projectId;
-    }
-    if (referenceImagePath) {
-      payload.reference_image_path = referenceImagePath;
-    }
+    if (params.model) payload.model = params.model;
+    if (options?.projectId) payload.project_id = options.projectId;
+    if (referenceImagePath) payload.reference_image_path = referenceImagePath;
+    if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
 
     const response = await fetch(`${PROJECTS_API_BASE}/generate_smart_repair`, {
       method: 'POST',
@@ -512,38 +540,156 @@ export const productImagesApi = {
     });
 
     if (!response.ok) {
-      throw await parseApiError(response, 'Failed to generate smart-repair image');
+      throw await parseApiError(response, 'Failed to submit smart-repair task');
     }
 
     const data = await response.json();
-    const imageUrls = Array.isArray(data?.data?.image_urls)
-      ? data.data.image_urls.map((it: unknown) => String(it || '').trim()).filter(Boolean)
-      : [];
+    const rawRequests = Array.isArray(data?.data?.requests) ? data.data.requests : [];
+    const requests: SmartRepairSubmissionItem[] = rawRequests
+      .map((row: Record<string, unknown>, index: number): SmartRepairSubmissionItem | null => {
+        const requestId = String(row?.request_id || row?.requestId || '').trim();
+        if (!requestId) return null;
+        const rawStatus = String(row?.status || 'created').trim().toLowerCase() as SmartRepairPollStatus;
+        const status: SmartRepairPollStatus = (['created', 'processing', 'succeeded', 'failed'] as SmartRepairPollStatus[])
+          .includes(rawStatus)
+          ? rawStatus
+          : 'created';
+        return {
+          requestId,
+          status,
+          sortOrder: Number.isFinite(Number(row?.sort_order)) ? Number(row.sort_order) : index,
+          role: String(row?.role || 'repair'),
+        };
+      })
+      .filter((it: SmartRepairSubmissionItem | null): it is SmartRepairSubmissionItem => it !== null);
 
-    const fallbackSingle = String(data?.data?.image_url || '').trim();
-    const resolved = imageUrls.length > 0 ? imageUrls : (fallbackSingle ? [fallbackSingle] : []);
-
-    if (resolved.length === 0) {
-      throw new Error('Generation succeeded but image_url was missing');
+    if (requests.length === 0) {
+      throw new Error('Submit succeeded but no request_ids were returned');
     }
 
-    const outputImages: ProductImageResult[] = resolved.map((url: string, index: number) => {
-      const displayUrl = toDisplayUrl(url);
-      return {
-        id: `smart-repair-${Date.now()}-${index}`,
-        imageUrl: displayUrl,
-        downloadUrl: displayUrl,
-        format: 'png',
-      };
-    });
-
     return {
-      id: `smart-repair-task-${Date.now()}`,
-      status: 'completed',
-      progress: 100,
-      outputImages,
-      completedAt: new Date().toISOString(),
+      requests,
+      historyRecordId: String(data?.data?.history_record_id || '').trim(),
+      cost: Number(data?.data?.cost ?? 0),
+      balance: Number(data?.data?.balance ?? 0),
+      model: String(data?.data?.model || '').trim(),
     };
+  },
+
+  /**
+   * 单次轮询智能修复任务状态。
+   *  - 未完成 -> { status: 'created' | 'processing', imageUrl: '' }
+   *  - 完成 -> { status: 'succeeded', imageUrl: '/media/...' }
+   *  - 失败 -> { status: 'failed', error: 'xxx' }
+   */
+  async getSmartRepairResult(requestId: string): Promise<SmartRepairPollResult> {
+    const safeId = String(requestId || '').trim();
+    if (!safeId) {
+      throw new Error('requestId is required');
+    }
+    const url = `${PROJECTS_API_BASE}/generate_smart_repair_result?request_id=${encodeURIComponent(safeId)}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to query smart-repair status');
+    }
+    const data = await response.json();
+    const inner = data?.data || {};
+    const rawStatus = String(inner?.status || 'created').trim().toLowerCase() as SmartRepairPollStatus;
+    const status: SmartRepairPollStatus = (['created', 'processing', 'succeeded', 'failed'] as SmartRepairPollStatus[])
+      .includes(rawStatus)
+      ? rawStatus
+      : 'created';
+    const outputs = Array.isArray(inner?.outputs)
+      ? inner.outputs
+          .map((it: unknown) => toDisplayUrl(String(it || '').trim()))
+          .filter(Boolean)
+      : [];
+    const rawImageUrl = String(inner?.image_url || '').trim();
+    return {
+      requestId: String(inner?.request_id || safeId),
+      status,
+      imageUrl: rawImageUrl ? toDisplayUrl(rawImageUrl) : '',
+      outputs,
+      error: String(inner?.error || ''),
+      historyRecordId: String(inner?.history_record_id || ''),
+      assetId: Number(inner?.asset_id ?? 0),
+      sortOrder: Number(inner?.sort_order ?? 0),
+    };
+  },
+
+  /**
+   * 拉取当前用户名下还在 PROCESSING 的智能修复任务，用于挂载页面时 hydrate
+   * 任务卡片并恢复轮询。
+   */
+  async listSmartRepairPending(): Promise<SmartRepairPendingItem[]> {
+    const response = await fetch(`${PROJECTS_API_BASE}/smart_repair_pending`, {
+      method: 'GET',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to load smart-repair pending tasks');
+    }
+    const data = await response.json();
+    const rawItems = Array.isArray(data?.data?.items) ? data.data.items : [];
+    return rawItems
+      .map((row: Record<string, unknown>): SmartRepairPendingItem | null => {
+        const requestId = String(row?.request_id || '').trim();
+        if (!requestId) return null;
+        const settings = (row?.settings && typeof row.settings === 'object')
+          ? (row.settings as Record<string, unknown>)
+          : ({} as Record<string, unknown>);
+        const submittedAtMs = (() => {
+          const raw = row?.submitted_at;
+          if (!raw) return Date.now();
+          const t = Date.parse(String(raw));
+          return Number.isFinite(t) ? t : Date.now();
+        })();
+        const aspectRatioRaw = String(settings.aspectRatio || settings.aspect_ratio || '1:1') as SmartRepairAspectRatio;
+        const strengthRaw = String(settings.strength || 'medium') as SmartRepairStrength;
+        const subpageRaw = String(settings.subpage || 'product_object') as SmartRepairSubpage;
+        const toolCodeRaw = String(settings.toolCode || settings.tool_code || 'custom_retouch') as SmartRepairToolCode;
+        const outputCountRaw = (() => {
+          const n = Number(settings.outputCount || settings.output_count || 1);
+          if (n === 2 || n === 3 || n === 4) return n as 1 | 2 | 3 | 4;
+          return 1 as 1 | 2 | 3 | 4;
+        })();
+        const modelRaw = String(settings.model || '').trim();
+        const SUPPORTED_MODELS: ReadonlyArray<SmartRepairModel> = ['flux-2-pro', 'flux-2-max', 'flux-2-flex', 'flux-2-dev'];
+        const modelNarrowed = (SUPPORTED_MODELS as ReadonlyArray<string>).includes(modelRaw)
+          ? (modelRaw as SmartRepairModel)
+          : undefined;
+        return {
+          requestId,
+          historyRecordId: String(row?.history_record_id || '').trim(),
+          assetId: Number(row?.asset_id ?? 0),
+          sortOrder: Number(row?.sort_order ?? 0),
+          role: String(row?.role || 'repair'),
+          submittedAt: submittedAtMs,
+          settings: {
+            prompt: String(settings.prompt || ''),
+            aspectRatio: aspectRatioRaw,
+            strength: strengthRaw,
+            outputCount: outputCountRaw,
+            subpage: subpageRaw,
+            toolCode: toolCodeRaw,
+            sourceImagePath: String(settings.sourceImagePath || settings.source_image_path || ''),
+            referenceImagePath: String(settings.referenceImagePath || settings.reference_image_path || ''),
+            model: modelNarrowed,
+          },
+        };
+      })
+      .filter((it: SmartRepairPendingItem | null): it is SmartRepairPendingItem => it !== null);
   },
 
   async generateClothingSwap(

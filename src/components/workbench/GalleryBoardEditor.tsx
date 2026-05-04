@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Download, Folder, Loader2, Plus, Replace, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, Download, Folder, Loader2, Plus, Redo2, Replace, Trash2, Type, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
 import { AppDialog } from '../common/AppDialog';
 import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
@@ -144,6 +145,7 @@ export interface GalleryBoardEditorProps {
   initialBackground?: string;
   initialLocalAssets?: GalleryBoardAsset[];
   initialDraft?: GalleryBoardDraft | null;
+  shouldAutoOpenGuide?: boolean;
   onAlert?: (message: string) => void;
   onLocalAssetsChange?: (assets: GalleryBoardAsset[]) => void;
   onDraftChange?: (draft: GalleryBoardDraft) => void;
@@ -169,6 +171,13 @@ export type GalleryBoardDraft = {
   cornerRadiusRatio: number;
 };
 
+type EditorHistorySnapshot = {
+  board: BoardState;
+  templateRatioId: TemplateDefinition['ratioId'];
+  gapScale: number;
+  cornerRadiusRatio: number;
+};
+
 type RightPanelSectionKey = 'board' | 'inspector' | 'assets';
 type LeftPanelSectionKey = 'templates';
 type TemplateTooltipState = {
@@ -177,8 +186,13 @@ type TemplateTooltipState = {
   left: number;
 };
 type TemplateFilterRatio = 'all' | TemplateDefinition['ratioId'];
+type BoardGuideStepKey = 'templates' | 'canvas' | 'panel' | 'text';
+type BoardGuidePlacement = 'left' | 'right' | 'top' | 'bottom' | 'auto';
+
+const DEFAULT_BOARD_BACKGROUND = 'rgba(255,255,255,0)';
 
 const FONT_FAMILY_OPTIONS = ['system-ui', 'Microsoft YaHei', 'PingFang SC', 'SimHei', 'serif'];
+const EDITOR_HISTORY_LIMIT = 80;
 const CANVAS_SIZE_OPTIONS = [
   { id: '1:1', label: '1:1', width: 1200, height: 1200 },
   { id: '4:5', label: '4:5', width: 1200, height: 1500 },
@@ -221,7 +235,7 @@ const createTemplateDefinition = (
     previewAssetPath: '',
     canvasWidth: canvas.width,
     canvasHeight: canvas.height,
-    background: '#111827',
+    background: DEFAULT_BOARD_BACKGROUND,
     slots,
     titleBox: { x: 0, y: 0, w: 0, h: 0 },
     subtitleBox: { x: 0, y: 0, w: 0, h: 0 },
@@ -689,6 +703,11 @@ const resolveTemplateRatioById = (templateId?: string): TemplateDefinition['rati
   return matched?.ratioId || TEMPLATE_DEFINITIONS[0].ratioId;
 };
 
+const cloneEditorHistorySnapshot = (snapshot: EditorHistorySnapshot): EditorHistorySnapshot =>
+  JSON.parse(JSON.stringify(snapshot)) as EditorHistorySnapshot;
+
+const getEditorHistorySnapshotKey = (snapshot: EditorHistorySnapshot) => JSON.stringify(snapshot);
+
 const resolveDefaultTemplateId = (
   assetCount: TemplateDefinition['assetCount'],
   preferredRatioId?: TemplateDefinition['ratioId'],
@@ -1135,19 +1154,32 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   initialBackground,
   initialLocalAssets,
   initialDraft,
+  shouldAutoOpenGuide = false,
   onAlert,
   onLocalAssetsChange,
   onDraftChange,
 }) => {
   const { t } = useLanguage();
   const layerIdSeedRef = useRef(0);
+  const leftPanelRef = useRef<HTMLDivElement | null>(null);
+  const templatePanelCardRef = useRef<HTMLDivElement | null>(null);
+  const canvasSectionRef = useRef<HTMLElement | null>(null);
+  const rightPanelRef = useRef<HTMLDivElement | null>(null);
+  const rightPanelScrollRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const addTextButtonRef = useRef<HTMLButtonElement | null>(null);
   const pointerActionRef = useRef<PointerAction | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
   const localAssetUrlsRef = useRef<string[]>([]);
   const assetImageSizeCacheRef = useRef<Map<string, AssetImageSize>>(new Map());
+  const historyTransactionRef = useRef<EditorHistorySnapshot | null>(null);
+  const historyFinalizeTimerRef = useRef<number | null>(null);
+  const latestHistorySnapshotRef = useRef<EditorHistorySnapshot | null>(null);
+  const boardGuideAutoOpenedRef = useRef(false);
+  const boardGuidePanelRef = useRef<HTMLDivElement | null>(null);
   const shouldManageLocalAssetUrls = !onLocalAssetsChange;
   const [zoom, setZoom] = useState(() => initialDraft?.zoom ?? 1);
   const [isExportingPng, setIsExportingPng] = useState(false);
@@ -1190,6 +1222,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   );
   const [gapScale, setGapScale] = useState(() => initialDraft?.gapScale ?? 1);
   const [cornerRadiusRatio, setCornerRadiusRatio] = useState(() => initialDraft?.cornerRadiusRatio ?? 0.08);
+  const [undoStack, setUndoStack] = useState<EditorHistorySnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<EditorHistorySnapshot[]>([]);
   const [, setAssetImageMetaVersion] = useState(0);
   const [rightPanelSections, setRightPanelSections] = useState<Record<RightPanelSectionKey, boolean>>({
     board: true,
@@ -1200,6 +1234,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     templates: true,
   });
   const [themeClassSnapshot, setThemeClassSnapshot] = useState('');
+  const [isBoardGuideOpen, setIsBoardGuideOpen] = useState(false);
+  const [boardGuideStepIndex, setBoardGuideStepIndex] = useState(0);
+  const [boardGuidePanelStyle, setBoardGuidePanelStyle] = useState<React.CSSProperties>({});
+  const [boardGuideHighlightStyle, setBoardGuideHighlightStyle] = useState<React.CSSProperties>({});
+  const [boardGuidePanelHeight, setBoardGuidePanelHeight] = useState(344);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1212,6 +1251,156 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   }, []);
 
   const isLightTheme = themeClassSnapshot.includes('theme-light');
+  const boardGuideSeenKey = useMemo(() => 'vflow_product_gallery_board_guide_seen_v1', []);
+  const boardGuideSteps = useMemo<Array<{ key: BoardGuideStepKey; title: string; description: string }>>(
+    () => [
+      { key: 'templates', title: t.pg_board_guide_step_templates_title, description: t.pg_board_guide_step_templates_desc },
+      { key: 'canvas', title: t.pg_board_guide_step_canvas_title, description: t.pg_board_guide_step_canvas_desc },
+      { key: 'panel', title: t.pg_board_guide_step_panel_title, description: t.pg_board_guide_step_panel_desc },
+      { key: 'text', title: t.pg_board_guide_step_text_title, description: t.pg_board_guide_step_text_desc },
+    ],
+    [
+      t.pg_board_guide_step_canvas_desc,
+      t.pg_board_guide_step_canvas_title,
+      t.pg_board_guide_step_panel_desc,
+      t.pg_board_guide_step_panel_title,
+      t.pg_board_guide_step_templates_desc,
+      t.pg_board_guide_step_templates_title,
+      t.pg_board_guide_step_text_desc,
+      t.pg_board_guide_step_text_title,
+    ]
+  );
+  const activeBoardGuideStep = isBoardGuideOpen ? boardGuideSteps[boardGuideStepIndex] : null;
+  const getBoardGuideFocusClass = (key: BoardGuideStepKey) => (
+    activeBoardGuideStep?.key === key
+      ? 'relative z-[255] rounded-2xl ring-2 ring-orange-400/80 ring-offset-2 ring-offset-black/60 shadow-[0_0_24px_rgba(251,146,60,0.35)]'
+      : ''
+  );
+
+  const markBoardGuideSeen = () => {
+    try {
+      window.localStorage.setItem(boardGuideSeenKey, '1');
+    } catch {
+    }
+  };
+
+  const closeBoardGuide = () => {
+    setIsBoardGuideOpen(false);
+    markBoardGuideSeen();
+  };
+
+  const getBoardGuideTargetElement = () => {
+    const map: Record<BoardGuideStepKey, HTMLElement | null> = {
+      templates: templatePanelCardRef.current || leftPanelRef.current,
+      canvas: canvasSectionRef.current,
+      panel: rightPanelScrollRef.current || rightPanelRef.current,
+      text: addTextButtonRef.current,
+    };
+    const key = boardGuideSteps[boardGuideStepIndex]?.key;
+    return key ? map[key] || null : null;
+  };
+
+  const getBoardGuidePlacement = (key: BoardGuideStepKey | undefined): BoardGuidePlacement => {
+    if (key === 'templates') return 'right';
+    if (key === 'panel') return 'left';
+    if (key === 'text') return 'bottom';
+    if (key === 'canvas') return 'right';
+    return 'auto';
+  };
+
+  const updateBoardGuidePosition = () => {
+    const target = getBoardGuideTargetElement();
+    const viewportPadding = 12;
+    const panelWidth = Math.min(400, window.innerWidth - viewportPadding * 2);
+    const panelHeight = Math.max(280, boardGuidePanelHeight || 344);
+    const highlightPadding = 10;
+
+    if (!target) {
+      setBoardGuidePanelStyle({
+        width: `${panelWidth}px`,
+        left: `${Math.max(viewportPadding, Math.round((window.innerWidth - panelWidth) / 2))}px`,
+        top: `${Math.max(viewportPadding, Math.round((window.innerHeight - panelHeight) / 2))}px`,
+      });
+      setBoardGuideHighlightStyle({ display: 'none' });
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    const highlightLeft = Math.max(viewportPadding, Math.round(rect.left - highlightPadding));
+    const highlightTop = Math.max(viewportPadding, Math.round(rect.top - highlightPadding));
+    const highlightRight = Math.min(window.innerWidth - viewportPadding, Math.round(rect.right + highlightPadding));
+    const highlightBottom = Math.min(window.innerHeight - viewportPadding, Math.round(rect.bottom + highlightPadding));
+    const highlightWidth = Math.max(0, highlightRight - highlightLeft);
+    const highlightHeight = Math.max(0, highlightBottom - highlightTop);
+    setBoardGuideHighlightStyle({
+      left: `${highlightLeft}px`,
+      top: `${highlightTop}px`,
+      width: `${highlightWidth}px`,
+      height: `${highlightHeight}px`,
+    });
+
+    const spaceRight = window.innerWidth - highlightRight - viewportPadding;
+    const spaceLeft = highlightLeft - viewportPadding;
+    const spaceTop = highlightTop - viewportPadding;
+    const spaceBottom = window.innerHeight - highlightBottom - viewportPadding;
+    const stepKey = boardGuideSteps[boardGuideStepIndex]?.key;
+    const placement = getBoardGuidePlacement(stepKey);
+    const canPlaceRight = spaceRight >= panelWidth + 16;
+    const canPlaceLeft = spaceLeft >= panelWidth + 16;
+    const canPlaceBottom = spaceBottom >= panelHeight + 16;
+    const canPlaceTop = spaceTop >= panelHeight + 16;
+
+    let resolvedPlacement: Exclude<BoardGuidePlacement, 'auto'>;
+    if (placement === 'right' && canPlaceRight) {
+      resolvedPlacement = 'right';
+    } else if (placement === 'left' && canPlaceLeft) {
+      resolvedPlacement = 'left';
+    } else if (placement === 'bottom' && canPlaceBottom) {
+      resolvedPlacement = 'bottom';
+    } else if (placement === 'top' && canPlaceTop) {
+      resolvedPlacement = 'top';
+    } else if (canPlaceRight || spaceRight >= spaceLeft) {
+      resolvedPlacement = canPlaceRight ? 'right' : 'left';
+    } else {
+      resolvedPlacement = canPlaceLeft ? 'left' : 'bottom';
+    }
+
+    const targetCenterX = highlightLeft + highlightWidth / 2;
+    const targetCenterY = highlightTop + highlightHeight / 2;
+    let left = viewportPadding;
+    let top = viewportPadding;
+
+    if (resolvedPlacement === 'right' || resolvedPlacement === 'left') {
+      left = resolvedPlacement === 'right'
+        ? highlightRight + 16
+        : highlightLeft - panelWidth - 16;
+      top = Math.round(targetCenterY - panelHeight / 2);
+    } else {
+      left = Math.round(targetCenterX - panelWidth / 2);
+      top = resolvedPlacement === 'bottom'
+        ? highlightBottom + 16
+        : highlightTop - panelHeight - 16;
+    }
+
+    if (left + panelWidth > window.innerWidth - viewportPadding) {
+      left = window.innerWidth - panelWidth - viewportPadding;
+    }
+    if (left < viewportPadding) {
+      left = viewportPadding;
+    }
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+      top = window.innerHeight - panelHeight - viewportPadding;
+    }
+    if (top < viewportPadding) {
+      top = viewportPadding;
+    }
+
+    setBoardGuidePanelStyle({
+      width: `${panelWidth}px`,
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+    });
+  };
 
   useEffect(() => {
     if (!isExportMenuOpen) return;
@@ -1226,6 +1415,51 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     window.addEventListener('pointerdown', handlePointerDown);
     return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, [isExportMenuOpen]);
+
+  useEffect(() => {
+    if (!shouldAutoOpenGuide) return;
+    if (boardGuideAutoOpenedRef.current) return;
+    boardGuideAutoOpenedRef.current = true;
+    setBoardGuideStepIndex(0);
+    setIsBoardGuideOpen(true);
+  }, [shouldAutoOpenGuide]);
+
+  useEffect(() => {
+    if (!isBoardGuideOpen) return;
+    const target = getBoardGuideTargetElement();
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+
+    const timer = window.setTimeout(() => {
+      updateBoardGuidePosition();
+    }, 260);
+
+    const onViewportChange = () => updateBoardGuidePosition();
+
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [boardGuideStepIndex, boardGuideSteps, isBoardGuideOpen, viewportSize.width, viewportSize.height]);
+
+  useEffect(() => {
+    if (!isBoardGuideOpen) return;
+    const measure = () => {
+      const nextHeight = boardGuidePanelRef.current?.getBoundingClientRect().height;
+      if (!nextHeight) return;
+      setBoardGuidePanelHeight((prev) => (Math.abs(prev - nextHeight) > 1 ? nextHeight : prev));
+    };
+
+    const timer = window.setTimeout(measure, 0);
+    window.addEventListener('resize', measure);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('resize', measure);
+    };
+  }, [activeBoardGuideStep?.description, activeBoardGuideStep?.title, boardGuideStepIndex, isBoardGuideOpen]);
 
   const nextLayerId = () => {
     layerIdSeedRef.current += 1;
@@ -1376,7 +1610,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         fontSize: clamp(Math.round(template.canvasWidth * 0.048), 32, 72),
         fontWeight: 700,
         fontFamily: 'Microsoft YaHei',
-        color: '#ffffff',
+        color: '#111111',
         background: 'transparent',
         align: 'left',
         lineHeight: 1.1,
@@ -1388,7 +1622,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       templateId: template.id,
       canvasWidth: template.canvasWidth,
       canvasHeight: template.canvasHeight,
-      background: String(previous?.background || initialBackground || template.background || '#111111'),
+      background: String(previous?.background || initialBackground || template.background || DEFAULT_BOARD_BACKGROUND),
       backgroundImageAssetLocalId: previous?.backgroundImageAssetLocalId || null,
       backgroundImageX: (previous?.backgroundImageX ?? 0) * scaleX,
       backgroundImageY: (previous?.backgroundImageY ?? 0) * scaleY,
@@ -1411,6 +1645,80 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   };
 
   const [board, setBoard] = useState<BoardState>(() => initialDraft?.board || buildBoardFromTemplate(defaultTemplateId));
+  const captureEditorHistorySnapshot = () =>
+    cloneEditorHistorySnapshot({
+      board,
+      templateRatioId,
+      gapScale,
+      cornerRadiusRatio,
+    });
+
+  const clearScheduledHistoryFinalize = () => {
+    if (historyFinalizeTimerRef.current === null) return;
+    window.clearTimeout(historyFinalizeTimerRef.current);
+    historyFinalizeTimerRef.current = null;
+  };
+
+  const finalizeHistoryTransaction = () => {
+    clearScheduledHistoryFinalize();
+    const previousSnapshot = historyTransactionRef.current;
+    if (!previousSnapshot) return;
+    historyTransactionRef.current = null;
+    const currentSnapshot = latestHistorySnapshotRef.current || captureEditorHistorySnapshot();
+    if (getEditorHistorySnapshotKey(previousSnapshot) === getEditorHistorySnapshotKey(currentSnapshot)) return;
+    setUndoStack((prev) => [...prev, previousSnapshot].slice(-EDITOR_HISTORY_LIMIT));
+    setRedoStack([]);
+  };
+
+  const beginHistoryTransaction = () => {
+    if (historyTransactionRef.current) return;
+    historyTransactionRef.current = latestHistorySnapshotRef.current || captureEditorHistorySnapshot();
+  };
+
+  const scheduleHistoryTransactionFinalize = () => {
+    clearScheduledHistoryFinalize();
+    historyFinalizeTimerRef.current = window.setTimeout(() => {
+      finalizeHistoryTransaction();
+    }, 0);
+  };
+
+  const runRecordedChange = (callback: () => void) => {
+    beginHistoryTransaction();
+    callback();
+    scheduleHistoryTransactionFinalize();
+  };
+
+  const applyHistorySnapshot = (snapshot: EditorHistorySnapshot) => {
+    clearScheduledHistoryFinalize();
+    historyTransactionRef.current = null;
+    const nextSnapshot = cloneEditorHistorySnapshot(snapshot);
+    latestHistorySnapshotRef.current = nextSnapshot;
+    setBoard(nextSnapshot.board);
+    setTemplateRatioId(nextSnapshot.templateRatioId);
+    setGapScale(nextSnapshot.gapScale);
+    setCornerRadiusRatio(nextSnapshot.cornerRadiusRatio);
+  };
+
+  const handleUndo = () => {
+    finalizeHistoryTransaction();
+    if (undoStack.length < 1) return;
+    const targetSnapshot = undoStack[undoStack.length - 1];
+    const currentSnapshot = latestHistorySnapshotRef.current || captureEditorHistorySnapshot();
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, currentSnapshot].slice(-EDITOR_HISTORY_LIMIT));
+    applyHistorySnapshot(targetSnapshot);
+  };
+
+  const handleRedo = () => {
+    finalizeHistoryTransaction();
+    if (redoStack.length < 1) return;
+    const targetSnapshot = redoStack[redoStack.length - 1];
+    const currentSnapshot = latestHistorySnapshotRef.current || captureEditorHistorySnapshot();
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev, currentSnapshot].slice(-EDITOR_HISTORY_LIMIT));
+    applyHistorySnapshot(targetSnapshot);
+  };
+
   const filteredTemplates = useMemo(
     () =>
       TEMPLATE_DEFINITIONS.filter(
@@ -1439,6 +1747,46 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       cornerRadiusRatio,
     });
   }, [board, cornerRadiusRatio, gapScale, onDraftChange, selectedAssetLocalIds, templateRatioId, zoom]);
+
+  useEffect(() => {
+    latestHistorySnapshotRef.current = captureEditorHistorySnapshot();
+  }, [board, cornerRadiusRatio, gapScale, templateRatioId]);
+
+  useEffect(() => () => clearScheduledHistoryFinalize(), []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = String(target.tagName || '').toLowerCase();
+        if (target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+          return;
+        }
+      }
+
+      const hasModifier = event.metaKey || event.ctrlKey;
+      if (!hasModifier) return;
+
+      const key = String(event.key || '').toLowerCase();
+      if (key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        handleRedo();
+        return;
+      }
+      if (key === 'y' && event.ctrlKey) {
+        event.preventDefault();
+        handleRedo();
+        return;
+      }
+      if (key === 'z') {
+        event.preventDefault();
+        handleUndo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [redoStack.length, undoStack.length, board, templateRatioId, gapScale, cornerRadiusRatio]);
 
   useEffect(() => {
     const matched = TEMPLATE_DEFINITIONS.find((item) => item.id === board.templateId);
@@ -1517,8 +1865,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     setRightPanelSections((prev) => ({ ...prev, inspector: true }));
   }, [isBackgroundSelected, selectedLayer]);
 
-  const updateBoard = (updater: (prev: BoardState) => BoardState) => {
+  const updateBoard = (updater: (prev: BoardState) => BoardState, options?: { record?: boolean }) => {
+    if (options?.record) beginHistoryTransaction();
     setBoard((prev) => updater(prev));
+    if (options?.record) scheduleHistoryTransactionFinalize();
   };
 
   const getAssetImageSize = async (assetLocalId: string | null | undefined) => {
@@ -1579,11 +1929,11 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     }));
   };
 
-  const updateLayer = (layerId: string, updater: (layer: BoardLayer) => BoardLayer) => {
+  const updateLayer = (layerId: string, updater: (layer: BoardLayer) => BoardLayer, options: { record?: boolean } = { record: true }) => {
     updateBoard((prev) => ({
       ...prev,
       layers: prev.layers.map((layer) => (layer.id === layerId ? updater(layer) : layer)),
-    }));
+    }), options);
   };
 
   const selectLayer = (layerId: string | null) => {
@@ -1625,6 +1975,21 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       return [{ ...nextAsset, imageUrl }, ...prev];
     });
     return inserted;
+  };
+
+  const buildLocalAssetsFromFiles = (files: File[]) =>
+    files
+      .filter((file) => file.type.startsWith('image/'))
+      .map((file, index) => ({
+        localId: `local-upload-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+        requestId: file.name,
+        imageUrl: URL.createObjectURL(file),
+        layout: null,
+      }));
+
+  const prependLocalAssets = (nextAssets: GalleryBoardAsset[]) => {
+    if (nextAssets.length < 1) return;
+    setLocalAssets((prev) => [...nextAssets, ...prev]);
   };
 
   const resolveHistoryImageOutputType = (historyItem: GalleryBoardHistoryItem, imageUrl: string, imageIndex: number) => {
@@ -1728,7 +2093,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         layers: nextLayers,
         selectedLayerId: null,
       };
-    });
+    }, { record: true });
   };
 
   const resizeCanvas = (nextWidth: number, nextHeight: number) => {
@@ -1756,7 +2121,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
           ...(layer.type === 'text' ? { fontSize: layer.fontSize * Math.min(scaleX, scaleY) } : {}),
         })),
       };
-    });
+    }, { record: true });
   };
 
   const setCanvasPreset = (presetId: string) => {
@@ -1790,7 +2155,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       layers: [...prev.layers, layer],
       selectedLayerId: layer.id,
       selectedBackground: false,
-    }));
+    }), { record: true });
   };
 
   const replaceSelectedImage = (assetLocalId: string) => {
@@ -1799,7 +2164,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       return;
     }
 
-    updateLayer(selectedLayer.id, (layer) => (layer.type === 'image' ? { ...layer, assetLocalId } : layer));
+    updateLayer(selectedLayer.id, (layer) => (layer.type === 'image' ? { ...layer, assetLocalId } : layer), { record: true });
     if (selectedLayer.showOriginal) {
       void alignImageLayerToSourceBounds(selectedLayer.id, assetLocalId);
     }
@@ -1814,7 +2179,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       backgroundImageW: assetLocalId && !prev.backgroundImageAssetLocalId ? prev.canvasWidth : prev.backgroundImageW,
       backgroundImageH: assetLocalId && !prev.backgroundImageAssetLocalId ? prev.canvasHeight : prev.backgroundImageH,
       selectedBackground: assetLocalId ? prev.selectedBackground : false,
-    }));
+    }), { record: true });
   };
 
   const openBoardImagePreview = (url?: string) => {
@@ -1824,17 +2189,28 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   };
 
   const handleLocalAssetUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
-    if (files.length < 1) return;
+    const nextAssets = buildLocalAssetsFromFiles(Array.from(event.target.files || []));
+    if (nextAssets.length < 1) return;
+    prependLocalAssets(nextAssets);
+    event.target.value = '';
+  };
 
-    const nextAssets = files.map((file, index) => ({
-      localId: `local-upload-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
-      requestId: file.name,
-      imageUrl: URL.createObjectURL(file),
-      layout: null,
-    }));
-
-    setLocalAssets((prev) => [...nextAssets, ...prev]);
+  const handleBackgroundAssetUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextAssets = buildLocalAssetsFromFiles(Array.from(event.target.files || []));
+    if (nextAssets.length < 1) return;
+    const nextBackgroundAsset = nextAssets[0];
+    runRecordedChange(() => {
+      prependLocalAssets(nextAssets);
+      setBoard((prev) => ({
+        ...prev,
+        backgroundImageAssetLocalId: nextBackgroundAsset.localId,
+        backgroundImageX: 0,
+        backgroundImageY: 0,
+        backgroundImageW: prev.canvasWidth,
+        backgroundImageH: prev.canvasHeight,
+        selectedBackground: true,
+      }));
+    });
     event.target.value = '';
   };
 
@@ -1854,11 +2230,14 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       else nextLayers.splice(Math.max(index - 1, 0), 0, layer);
 
       return { ...prev, layers: nextLayers };
-    });
+    }, { record: true });
   };
 
   const applyTemplate = (templateId: string) => {
-    setBoard((prev) => buildBoardFromTemplate(templateId, prev));
+    runRecordedChange(() => {
+      setTemplateRatioId(resolveTemplateRatioById(templateId));
+      setBoard((prev) => buildBoardFromTemplate(templateId, prev));
+    });
   };
 
   const toBoardPoint = (clientX: number, clientY: number) => {
@@ -1893,6 +2272,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
     const point = toBoardPoint(event.clientX, event.clientY);
     if (!point) return;
+    beginHistoryTransaction();
 
     pointerActionRef.current =
       mode === 'drag'
@@ -2007,6 +2387,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       pointerActionRef.current = null;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      scheduleHistoryTransactionFinalize();
     };
 
     window.addEventListener('pointermove', onMove);
@@ -2038,8 +2419,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     const context = canvas.getContext('2d');
     if (!context) throw new Error(t.pg_board_export_failed);
 
-    context.fillStyle = board.background || '#111111';
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    if (board.background && board.background !== 'transparent') {
+      context.fillStyle = board.background;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     const imageCache = new Map<string, HTMLImageElement>();
     if (backgroundImageUrl && !imageCache.has(backgroundImageUrl)) {
@@ -2266,7 +2649,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       pptx.title = `${productName || 'Product Gallery Board'} - Board Export`;
 
       const slide = pptx.addSlide();
-      const boardBackground = toPptColor(board.background, '#111111');
+      const boardBackground = toPptColor(board.background, '#ffffff');
       slide.background = {
         color: boardBackground.color,
         transparency: boardBackground.transparency,
@@ -2471,7 +2854,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         backgroundImageFit: patch.backgroundImageFit ?? prev.backgroundImageFit,
         backgroundImageOpacity: clamp(patch.backgroundImageOpacity ?? prev.backgroundImageOpacity, 0, 1),
       };
-    });
+    }, { record: true });
   };
 
   const commitSelectedTextFontSize = (rawValue: string) => {
@@ -2511,14 +2894,16 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   return (
     <>
-      <div className="grid min-h-[72vh] grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)_360px]">
+      <div className="grid h-[78vh] min-h-[78vh] grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[240px_minmax(0,1fr)_360px]">
       <aside
-        className={`flex min-h-0 flex-col rounded-2xl border p-3 ${
+        ref={leftPanelRef}
+        className={`flex h-full min-h-0 flex-col rounded-2xl border p-3 ${
           isLightTheme ? 'border-slate-200 bg-white/85 shadow-[0_10px_30px_rgba(15,23,42,0.06)]' : 'border-white/10 bg-black/20'
-        }`}
+        } ${getBoardGuideFocusClass('templates')}`}
       >
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <div
+            ref={templatePanelCardRef}
             className={`overflow-hidden rounded-2xl border ${
               isLightTheme ? 'border-slate-200 bg-slate-50/90' : 'border-white/10 bg-black/20'
             }`}
@@ -2531,9 +2916,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               <div>
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
                   {t.pg_board_templates}
-                </div>
-                <div className="mt-1 text-[11px] text-zinc-400">
-                  {t.pg_board_templates_hint}
                 </div>
               </div>
               <ChevronDown
@@ -2667,21 +3049,37 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         </div>
       ) : null}
 
-      <section className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-4">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-              {t.pg_board_freeboard}
-            </div>
-            <div className="mt-1 text-xs text-zinc-400">
-              {t.pg_board_board_hint}
-            </div>
-          </div>
+      <section
+        ref={canvasSectionRef}
+        className={`flex h-full min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-4 ${getBoardGuideFocusClass('canvas')}`}
+      >
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={handleUndo}
+              disabled={undoStack.length < 1}
+              title={t.pg_board_undo}
+              aria-label={t.pg_board_undo}
+              className="rounded-xl border border-white/10 bg-zinc-900/70 p-2 text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
+            >
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={redoStack.length < 1}
+              title={t.pg_board_redo}
+              aria-label={t.pg_board_redo}
+              className="rounded-xl border border-white/10 bg-zinc-900/70 p-2 text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-40"
+            >
+              <Redo2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              ref={addTextButtonRef}
               onClick={addTextLayer}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+              className={`inline-flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800 ${getBoardGuideFocusClass('text')}`}
             >
               <Type className="h-4 w-4" />
               {t.pg_board_add_text}
@@ -2762,7 +3160,22 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               style={{
                 width: board.canvasWidth * boardScale,
                 height: board.canvasHeight * boardScale,
-                background: board.background || '#111111',
+                backgroundColor:
+                  board.background && board.background !== 'transparent'
+                    ? board.background
+                    : 'transparent',
+                backgroundImage:
+                  board.background && board.background !== 'transparent'
+                    ? undefined
+                    : `linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%),
+linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%),
+linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%),
+linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)`,
+                backgroundSize: board.background && board.background !== 'transparent' ? undefined : '20px 20px',
+                backgroundPosition:
+                  board.background && board.background !== 'transparent'
+                    ? undefined
+                    : '0 0, 0 10px, 10px -10px, -10px 0px',
               }}
               onClick={clearSelection}
             >
@@ -2906,8 +3319,8 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         </div>
       </section>
 
-      <aside className="flex min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-4">
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+      <aside ref={rightPanelRef} className={`flex h-full min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-4 ${getBoardGuideFocusClass('panel')}`}>
+        <div ref={rightPanelScrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
             <button
               type="button"
@@ -2917,9 +3330,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
               <div>
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
                   {t.pg_board_board_settings}
-                </div>
-                <div className="mt-1 text-xs text-zinc-400">
-                  {t.pg_board_board_settings_hint}
                 </div>
               </div>
               <ChevronDown
@@ -2943,8 +3353,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   value={gapScale}
                   onChange={(event) => {
                     const next = clamp(Number(event.target.value) || 1, 0.84, 1.08);
-                    setGapScale(next);
-                    setBoard((prev) => buildBoardFromTemplate(prev.templateId, prev));
+                    runRecordedChange(() => {
+                      setGapScale(next);
+                      setBoard((prev) => buildBoardFromTemplate(prev.templateId, prev));
+                    });
                   }}
                   className="w-full accent-orange-400"
                 />
@@ -2962,8 +3374,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   value={cornerRadiusRatio}
                   onChange={(event) => {
                     const next = clamp(Number(event.target.value) || 0, 0, 0.25);
-                    setCornerRadiusRatio(next);
-                    setBoard((prev) => buildBoardFromTemplate(prev.templateId, prev));
+                    runRecordedChange(() => {
+                      setCornerRadiusRatio(next);
+                      setBoard((prev) => buildBoardFromTemplate(prev.templateId, prev));
+                    });
                   }}
                   className="w-full accent-orange-400"
                 />
@@ -3022,8 +3436,9 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
             <ColorField
               label={t.pg_board_board_color}
               value={board.background}
-              fallback="#111111"
-              onChange={(next) => setBoard((prev) => ({ ...prev, background: next }))}
+              fallback="#ffffff"
+              allowTransparent
+              onChange={(next) => updateBoard((prev) => ({ ...prev, background: next }), { record: true })}
             />
 
             <label className="space-y-1">
@@ -3042,9 +3457,24 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     <option key={asset.localId} value={asset.localId}>
                       {t.pg_board_image} {index + 1}
                     </option>
-                  ))}
+                ))}
               </select>
             </label>
+
+            <input
+              ref={backgroundUploadInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleBackgroundAssetUpload}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => backgroundUploadInputRef.current?.click()}
+              className="w-full rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+            >
+              {t.pg_board_upload_background}
+            </button>
 
             {backgroundImageUrl ? (
               <>
@@ -3084,10 +3514,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                     <select
                       value={board.backgroundImageFit}
                       onChange={(event) =>
-                        setBoard((prev) => ({
+                        updateBoard((prev) => ({
                           ...prev,
                           backgroundImageFit: event.target.value as BoardState['backgroundImageFit'],
-                        }))
+                        }), { record: true })
                       }
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                     >
@@ -3106,10 +3536,10 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                       step="0.05"
                       value={board.backgroundImageOpacity}
                       onChange={(event) =>
-                        setBoard((prev) => ({
+                        updateBoard((prev) => ({
                           ...prev,
                           backgroundImageOpacity: clamp(Number(event.target.value) || 0, 0, 1),
-                        }))
+                        }), { record: true })
                       }
                       className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-white/20"
                     />
@@ -3135,9 +3565,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
                   {t.pg_board_selected_object}
                 </div>
-                <div className="mt-1 text-xs text-zinc-400">
-                  {t.pg_board_selected_object_hint_top}
-                </div>
               </div>
               <ChevronDown
                 className={`h-4 w-4 shrink-0 text-zinc-400 transition ${rightPanelSections.inspector ? 'rotate-180' : ''}`}
@@ -3146,10 +3573,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
             {rightPanelSections.inspector ? (
               <div className="border-t border-white/10 px-4 pb-4 pt-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
-                    {t.pg_board_inspector}
-                  </div>
+                <div className="mb-3 flex items-center justify-end gap-2">
                   {selectedLayer ? (
                     <button
                       type="button"
@@ -3690,9 +4114,6 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                 <div className="text-xs font-bold uppercase tracking-[0.24em] text-zinc-500">
                   {t.pg_board_current_assets}
                 </div>
-                <div className="mt-1 text-xs text-zinc-400">
-                  {t.pg_board_assets_hint}
-                </div>
               </div>
               <ChevronDown
                 className={`mt-0.5 h-4 w-4 shrink-0 text-zinc-400 transition ${rightPanelSections.assets ? 'rotate-180' : ''}`}
@@ -3814,6 +4235,89 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
         </div>
       </aside>
       </div>
+      {isBoardGuideOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[280]"
+              onClick={closeBoardGuide}
+            >
+              <div
+                className="absolute rounded-2xl border-2 border-orange-400/90 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.72),0_0_32px_rgba(249,115,22,0.35)]"
+                style={boardGuideHighlightStyle}
+              />
+              <div
+                ref={boardGuidePanelRef}
+                className="absolute rounded-2xl border border-orange-500/30 bg-zinc-950/95 p-4 shadow-2xl shadow-black/60 backdrop-blur"
+                style={boardGuidePanelStyle}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-base font-bold text-white">{t.pg_board_guide_title}</div>
+                    <div className="mt-1 text-xs text-zinc-400">
+                      {t.wb_guide_step} {boardGuideStepIndex + 1} / {boardGuideSteps.length}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeBoardGuide}
+                    className="text-zinc-400 transition hover:text-white"
+                    title={t.wb_guide_close}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+                  <div className="text-sm font-bold text-orange-200">{activeBoardGuideStep?.title || ''}</div>
+                  <div className="mt-2 text-xs leading-5 text-zinc-300">{activeBoardGuideStep?.description || ''}</div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {boardGuideSteps.map((step, index) => (
+                    <button
+                      key={step.key}
+                      type="button"
+                      onClick={() => setBoardGuideStepIndex(index)}
+                      className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                        boardGuideStepIndex === index
+                          ? 'border-orange-500/70 bg-orange-500/20 text-orange-200'
+                          : 'border-white/10 bg-black/40 text-zinc-300 hover:bg-white/5'
+                      }`}
+                    >
+                      {index + 1}. {step.title}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setBoardGuideStepIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={boardGuideStepIndex <= 0}
+                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                  >
+                    {t.wb_guide_prev}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (boardGuideStepIndex >= boardGuideSteps.length - 1) {
+                        closeBoardGuide();
+                        return;
+                      }
+                      setBoardGuideStepIndex((prev) => Math.min(boardGuideSteps.length - 1, prev + 1));
+                    }}
+                    className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400"
+                  >
+                    {boardGuideStepIndex >= boardGuideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       <AppDialog
         isOpen={isHistoryPickerOpen}

@@ -29,11 +29,8 @@ import type { ViewType } from './types';
 const PRODUCT_IMAGES_SECTION_ANIMATION_MS = 300;
 const PRODUCT_IMAGES_SECTION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const PRODUCT_IMAGES_LAST_VIEW_STORAGE_KEY = 'vflow_product_images_last_view';
-<<<<<<< HEAD
 const CREATIVE_LAB_LAST_VIEW_STORAGE_KEY = 'vflow_creative_lab_last_view';
-=======
 const PRODUCT_GALLERY_GUIDE_TRIGGER_KEY = 'vflow_product_gallery_guide_trigger';
->>>>>>> 36f4a8869a4cbd8d11e7ca1e5bede66edb53fff5
 const PRODUCT_IMAGES_SUBNAV_MIN_WIDTH = 192;
 const PRODUCT_IMAGES_SUBNAV_MAX_WIDTH = 320;
 const PRODUCT_IMAGES_SUBNAV_LABEL_PADDING = 104;
@@ -205,14 +202,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
             return;
           }
           setIsProductImagesSectionOpen(true);
-<<<<<<< HEAD
           setIsCreativeLabSectionOpen(false);
-=======
           try {
             window.sessionStorage.removeItem(PRODUCT_GALLERY_GUIDE_TRIGGER_KEY);
           } catch {
           }
->>>>>>> 36f4a8869a4cbd8d11e7ca1e5bede66edb53fff5
           setActiveView(readLastProductImageView());
         }}
         className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
@@ -371,9 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                   key={opt.view}
                   type="button"
                   onClick={() => {
-<<<<<<< HEAD
                     setIsCreativeLabSectionOpen(false);
-=======
                     try {
                       if (opt.view === 'product_images_gallery') {
                         window.sessionStorage.setItem(PRODUCT_GALLERY_GUIDE_TRIGGER_KEY, '1');
@@ -382,7 +374,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                       }
                     } catch {
                     }
->>>>>>> 36f4a8869a4cbd8d11e7ca1e5bede66edb53fff5
                     setActiveView(opt.view);
                   }}
                   className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm font-bold transition group ${

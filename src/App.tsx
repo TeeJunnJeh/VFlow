@@ -17,6 +17,7 @@ import LandingPage from './pages/Landing';
 import Workbench from './pages/Workbench';
 import TermsOfServicePage from './pages/TermsOfService';
 import PrivacyPolicyPage from './pages/PrivacyPolicy';
+import HelpPage from './pages/Help';
 import { debugLog, debugError } from './services/debugMode';
 import {
     TIKTOK_AUTH_RESULT_STORAGE_KEY,
@@ -416,6 +417,7 @@ const AnimatedRoutes = () => {
                         }
                     />
                     <Route path="/login" element={<LoginPage />} />
+                    <Route path="/help/*" element={<HelpPage />} />
                     <Route
                         path="/app/*"
                         element={

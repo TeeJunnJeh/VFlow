@@ -44,6 +44,13 @@ interface GallerySettings {
   uploadedImagePaths?: string[];
 }
 
+interface FirstFrameSettings {
+  openingScene?: string;
+  aspectRatio?: string;
+  model?: string;
+  prompt?: string;
+}
+
 interface UnifiedImageHistoryItem {
   id: string;
   source: ImageHistoryFeatureType;
@@ -51,6 +58,7 @@ interface UnifiedImageHistoryItem {
   createdAtMs: number;
   images: string[];
   settings?: GallerySettings;
+  firstFrameSettings?: FirstFrameSettings;
   metadata?: Record<string, any>;
   isFavorited: boolean;
 }
@@ -62,6 +70,38 @@ type ApplyModel = 'sora2' | 'sora2pro' | 'seedance2.0';
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 const GALLERY_RESTORE_KEY = 'vflow_gallery_restore_settings';
 
+const readFirstFrameSettings = (item: ImageHistoryItem): FirstFrameSettings | undefined => {
+  const candidates = [
+    item.settings?.params,
+    item.settings?.parameters,
+    item.settings,
+    item.metadata?.params,
+    item.metadata?.parameters,
+    item.metadata,
+  ].filter((value) => value && typeof value === 'object' && !Array.isArray(value)) as Record<string, any>[];
+
+  const readString = (...keys: string[]) => {
+    for (const source of candidates) {
+      for (const key of keys) {
+        const raw = source[key];
+        if (raw === undefined || raw === null) continue;
+        const value = String(raw).trim();
+        if (value) return value;
+      }
+    }
+    return '';
+  };
+
+  const settings: FirstFrameSettings = {
+    openingScene: readString('openingScene', 'opening_scene'),
+    aspectRatio: readString('aspectRatio', 'aspect_ratio', 'ratio'),
+    model: readString('model', 'generationModel', 'generation_model'),
+    prompt: readString('prompt', 'promptOverride', 'prompt_override'),
+  };
+
+  return Object.values(settings).some(Boolean) ? settings : undefined;
+};
+
 const toUnifiedHistoryItem = (item: ImageHistoryItem): UnifiedImageHistoryItem => ({
   id: item.id,
   source: item.featureType,
@@ -69,6 +109,7 @@ const toUnifiedHistoryItem = (item: ImageHistoryItem): UnifiedImageHistoryItem =
   createdAtMs: item.createdAtMs,
   images: item.images,
   settings: item.featureType === 'gallery' ? (item.settings as GallerySettings | undefined) : undefined,
+  firstFrameSettings: item.featureType === 'first_frame' ? readFirstFrameSettings(item) : undefined,
   metadata: item.metadata,
   isFavorited: item.isFavorited === true,
 });
@@ -124,7 +165,10 @@ const TYPE_LABELS: Record<string, string> = {
 
 const canApplyToWorkbench = (item: UnifiedImageHistoryItem) => item.source === 'first_frame' || item.source === 'gallery';
 const canRegenerate = (item: UnifiedImageHistoryItem) => item.source === 'first_frame' || item.source === 'gallery';
-const canViewSettings = (item: UnifiedImageHistoryItem) => item.source === 'gallery' && !!item.settings;
+const canViewSettings = (item: UnifiedImageHistoryItem) => (
+  (item.source === 'gallery' && !!item.settings) ||
+  (item.source === 'first_frame' && !!item.firstFrameSettings)
+);
 
 interface ImageHistoryPanelProps {
   onNavigateToWorkbench: () => void;
@@ -181,6 +225,40 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         return 'bg-amber-500/15 text-amber-400 border border-amber-500/20';
       default:
         return 'bg-zinc-500/15 text-zinc-300 border border-zinc-500/20';
+    }
+  }, []);
+
+  const getFirstFrameOpeningSceneLabel = useCallback((value?: string) => {
+    const key = String(value || '').trim();
+    switch (key) {
+      case 'person_selling':
+        return t.ff_opening_scene_person_selling || key;
+      case 'product_showcase':
+        return t.ff_opening_scene_product_showcase || key;
+      case 'usage_demo':
+        return t.ff_opening_scene_usage_demo || key;
+      case 'brand_ad':
+        return t.ff_opening_scene_brand_ad || key;
+      default:
+        return key || '-';
+    }
+  }, [t]);
+
+  const getFirstFrameModelLabel = useCallback((value?: string) => {
+    const key = String(value || '').trim();
+    switch (key) {
+      case 'nano-banana-pro':
+        return 'Nano Banana Pro';
+      case 'gpt-image-2':
+        return 'GPT Image 2';
+      case 'gpt-image-1.5':
+        return 'GPT Image 1.5';
+      case 'flux-2-pro':
+        return 'Flux 2 Pro';
+      case 'flux-2-flex':
+        return 'Flux 2 Flex';
+      default:
+        return key || '-';
     }
   }, []);
 
@@ -480,12 +558,27 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                   )}
                 </div>
 
-                {canViewSettings(item) && item.settings && (
+                {item.source === 'gallery' && item.settings && (
                   <div className="px-5 pb-2 flex flex-wrap gap-1.5 mt-auto">
                     <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{SCENE_LABELS[item.settings.targetScene] || item.settings.targetScene}</span>
                     <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{STYLE_LABELS[item.settings.style] || item.settings.style}</span>
                     <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{item.settings.aspectRatio}</span>
                     <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">{item.settings.resolution?.toUpperCase()}</span>
+                  </div>
+                )}
+
+                {item.source === 'first_frame' && item.firstFrameSettings && (
+                  <div className="px-5 pb-2 flex flex-wrap gap-1.5 mt-auto">
+                    {item.firstFrameSettings.openingScene ? (
+                      <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">
+                        {getFirstFrameOpeningSceneLabel(item.firstFrameSettings.openingScene)}
+                      </span>
+                    ) : null}
+                    {item.firstFrameSettings.aspectRatio ? (
+                      <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">
+                        {item.firstFrameSettings.aspectRatio}
+                      </span>
+                    ) : null}
                   </div>
                 )}
 
@@ -614,7 +707,30 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
           </button>
         }
       >
-        {settingsItem?.settings ? (
+        {settingsItem?.source === 'first_frame' && settingsItem.firstFrameSettings ? (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.ff_opening_scene_label || 'Target Opening Scene'}</div>
+                <div className="text-zinc-200">{getFirstFrameOpeningSceneLabel(settingsItem.firstFrameSettings.openingScene)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_setting_ratio}</div>
+                <div className="text-zinc-200">{settingsItem.firstFrameSettings.aspectRatio || '-'}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_prompt_field_model || 'Model'}</div>
+                <div className="text-zinc-200">{getFirstFrameModelLabel(settingsItem.firstFrameSettings.model)}</div>
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.ff_detail_prompt_label || t.ff_prompt_label || 'Generation Requirements'}</div>
+              <div className="whitespace-pre-wrap rounded-xl border border-white/10 bg-black/20 p-3 text-zinc-200">
+                {settingsItem.firstFrameSettings.prompt || '-'}
+              </div>
+            </div>
+          </div>
+        ) : settingsItem?.settings ? (
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-3">
               <div>

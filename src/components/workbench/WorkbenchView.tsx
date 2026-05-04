@@ -9764,47 +9764,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <ArrowRight className="w-3 h-3 text-zinc-500" />
                     {t.wb_render_power_title}
                   </h2>
-<<<<<<< HEAD
-=======
-                  <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
-                      <Video className="w-5 h-5 text-orange-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
-                        <div className="min-w-0 overflow-hidden">
-                          <div className="flex max-w-0 items-center gap-1.5 whitespace-nowrap opacity-0 transition-all duration-300 ease-out group-hover:max-w-[176px] group-hover:opacity-100">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <ImageIcon className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <Video className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <Music className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <Users className="h-3.5 w-3.5" />
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-center gap-2 shrink-0">
-                      <div
-                        className="model-check w-4 h-4 rounded-full border border-orange-500 bg-orange-500 flex items-center justify-center"
-                        aria-hidden="true"
-                      >
-                        <Check className="w-2.5 h-2.5 text-white" />
-                      </div>
-                      <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
-                        {formatApproxVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'), 'seedance2.0')}
-                      </div>
-                    </div>
-                  </div>
-
->>>>>>> 36f4a8869a4cbd8d11e7ca1e5bede66edb53fff5
                 </div>
                 <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
               </div>

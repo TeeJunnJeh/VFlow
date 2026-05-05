@@ -181,6 +181,9 @@ export interface SmartRepairPendingItem {
   settings: SmartRepairParams & {
     sourceImagePath?: string;
     referenceImagePath?: string;
+    referenceAssetId?: string;
+    modelImagePath?: string;
+    modelAssetId?: string;
     model?: string;
   };
 }

@@ -119,8 +119,21 @@ export type ReplayReverseScriptData = {
   suggestedPrompt: string;
   scriptBrief?: string;
   shotOutline?: string[];
+  userFacingScript?: string;
+  user_facing_script?: string;
+  scriptArchitecture?: Record<string, unknown>;
+  script_architecture?: Record<string, unknown>;
+  overallFeatures?: Record<string, unknown>;
+  overall_features?: Record<string, unknown>;
+  storyboardSegments?: Array<Record<string, unknown>>;
+  storyboard_segments?: Array<Record<string, unknown>>;
+  seedanceMotionPrompt?: string;
+  seedance_motion_prompt?: string;
   seedancePrompt?: string;
   seedance_prompt?: string;
+  analysisMode?: string;
+  directVideoUsed?: boolean;
+  fallbackReason?: string;
   debug_trace?: Array<Record<string, unknown>>;
   suggestedCategory: string;
   suggestedSellingPoints: string;
@@ -1188,7 +1201,10 @@ export const videoApi = {
       video_path?: string;
       user_language?: string;
       product_name?: string;
+      product_category?: string;
+      product_focus?: string;
       core_selling_points?: string;
+      target_audience?: string;
       debug_trace_id?: string;
       debug?: boolean;
     } | FormData,

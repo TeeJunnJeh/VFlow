@@ -551,25 +551,35 @@ export const productImagesApi = {
    * `getSmartRepairResult` 拿最终结果。所有图片同源在后端做幂等扣费 + 失败退款。
    */
   async submitSmartRepair(
-    sourceImage: File,
+    sourceImage: File | null,
     params: SmartRepairParams,
     options?: {
       projectId?: string;
+      sourceImagePath?: string;
+      sourceAssetId?: string;
       referenceImage?: File;
+      referenceImagePath?: string;
+      referenceAssetId?: string;
+      modelImage?: File;
+      modelImagePath?: string;
+      modelAssetId?: string;
       clientHistoryId?: string;
     }
   ): Promise<SmartRepairSubmission> {
-    if (!sourceImage) {
-      throw new Error('Please upload a source image first');
-    }
-
     const prompt = String(params.prompt || '').trim();
     if (!prompt) {
       throw new Error('Please provide repair instructions');
     }
 
-    const sourceImagePath = await uploadTempImage(sourceImage);
-    const referenceImagePath = options?.referenceImage ? await uploadTempImage(options.referenceImage) : undefined;
+    const sourceImagePath = options?.sourceImagePath
+      || (sourceImage ? await uploadTempImage(sourceImage) : undefined);
+    if (!sourceImagePath) {
+      throw new Error('Please upload a source image first');
+    }
+    const referenceImagePath = options?.referenceImagePath
+      || (options?.referenceImage ? await uploadTempImage(options.referenceImage) : undefined);
+    const modelImagePath = options?.modelImagePath
+      || (options?.modelImage ? await uploadTempImage(options.modelImage) : undefined);
 
     const payload: Record<string, unknown> = {
       source_image_path: sourceImagePath,
@@ -583,7 +593,11 @@ export const productImagesApi = {
     };
     if (params.model) payload.model = params.model;
     if (options?.projectId) payload.project_id = options.projectId;
+    if (options?.sourceAssetId) payload.source_asset_id = options.sourceAssetId;
     if (referenceImagePath) payload.reference_image_path = referenceImagePath;
+    if (options?.referenceAssetId) payload.reference_asset_id = options.referenceAssetId;
+    if (modelImagePath) payload.model_image_path = modelImagePath;
+    if (options?.modelAssetId) payload.model_asset_id = options.modelAssetId;
     if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
 
     const response = await fetch(`${PROJECTS_API_BASE}/generate_smart_repair`, {
@@ -743,6 +757,9 @@ export const productImagesApi = {
             toolCode: toolCodeRaw,
             sourceImagePath: String(settings.sourceImagePath || settings.source_image_path || ''),
             referenceImagePath: String(settings.referenceImagePath || settings.reference_image_path || ''),
+            referenceAssetId: String(settings.referenceAssetId || settings.reference_asset_id || ''),
+            modelImagePath: String(settings.modelImagePath || settings.model_image_path || ''),
+            modelAssetId: String(settings.modelAssetId || settings.model_asset_id || ''),
             model: modelNarrowed,
           },
         };

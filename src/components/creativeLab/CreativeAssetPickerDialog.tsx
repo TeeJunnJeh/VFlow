@@ -18,6 +18,8 @@ interface CreativeAssetPickerDialogProps {
   requireSeedanceId?: boolean;
   imageOnly?: boolean;
   autoSelectUploaded?: boolean;
+  /** Override AppDialog's max-width (default 'max-w-5xl'). Use 'max-w-7xl' for wider. */
+  widthClassName?: string;
   onConfirm: (assets: Asset[]) => void;
   onClose: () => void;
 }
@@ -69,6 +71,7 @@ export const CreativeAssetPickerDialog: React.FC<CreativeAssetPickerDialogProps>
   requireSeedanceId,
   imageOnly = false,
   autoSelectUploaded = false,
+  widthClassName = 'max-w-5xl',
   onConfirm,
   onClose,
 }) => {
@@ -212,7 +215,7 @@ export const CreativeAssetPickerDialog: React.FC<CreativeAssetPickerDialogProps>
       title={title || config.title}
       subtitle={subtitle || (kind === 'model' && shouldRequireSeedanceId ? '仅显示带 Seedance asset id 的模特素材' : '可先本地上传保存，再从素材库选择')}
       onClose={onClose}
-      widthClassName="max-w-5xl"
+      widthClassName={widthClassName}
       contentClassName="overflow-y-auto pr-1"
       footer={(
         <>

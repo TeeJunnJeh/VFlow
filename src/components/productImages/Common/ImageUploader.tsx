@@ -19,6 +19,8 @@ interface ImageUploaderProps {
   /** Empty-state padding/typography sizing. 'compact' shrinks the dropzone for tight side panels. */
   size?: 'default' | 'compact';
   value?: File[];
+  onOpenLibraryPicker?: () => void;
+  onFilesDroppedToLibrary?: (files: File[]) => void;
 }
 
 const DEFAULT_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
@@ -35,6 +37,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   previewVariant = 'default',
   size = 'default',
   value,
+  onOpenLibraryPicker,
+  onFilesDroppedToLibrary,
 }) => {
   const { t } = useLanguage();
   const [dragActive, setDragActive] = useState(false);
@@ -170,9 +174,14 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       setDragActive(false);
 
       if (disabled) return;
+      if (previewVariant === 'first-frame' && onFilesDroppedToLibrary) {
+        const fileArray = Array.from(e.dataTransfer.files || []);
+        if (fileArray.length > 0) onFilesDroppedToLibrary(fileArray);
+        return;
+      }
       handleFileSelect(e.dataTransfer.files);
     },
-    [disabled, handleFileSelect]
+    [disabled, handleFileSelect, onFilesDroppedToLibrary, previewVariant]
   );
 
   /**
@@ -190,7 +199,12 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
    * 点击上传
    */
   const handleClick = () => {
-    if (!disabled && inputRef.current) {
+    if (disabled) return;
+    if (previewVariant === 'first-frame' && onOpenLibraryPicker) {
+      onOpenLibraryPicker();
+      return;
+    }
+    if (inputRef.current) {
       inputRef.current.click();
     }
   };
@@ -245,7 +259,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
                   </>
                 )}
             </p>
-            {size !== 'compact' && (
+            {size !== 'compact' && previewVariant !== 'first-frame' && (
               <p className="text-zinc-400 text-sm">
                 {t.ff_upload_drag_or_click}
               </p>

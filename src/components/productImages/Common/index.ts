@@ -3,6 +3,11 @@
  */
 
 export { ImageUploader } from './ImageUploader';
+export {
+  AssetLibraryPickerDialog,
+  type AssetLibraryPickedAsset,
+  type AssetLibraryPickerTabConfig,
+} from './AssetLibraryPickerDialog';
 export { LoadingProgress } from './LoadingProgress';
 export { ErrorDialog, type ErrorInfo, type ErrorSeverity } from './ErrorDialog';
 export { AspectRatioPicker, type AspectRatioPickerProps, type AspectRatioPickerLabels } from './AspectRatioPicker';

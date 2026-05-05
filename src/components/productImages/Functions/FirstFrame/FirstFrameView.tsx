@@ -4,13 +4,17 @@ import { ArrowRight, ChevronLeft, ChevronsDown, Minus, Plus, Save, Trash2 } from
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { ImageUploader } from '../../Common/ImageUploader';
+import {
+  AssetLibraryPickerDialog,
+  type AssetLibraryPickedAsset,
+} from '../../Common/AssetLibraryPickerDialog';
 import { FirstFrameForm } from './FirstFrameForm';
 import { FirstFrameResult } from './FirstFrameResult';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
 import { productImagesApi } from '../../../../services/productImagesApi';
-import { assetsApi } from '../../../../services/assets';
+import { assetsApi, type Asset } from '../../../../services/assets';
 import { apiRequest } from '../../../../services/apiClient';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, replaceImageHistoryAsset, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
@@ -19,6 +23,8 @@ import { saveBlobWithPickerFallback } from '../../../../utils/browserDownload';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
+type FirstFramePickerTab = 'image' | 'model';
+type FirstFramePickedAsset = AssetLibraryPickedAsset<FirstFramePickerTab>;
 
 interface FirstFrameWorkspaceMeta {
   id: string;
@@ -65,6 +71,17 @@ const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
 const FIRST_FRAME_ASYNC_POLL_INTERVAL_MS = 3000;
 const FIRST_FRAME_ASYNC_POLL_MAX_ATTEMPTS = 80;
+const FIRST_FRAME_ASSET_PICKER_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
+const FIRST_FRAME_ASSET_PICKER_MAX_FILE_SIZE = 5 * 1024 * 1024;
+const FIRST_FRAME_ASSET_PICKER_MAX_COUNT = 4;
+const FIRST_FRAME_PICKER_TABS = [
+  {
+    key: 'image' as const,
+    labelKey: 'assets_tab_images',
+    fallbackLabel: 'Images',
+    assetType: 'product' as const,
+  },
+];
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
 const FIRST_FRAME_PANEL_MAX_WIDTH = 720;
 const FIRST_FRAME_PANEL_VERTICAL_GAP = 16;
@@ -332,6 +349,8 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
   const [phase, setPhase] = useState<Phase>('upload');
   const [images, setImages] = useState<File[]>([]);
+  const [isAssetPickerOpen, setIsAssetPickerOpen] = useState(false);
+  const [isUploadingDroppedAssets, setIsUploadingDroppedAssets] = useState(false);
   const [results, setResults] = useState<ProductImageResult[]>([]);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<ErrorInfo | null>(null);
@@ -554,6 +573,24 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     setPhase(files.length > 0 ? 'form' : 'upload');
   }, []);
 
+  const validateFirstFrameLibraryUploadFiles = (files: File[]) => {
+    if (files.length === 0) return '';
+    if (files.length + images.length > FIRST_FRAME_ASSET_PICKER_MAX_COUNT) {
+      return t.ff_upload_error_max_count
+        ? `${t.ff_upload_error_max_count} ${FIRST_FRAME_ASSET_PICKER_MAX_COUNT} ${t.ff_upload_image_unit}`
+        : (t.ff_asset_picker_limit_reached || 'Selection limit reached');
+    }
+    for (const file of files) {
+      if (!FIRST_FRAME_ASSET_PICKER_ACCEPTED_FORMATS.includes(file.type)) {
+        return `${file.name}: ${t.ff_upload_error_format}`;
+      }
+      if (file.size > FIRST_FRAME_ASSET_PICKER_MAX_FILE_SIZE) {
+        return `${file.name}: ${t.ff_upload_error_too_large} ${Math.ceil(FIRST_FRAME_ASSET_PICKER_MAX_FILE_SIZE / 1024 / 1024)}MB`;
+      }
+    }
+    return '';
+  };
+
   const loadExampleFiles = async (imageUrls: string[], seedName: string) => {
     const files: File[] = [];
     for (let index = 0; index < imageUrls.length; index += 1) {
@@ -567,6 +604,105 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       files.push(new File([blob], `first-frame-example-${seedName}-${index + 1}.${ext}`, { type: mime }));
     }
     return files;
+  };
+
+  const loadPickedAssetFiles = async (assets: FirstFramePickedAsset[]) => {
+    const files: File[] = [];
+    for (let index = 0; index < assets.length; index += 1) {
+      const asset = assets[index];
+      const url = String(asset.fileUrl || '').trim();
+      if (!url) continue;
+      const resp = await fetch(url, { credentials: 'include' });
+      if (!resp.ok) throw new Error(t.ff_error_generation_failed);
+      const blob = await resp.blob();
+      const mime = String(blob.type || '').trim() || 'image/jpeg';
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      const safeName = String(asset.name || `asset-${index + 1}`).replace(/\.[^.]+$/i, '');
+      files.push(new File([blob], `${safeName}.${ext}`, { type: mime }));
+    }
+    return files;
+  };
+
+  const handleAssetPickerConfirm = async (assets: FirstFramePickedAsset[]) => {
+    if (assets.length === 0) return;
+    const remainingSlots = Math.max(0, FIRST_FRAME_ASSET_PICKER_MAX_COUNT - images.length);
+    if (assets.length > remainingSlots) {
+      setError({
+        code: 'UPLOAD_ERROR',
+        message: t.ff_upload_error_max_count
+          ? `${t.ff_upload_error_max_count} ${FIRST_FRAME_ASSET_PICKER_MAX_COUNT} ${t.ff_upload_image_unit}`
+          : (t.ff_asset_picker_limit_reached || 'Selection limit reached'),
+        severity: 'warning',
+      });
+      return;
+    }
+
+    try {
+      const files = await loadPickedAssetFiles(assets);
+      if (files.length === 0) return;
+      handleImagesSelected([...images, ...files]);
+      setIsAssetPickerOpen(false);
+    } catch (err: unknown) {
+      setError({
+        code: 'ASSET_LOAD_FAILED',
+        message: err instanceof Error ? err.message : t.ff_error_generation_failed,
+        severity: 'warning',
+      });
+    }
+  };
+
+  const handleFilesDroppedToLibrary = async (files: File[]) => {
+    if (isUploadingDroppedAssets || files.length === 0) return;
+    if (!requireAuth()) return;
+    const validationError = validateFirstFrameLibraryUploadFiles(files);
+    if (validationError) {
+      setError({
+        code: 'UPLOAD_ERROR',
+        message: validationError,
+        severity: 'warning',
+      });
+      return;
+    }
+
+    setIsUploadingDroppedAssets(true);
+    try {
+      const uploadedAssetIds: string[] = [];
+      for (const file of files) {
+        const response = await assetsApi.uploadAsset(file, 'product', null);
+        const raw = (response as { data?: Partial<Asset> & { url?: string; path?: string; display_name?: string } }).data || response;
+        const record = raw as Partial<Asset> & { url?: string; path?: string; display_name?: string };
+        const id = String(record.id || '').trim();
+        if (id) uploadedAssetIds.push(id);
+      }
+
+      const uploadedIdSet = new Set(uploadedAssetIds);
+      const libraryItems = uploadedIdSet.size > 0
+        ? await assetsApi.getAssets({ type: 'product', folderId: null })
+        : [];
+      const assets: FirstFramePickedAsset[] = libraryItems
+        .filter((asset) => uploadedIdSet.has(asset.id))
+        .map((asset) => ({
+          id: asset.id,
+          tab: 'image',
+          assetType: 'product',
+          name: asset.name,
+          fileUrl: asset.file_url,
+          thumbnail: asset.thumbnail,
+        }));
+
+      const uploadedFiles = await loadPickedAssetFiles(assets);
+      if (uploadedFiles.length > 0) handleImagesSelected([...images, ...uploadedFiles]);
+    } catch (err: unknown) {
+      setError({
+        code: 'ASSET_UPLOAD_FAILED',
+        message: err instanceof Error
+          ? err.message
+          : (t.pg_main_toast_image_upload_failed_retry || t.ff_error_generation_failed),
+        severity: 'warning',
+      });
+    } finally {
+      setIsUploadingDroppedAssets(false);
+    }
   };
 
   const applyFirstFrameExample = async (exampleId: string) => {
@@ -1486,9 +1622,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <ImageUploader
                 key={`${workspaceId}-${uploaderResetKey}`}
-                maxFiles={4}
+                maxFiles={FIRST_FRAME_ASSET_PICKER_MAX_COUNT}
                 previewVariant="first-frame"
                 value={images}
+                onOpenLibraryPicker={() => setIsAssetPickerOpen(true)}
+                onFilesDroppedToLibrary={(files) => void handleFilesDroppedToLibrary(files)}
                 onFilesSelected={handleImagesSelected}
                 onError={(err) =>
                   setError({
@@ -1666,6 +1804,24 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
           </section>
         </div>
       </div>
+
+      <AssetLibraryPickerDialog<FirstFramePickerTab>
+        isOpen={isAssetPickerOpen}
+        tabs={FIRST_FRAME_PICKER_TABS}
+        maxCount={FIRST_FRAME_ASSET_PICKER_MAX_COUNT}
+        appliedCount={images.length}
+        maxFileSize={FIRST_FRAME_ASSET_PICKER_MAX_FILE_SIZE}
+        acceptedFormats={FIRST_FRAME_ASSET_PICKER_ACCEPTED_FORMATS}
+        uploadAccept=".jpg,.jpeg,.png,.webp"
+        title={t.wb_dialog_choose_from_library || 'Choose From Asset Library'}
+        limitReachedMessage={t.ff_asset_picker_limit_reached || 'Selection limit reached'}
+        formatErrorMessage={t.ff_upload_error_format}
+        tooLargeErrorPrefix={t.ff_upload_error_too_large}
+        loadErrorMessage={t.pg_board_library_load_failed || t.assets_seedance_load_failed}
+        uploadErrorMessage={t.pg_main_toast_image_upload_failed_retry}
+        onConfirm={(assets) => void handleAssetPickerConfirm(assets)}
+        onClose={() => setIsAssetPickerOpen(false)}
+      />
 
       {error && phase !== 'generating' && (
         <ErrorDialog

@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronsDown, Download, Sparkles, Loader2, Library, Minus, Plus, X, RotateCcw } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronsDown, Download, Sparkles, Loader2, Library, Minus, Plus, Settings, X, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { AspectRatioPicker, ErrorDialog, type ErrorInfo, ImageUploader, SMART_REPAIR_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
 import ResizableSplitter from '../../../common/ResizableSplitter';
-import { downloadBlob, productImagesApi } from '../../../../services/productImagesApi';
+import { downloadBlob, productImagesApi, smartRepairUserPresetsApi } from '../../../../services/productImagesApi';
 import { billingApi } from '../../../../services/billing';
 import { CreativeAssetPickerDialog } from '../../../creativeLab/CreativeAssetPickerDialog';
+import { SmartRepairUserPresetDialog, type SmartRepairUserPresetDialogInitial } from './SmartRepairUserPresetDialog';
+import { SmartRepairUserPresetManagerDialog } from './SmartRepairUserPresetManagerDialog';
 import type { Asset } from '../../../../services/assets';
-import type { ProductImageResult, SmartRepairModel, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode } from '../../../../types/productImages';
+import type { ProductImageResult, SmartRepairModel, SmartRepairParams, SmartRepairSubpage, SmartRepairToolCode, SmartRepairUserPreset } from '../../../../types/productImages';
 import { notifyImageHistoryUpdated, readImageHistoryByFeature, refreshImageHistory, subscribeImageHistory, type ImageHistoryItem } from '../../../../utils/imageHistory';
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
@@ -46,6 +48,7 @@ const SMART_REPAIR_UPLOAD_COL_DEFAULT_WIDTH = 240;
 const SMART_REPAIR_UPLOAD_COL_MIN_WIDTH = 180;
 const SMART_REPAIR_UPLOAD_COL_MAX_WIDTH = 420;
 const SMART_REPAIR_UPLOAD_COL_STORAGE_KEY = 'vflow.smart_repair.upload_col_width';
+const SMART_REPAIR_USER_PRESET_CAP_PER_TOOL = 10;
 // combined column = old (left + middle), right column stays the result panel.
 const SMART_REPAIR_PANEL_RATIOS = { combined: 1.45, right: 0.55 } as const;
 const SMART_REPAIR_TOOLS_COLLAPSED_KEY = 'vflow.smart_repair.tools_collapsed';
@@ -702,6 +705,14 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
   // -1 = no preset active (legacy chip mode / cleared / tool has no presets)
   const [activePresetIndex, setActivePresetIndex] = useState<number>(-1);
+  // -1 = no user preset active; non-negative = index into userPresetsForActiveTool
+  const [activeUserPresetIndex, setActiveUserPresetIndex] = useState<number>(-1);
+  const [userPresets, setUserPresets] = useState<SmartRepairUserPreset[]>([]);
+  const [userPresetDialogState, setUserPresetDialogState] = useState<{
+    open: boolean;
+    initial?: SmartRepairUserPresetDialogInitial;
+  }>({ open: false });
+  const [userPresetManagerOpen, setUserPresetManagerOpen] = useState<boolean>(false);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
   // loadingTheme/backgroundSrc kept for potential reuse but no longer drives a full-page overlay
   const [, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
@@ -737,6 +748,26 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(SMART_REPAIR_TOOLS_COLLAPSED_KEY, isToolsCollapsed ? '1' : '0');
   }, [isToolsCollapsed]);
+
+  // 加载当前用户的全部自定义 preset（一次拉完，按 toolCode 在内存里分组）。
+  // 失败静默：未登录或网络错误时不打扰用户，按"无自定义"处理。
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const items = await smartRepairUserPresetsApi.list();
+        if (alive) setUserPresets(items);
+      } catch {
+        if (alive) setUserPresets([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const userPresetsForActiveTool = useMemo(
+    () => (activeToolCode ? userPresets.filter((p) => p.toolCode === activeToolCode) : []),
+    [userPresets, activeToolCode],
+  );
 
   const computeDefaultPanelWidths = useCallback((containerWidth: number) => {
     const splitterWidth = 6;
@@ -857,6 +888,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     (preset: SmartRepairPreset, index: number) => {
       setPrompt(isZh ? preset.promptZh : preset.promptEn);
       setActivePresetIndex(index);
+      setActiveUserPresetIndex(-1);
       window.setTimeout(() => {
         const el = promptTextareaRef.current;
         if (el) {
@@ -867,6 +899,65 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     },
     [isZh],
   );
+
+  const applyUserPresetPrompt = useCallback(
+    (preset: SmartRepairUserPreset, index: number) => {
+      setPrompt(preset.prompt);
+      setActiveUserPresetIndex(index);
+      setActivePresetIndex(-1);
+      window.setTimeout(() => {
+        const el = promptTextareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      }, 0);
+    },
+    [],
+  );
+
+  const handleOpenAddUserPresetDialog = useCallback(() => {
+    // 预填当前 textarea 内容 — 让用户"把刚写好的存成预设"零摩擦。
+    setUserPresetDialogState({
+      open: true,
+      initial: { label: '', prompt: prompt.trim() },
+    });
+  }, [prompt]);
+
+  const handleOpenEditUserPresetDialog = useCallback((preset: SmartRepairUserPreset) => {
+    setUserPresetManagerOpen(false);
+    setUserPresetDialogState({
+      open: true,
+      initial: { id: preset.id, label: preset.label, prompt: preset.prompt },
+    });
+  }, []);
+
+  const handleSubmitUserPreset = useCallback(
+    async (values: { label: string; prompt: string }) => {
+      const editingId = userPresetDialogState.initial?.id;
+      if (editingId) {
+        const updated = await smartRepairUserPresetsApi.update(editingId, values);
+        setUserPresets((prev) => prev.map((p) => (p.id === editingId ? updated : p)));
+      } else {
+        if (!activeToolCode) throw new Error(isZh ? '请先选择工具' : 'Please pick a tool first');
+        const created = await smartRepairUserPresetsApi.create({
+          toolCode: activeToolCode,
+          subpage: activeSubpage,
+          label: values.label,
+          prompt: values.prompt,
+        });
+        setUserPresets((prev) => [...prev, created]);
+      }
+      setUserPresetDialogState({ open: false });
+    },
+    [userPresetDialogState.initial?.id, activeToolCode, activeSubpage, isZh],
+  );
+
+  const handleDeleteUserPreset = useCallback(async (preset: SmartRepairUserPreset) => {
+    await smartRepairUserPresetsApi.remove(preset.id);
+    setUserPresets((prev) => prev.filter((p) => p.id !== preset.id));
+    setActiveUserPresetIndex(-1);
+  }, []);
 
   const getSamplePath = (code: SmartRepairToolCode, type: 'before' | 'after') =>
     `/smart-repair-examples/${code}_${type}.jpg`;
@@ -1230,6 +1321,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     if (item.settings?.subpage) setActiveSubpage(item.settings.subpage);
     if (item.settings?.toolCode) setActiveToolCode(item.settings.toolCode);
     setActivePresetIndex(-1);
+    setActiveUserPresetIndex(-1);
     setError(null);
 
     // surface the historical result as a synthetic succeeded card so the user
@@ -1264,6 +1356,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setActiveToolCode(task.settings.toolCode);
     if (task.settings.model) setSelectedModel(task.settings.model);
     setActivePresetIndex(-1);
+    setActiveUserPresetIndex(-1);
     dismissCard(task.localId);
   };
 
@@ -1404,6 +1497,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           clearImageSource('model');
                           setPrompt('');
                           setActivePresetIndex(-1);
+                          setActiveUserPresetIndex(-1);
                         }}
                         className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${
                           selected
@@ -1627,6 +1721,63 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                                     </button>
                                   );
                                 })}
+
+                            {/* 用户自定义 presets — 视觉上和内置区分（虚线边框 + 灰色背景） */}
+                            {userPresetsForActiveTool.map((preset, index) => {
+                              const isActive = activeUserPresetIndex === index;
+                              const hasDeviated = isActive && prompt.trim() !== preset.prompt.trim();
+                              const baseClass = 'rounded-full border-2 border-dashed px-3.5 py-1.5 text-sm font-medium transition';
+                              const stateClass = isActive
+                                ? hasDeviated
+                                  ? 'border-orange-400/50 bg-orange-500/5 text-orange-200/80'
+                                  : 'border-orange-500/60 bg-orange-500/15 text-orange-200'
+                                : 'border-white/15 bg-white/[0.03] text-zinc-300 hover:border-orange-400/40 hover:text-orange-200';
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => applyUserPresetPrompt(preset, index)}
+                                  className={`${baseClass} ${stateClass}`}
+                                  title={
+                                    hasDeviated
+                                      ? isZh
+                                        ? '已偏离原预设，点击重置'
+                                        : 'Edited away — click to reset'
+                                      : (isZh ? '我的预设' : 'My preset')
+                                  }
+                                >
+                                  {preset.label}
+                                </button>
+                              );
+                            })}
+
+                            {/* + 号添加自定义预设；上限 10 时禁用 */}
+                            <button
+                              type="button"
+                              onClick={handleOpenAddUserPresetDialog}
+                              disabled={userPresetsForActiveTool.length >= SMART_REPAIR_USER_PRESET_CAP_PER_TOOL}
+                              className="inline-flex items-center gap-1 rounded-full border border-dashed border-white/15 bg-black/20 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-orange-400/40 hover:text-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
+                              title={userPresetsForActiveTool.length >= SMART_REPAIR_USER_PRESET_CAP_PER_TOOL
+                                ? (isZh ? `已达上限（${SMART_REPAIR_USER_PRESET_CAP_PER_TOOL}）` : `Cap reached (${SMART_REPAIR_USER_PRESET_CAP_PER_TOOL})`)
+                                : (isZh ? '添加自定义预设' : 'Add custom preset')}
+                              aria-label={isZh ? '添加自定义预设' : 'Add custom preset'}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              {isZh ? '新增' : 'New'}
+                            </button>
+
+                            {/* 齿轮：管理（编辑/删除）已添加的自定义预设；无任何自定义时禁用 */}
+                            {userPresetsForActiveTool.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setUserPresetManagerOpen(true)}
+                                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-black/20 p-1.5 text-zinc-400 transition hover:border-orange-400/40 hover:text-orange-200"
+                                title={isZh ? '管理自定义预设' : 'Manage custom presets'}
+                                aria-label={isZh ? '管理自定义预设' : 'Manage custom presets'}
+                              >
+                                <Settings className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         )}
 
@@ -1975,6 +2126,21 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
               showRetry={true}
             />
           )}
+
+          <SmartRepairUserPresetDialog
+            isOpen={userPresetDialogState.open}
+            initial={userPresetDialogState.initial}
+            onSubmit={handleSubmitUserPreset}
+            onClose={() => setUserPresetDialogState({ open: false })}
+          />
+
+          <SmartRepairUserPresetManagerDialog
+            isOpen={userPresetManagerOpen}
+            presets={userPresetsForActiveTool}
+            onEdit={handleOpenEditUserPresetDialog}
+            onDelete={handleDeleteUserPreset}
+            onClose={() => setUserPresetManagerOpen(false)}
+          />
 
           <CreativeAssetPickerDialog
             isOpen={pickerTarget !== null}

@@ -188,6 +188,21 @@ export interface SmartRepairPendingItem {
   };
 }
 
+/**
+ * AI 智能修复 — 用户自加的 preset。
+ * 内置 presets 写死在前端 SmartRepairView，本接口只携带用户自加的。
+ * 单语：用户填的时候是哪个语言，切语言后展示同一份。
+ */
+export interface SmartRepairUserPreset {
+  id: string;
+  toolCode: SmartRepairToolCode;
+  subpage?: SmartRepairSubpage;
+  label: string;
+  prompt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ==================== AI 换装 (ClothingSwap) 相关类型 ====================
 
 export type ClothingSwapCategory = 'Top' | 'Bottom' | 'Full Body';

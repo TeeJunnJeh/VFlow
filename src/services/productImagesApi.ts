@@ -17,6 +17,7 @@ import type {
   SmartRepairSubmissionItem,
   SmartRepairSubpage,
   SmartRepairToolCode,
+  SmartRepairUserPreset,
   ClothingSwapParams,
   ClothingSwapResult,
   ClothingSwapAspectRatio,
@@ -927,6 +928,102 @@ export const productImagesApi = {
     }
 
     return response.blob();
+  },
+};
+
+// ==================== AI 智能修复 - 用户自定义 preset CRUD ====================
+
+interface RawSmartRepairUserPreset {
+  id?: unknown;
+  tool_code?: unknown;
+  subpage?: unknown;
+  label?: unknown;
+  prompt?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+}
+
+function normalizeSmartRepairUserPreset(raw: RawSmartRepairUserPreset): SmartRepairUserPreset {
+  return {
+    id: String(raw.id || ''),
+    toolCode: String(raw.tool_code || '') as SmartRepairToolCode,
+    subpage: (raw.subpage ? String(raw.subpage) : undefined) as SmartRepairSubpage | undefined,
+    label: String(raw.label || ''),
+    prompt: String(raw.prompt || ''),
+    createdAt: String(raw.created_at || ''),
+    updatedAt: String(raw.updated_at || ''),
+  };
+}
+
+export const smartRepairUserPresetsApi = {
+  async list(toolCode?: SmartRepairToolCode): Promise<SmartRepairUserPreset[]> {
+    const qs = toolCode ? `?tool_code=${encodeURIComponent(toolCode)}` : '';
+    const response = await fetch(`${PROJECTS_API_BASE}/smart-repair/user-presets${qs}`, {
+      method: 'GET',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Failed to load user presets');
+    const data = await response.json();
+    const rawItems: RawSmartRepairUserPreset[] = Array.isArray(data?.data?.items) ? data.data.items : [];
+    return rawItems.map(normalizeSmartRepairUserPreset).filter((it) => it.id && it.toolCode);
+  },
+
+  async create(input: {
+    toolCode: SmartRepairToolCode;
+    subpage?: SmartRepairSubpage;
+    label: string;
+    prompt: string;
+  }): Promise<SmartRepairUserPreset> {
+    const response = await fetch(`${PROJECTS_API_BASE}/smart-repair/user-presets`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        tool_code: input.toolCode,
+        subpage: input.subpage || '',
+        label: input.label,
+        prompt: input.prompt,
+      }),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Failed to create user preset');
+    const data = await response.json();
+    return normalizeSmartRepairUserPreset((data?.data?.item || {}) as RawSmartRepairUserPreset);
+  },
+
+  async update(id: string, input: { label: string; prompt: string }): Promise<SmartRepairUserPreset> {
+    const response = await fetch(`${PROJECTS_API_BASE}/smart-repair/user-presets/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ label: input.label, prompt: input.prompt }),
+    });
+    if (!response.ok) throw await parseApiError(response, 'Failed to update user preset');
+    const data = await response.json();
+    return normalizeSmartRepairUserPreset((data?.data?.item || {}) as RawSmartRepairUserPreset);
+  },
+
+  async remove(id: string): Promise<void> {
+    const response = await fetch(`${PROJECTS_API_BASE}/smart-repair/user-presets/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    if (!response.ok) throw await parseApiError(response, 'Failed to delete user preset');
   },
 };
 

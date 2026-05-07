@@ -34,6 +34,14 @@ class ViewErrorBoundary extends React.Component<
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
 import { AppDialog } from '../components/common/AppDialog';
 import { InviteRewardDialog } from '../components/common/InviteRewardDialog';
+import { PromoModal } from '../components/promo/PromoModal';
+import { PROMO_DEBUG_ALWAYS_SHOW, usePromoEligibility } from '../components/promo/usePromoEligibility';
+
+/**
+ * 当前主推的限时活动 ID。以后想换 / 加活动只要改这个常量（或扩成数组按优先级显示）。
+ * 配套图片放在 `public/promo-events/<id>/{modal.jpg,banner.png}`。
+ */
+const ACTIVE_PROMO_CAMPAIGN_ID = 'promo_39_9_598v';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
@@ -168,6 +176,18 @@ const Workbench = () => {
   const [maydayCheckinTodayYmd, setMaydayCheckinTodayYmd] = useState<string>('');
   const [maydayCheckedInToday, setMaydayCheckedInToday] = useState(false);
   const [maydayRewarded, setMaydayRewarded] = useState<number | null>(null);
+
+  // 限时活动包：默认点击 sidebar「计费」时若用户没买过且 24h 内没关掉，弹活动弹窗。
+  // 调试模式（PROMO_DEBUG_ALWAYS_SHOW=true）下：挂载即弹，且不受 24h 去抖约束；
+  // 但「买过」依然永远不弹（hook 内部 shouldShowModal 把住）。
+  const promoEligibility = usePromoEligibility(ACTIVE_PROMO_CAMPAIGN_ID);
+  const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
+  useEffect(() => {
+    if (!user || promoEligibility.loading) return;
+    if (!promoEligibility.shouldShowModal(user.id)) return;
+    if (!PROMO_DEBUG_ALWAYS_SHOW && activeView !== 'billing') return;
+    setIsPromoModalOpen(true);
+  }, [activeView, user, promoEligibility.loading, promoEligibility.shouldShowModal]);
 
   useEffect(() => {
     const nextTitle = WORKBENCH_VIEW_TITLES[activeView] || 'VFLOW AI - 工作台';
@@ -808,6 +828,25 @@ const Workbench = () => {
             onClose={() => setIsInviteRewardOpen(false)}
             onDismissPermanent={handleInviteRewardDismissPermanent}
           />
+
+          {promoEligibility.campaign && (
+            <PromoModal
+              isOpen={isPromoModalOpen}
+              campaign={promoEligibility.campaign}
+              onClose={() => {
+                setIsPromoModalOpen(false);
+                if (user) promoEligibility.markDismissed(user.id);
+              }}
+              onPurchase={() => {
+                setIsPromoModalOpen(false);
+                // 跳到计费页 + 用 hash 通知 BillingView 触发抢购流程（避免 Workbench 直接持有充值逻辑）
+                setActiveView('billing');
+                if (typeof window !== 'undefined') {
+                  window.location.hash = `promo_purchase=${ACTIVE_PROMO_CAMPAIGN_ID}`;
+                }
+              }}
+            />
+          )}
 
           <AppDialog
             isOpen={isMaydayCheckinOpen}

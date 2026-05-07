@@ -7,6 +7,10 @@ import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { formatCreditAmount, formatSignedCreditAmount } from '../../utils/credits';
+import { PromoBanner } from '../promo/PromoBanner';
+import { usePromoEligibility } from '../promo/usePromoEligibility';
+
+const ACTIVE_PROMO_CAMPAIGN_ID = 'promo_39_9_598v';
 
 export const BillingView: React.FC = () => {
   const { t } = useLanguage();
@@ -78,11 +82,11 @@ export const BillingView: React.FC = () => {
     }, 3000);
   };
 
-  const handleRecharge = async (amount: number) => {
+  const handleRecharge = async (amount: number, campaignId?: string) => {
     try {
       setLoading(true);
-      const res = await billingApi.createRecharge(amount);
-      
+      const res = await billingApi.createRecharge(amount, campaignId);
+
       const payParams = res?.data?.pay_params;
       const order = res?.data?.order;
 
@@ -103,6 +107,42 @@ export const BillingView: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // 限时活动 banner + hash 触发
+  const promoEligibility = usePromoEligibility(ACTIVE_PROMO_CAMPAIGN_ID);
+  const promoCampaign = promoEligibility.campaign;
+
+  const triggerPromoPurchase = React.useCallback(() => {
+    if (!promoCampaign || !promoCampaign.canPurchase) return;
+    const amount = parseFloat(promoCampaign.amountYuan);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    void handleRecharge(amount, promoCampaign.id);
+  }, [promoCampaign]);
+
+  // 弹窗的"立即抢购"通过 URL hash promo_purchase=<id> 通知 BillingView 触发流程，
+  // 这样 Workbench / BillingView 不必直接共享 handleRecharge 引用。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const consumeHash = () => {
+      const hash = window.location.hash.replace(/^#/, '');
+      const m = hash.match(/promo_purchase=([^&]+)/);
+      if (!m) return;
+      const requestedId = decodeURIComponent(m[1] || '');
+      if (!requestedId) return;
+      // 清掉 hash，避免回退 / 刷新时重复触发
+      try {
+        const url = window.location.href.replace(/#[^?]*$/, '');
+        window.history.replaceState({}, '', url);
+      } catch {
+        window.location.hash = '';
+      }
+      // 等 promoCampaign 加载好再触发
+      if (promoCampaign && promoCampaign.id === requestedId && promoCampaign.canPurchase) {
+        triggerPromoPurchase();
+      }
+    };
+    consumeHash();
+  }, [promoCampaign, triggerPromoPurchase]);
 
   const balance = overview?.balance ?? 0;
   const planMeta = overview?.plan_meta || {};
@@ -274,6 +314,13 @@ export const BillingView: React.FC = () => {
       </header>
 
       <main className="flex-1 overflow-y-auto px-10 py-6 space-y-8">
+        {promoEligibility.canShow && promoCampaign ? (
+          <PromoBanner
+            campaign={promoCampaign}
+            onClick={triggerPromoPurchase}
+          />
+        ) : null}
+
         <section>
           <h2 className="text-sm font-semibold text-zinc-300 mb-3">
             {t.billing_recharge_title || 'Quick Recharge'}

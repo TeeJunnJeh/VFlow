@@ -45,6 +45,9 @@ interface FirstFrameHistoryItem {
 
 interface FirstFrameExampleTemplate {
   id: string;
+  titleKey?: string;
+  subtitleKey?: string;
+  promptKey?: string;
   title: string;
   subtitle: string;
   previewUrl: string;
@@ -96,6 +99,9 @@ const FIRST_FRAME_USER_EXAMPLE_LIMIT = 20;
 const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
   {
     id: 'person_selling_seeding',
+    titleKey: 'ff_example_person_selling_title',
+    subtitleKey: 'ff_example_person_selling_subtitle',
+    promptKey: 'ff_example_person_selling_prompt',
     title: '人物带货/种草',
     subtitle: '具有生活感的人物带货短视频开场',
     previewUrl: '/first-frame-examples/person_selling/result1.png',
@@ -117,6 +123,9 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
   },
   {
     id: 'product_showcase_bag',
+    titleKey: 'ff_example_product_showcase_title',
+    subtitleKey: 'ff_example_product_showcase_subtitle',
+    promptKey: 'ff_example_product_showcase_prompt',
     title: '纯商品展示',
     subtitle: '突出商品质感的展示开场',
     previewUrl: '/first-frame-examples/product_showcase/result1.jpg',
@@ -137,6 +146,9 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
   },
   {
     id: 'usage_demo_headphones',
+    titleKey: 'ff_example_usage_demo_title',
+    subtitleKey: 'ff_example_usage_demo_subtitle',
+    promptKey: 'ff_example_usage_demo_prompt',
     title: '使用场景演示',
     subtitle: '展示商品真实使用状态',
     previewUrl: '/first-frame-examples/usage_demo/result1.jpg',
@@ -158,6 +170,9 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
   },
   {
     id: 'brand_ad_skincare',
+    titleKey: 'ff_example_brand_ad_title',
+    subtitleKey: 'ff_example_brand_ad_subtitle',
+    promptKey: 'ff_example_brand_ad_prompt',
     title: '品牌广告大片',
     subtitle: '打造高级感品牌广告开场',
     previewUrl: '/first-frame-examples/brand_ad/result1.jpg',
@@ -387,9 +402,25 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const isGenerating = phase === 'generating' || isAsyncGenerating;
   const showFullScreenGenerating = phase === 'generating' && !isAsyncGenerating;
   const hasResults = results.length > 0;
+  const translateExampleText = useCallback((key: string | undefined, fallback?: string) => {
+    const fallbackText = String(fallback || '');
+    if (!key) return fallbackText;
+    const value = (t as Record<string, string | undefined>)[key];
+    return value || fallbackText;
+  }, [t]);
+
+  const builtInExampleTemplates = useMemo(
+    () => FIRST_FRAME_EXAMPLE_TEMPLATES.map((item) => ({
+      ...item,
+      title: translateExampleText(item.titleKey, item.title),
+      subtitle: translateExampleText(item.subtitleKey, item.subtitle),
+    })),
+    [translateExampleText]
+  );
+
   const firstFrameExamples = useMemo(
-    () => [...FIRST_FRAME_EXAMPLE_TEMPLATES, ...userExampleTemplates],
-    [userExampleTemplates]
+    () => [...builtInExampleTemplates, ...userExampleTemplates],
+    [builtInExampleTemplates, userExampleTemplates]
   );
 
   const refreshWorkspaceHistory = useCallback(async () => {
@@ -722,15 +753,22 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         });
         return;
       }
-      setImages(files);
-      setExampleParams(template.params);
-      setCurrentFormParams({
+      const promptForLanguage = template.isUserSnapshot
+        ? String(template.params.prompt || '')
+        : translateExampleText(template.promptKey, '');
+      const paramsForLanguage: FirstFrameParams = {
         ...template.params,
+        prompt: promptForLanguage || String(template.params.prompt || ''),
         model: 'nano-banana-pro',
+      };
+
+      setImages(files);
+      setExampleParams(paramsForLanguage);
+      setCurrentFormParams({
+        ...paramsForLanguage,
       });
       setResultParams({
-        ...template.params,
-        model: 'nano-banana-pro',
+        ...paramsForLanguage,
       });
       setResultCreatedAt('');
       setExampleApplyVersion((prev) => prev + 1);
@@ -757,7 +795,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       }
       setProgress(0);
       setLastElapsedSeconds(null);
-      setResultAspectRatio(template.params.aspectRatio || '9:16');
+      setResultAspectRatio(paramsForLanguage.aspectRatio || '9:16');
       setRightPanel('preview');
       setError(null);
       setPhase('form');
@@ -1541,7 +1579,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
 
                         <div className="absolute left-3 bottom-[62px] px-1 py-0.5">
-                          <div className="mb-1 text-[11px] font-normal leading-none text-white/80">输入素材</div>
+                          <div className="mb-1 text-[11px] font-normal leading-none text-white/80">{t.ff_examples_input_material || 'Input Materials'}</div>
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-2">
                               {inputThumbs.map((thumb, thumbIndex) => (
@@ -1558,7 +1596,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
                         <div className="absolute inset-x-4 bottom-3 pr-12">
                           <div className="text-sm font-extrabold text-white/95">{item.title}</div>
-                          <div className="mt-0.5 text-[11px] text-white/70 line-clamp-1">{item.subtitle}</div>
+                          <div className="mt-0.5 text-[11px] leading-snug text-white/70 whitespace-normal break-words">{item.subtitle}</div>
                         </div>
 
                         <span className="absolute right-3 bottom-3 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-transparent text-white transition duration-300 group-hover:scale-110">

@@ -6263,6 +6263,9 @@ export const translations = {
     ff_example_brand_ad_title: "Filem Iklan Jenama",
     ff_example_brand_ad_subtitle: "Cipta pembukaan iklan jenama yang premium",
     ff_example_brand_ad_prompt: "Seorang model muncul secara semula jadi sambil memegang produk penjagaan kulit, dengan solekan kemas dan produk ditonjolkan dengan jelas. Latar belakang bersih dan premium, pencahayaan lembut, dan keseluruhan imej menampilkan gaya iklan jenama penjagaan kulit berkualiti tinggi.",
+    ff_save_as_example: "Simpan Konfigurasi Semasa",
+    ff_save_as_example_desc: "Pulihkan bahan dan parameter dengan cepat pada masa akan datang",
+    ff_saving: "Menyimpan...",
 
     // Gallery Board Editor
     pg_board_opacity: "Kelegapan",
@@ -8347,6 +8350,9 @@ export const translations = {
     ff_example_brand_ad_title: "Phim quảng cáo thương hiệu",
     ff_example_brand_ad_subtitle: "Tạo cảnh mở đầu quảng cáo thương hiệu cao cấp",
     ff_example_brand_ad_prompt: "Một người mẫu xuất hiện tự nhiên khi cầm sản phẩm chăm sóc da, trang điểm tinh tế, sản phẩm được làm nổi bật rõ ràng. Nền sạch và cao cấp, ánh sáng mềm, tổng thể hình ảnh mang phong cách quảng cáo sản phẩm chăm sóc da chất lượng cao.",
+    ff_save_as_example: "Lưu cấu hình hiện tại",
+    ff_save_as_example_desc: "Khôi phục nhanh tư liệu và tham số vào lần sau",
+    ff_saving: "Đang lưu...",
 
     // Gallery Board Editor
     pg_board_opacity: "Độ mờ",
@@ -10423,6 +10429,9 @@ export const translations = {
     ff_example_brand_ad_title: "브랜드 광고 필름",
     ff_example_brand_ad_subtitle: "고급스러운 브랜드 광고 오프닝 만들기",
     ff_example_brand_ad_prompt: "모델이 스킨케어 제품을 자연스럽게 들고 등장하며, 메이크업은 세련되고 제품은 선명하게 강조된다. 배경은 깔끔하고 고급스러우며 조명은 부드럽고, 전체 이미지는 고품질 스킨케어 브랜드 광고 화면처럼 보인다.",
+    ff_save_as_example: "현재 구성 저장",
+    ff_save_as_example_desc: "다음에 소재와 매개변수를 빠르게 복원합니다",
+    ff_saving: "저장 중...",
 
     // Gallery Board Editor
     pg_board_opacity: "투명도",

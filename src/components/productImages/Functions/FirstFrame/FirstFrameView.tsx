@@ -1628,13 +1628,13 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                   onClick={() => void saveFirstFrameExampleSnapshot()}
                   disabled={isGenerating || isApplyingExample || isSavingExampleSnapshot}
                   className="group relative aspect-[4/3] w-[288px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
-                  title={isSavingExampleSnapshot ? (t.ff_saving || '保存中...') : undefined}
+                  title={isSavingExampleSnapshot ? (t.ff_saving || 'Saving...') : undefined}
                 >
                   <div className="relative h-full flex items-center justify-center gap-2 px-4">
                     <Save className="h-4 w-4 text-orange-300/90" />
                     <div>
-                      <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || '保存在当前配置'}</div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-2">{t.ff_save_as_example_desc || '下次可快速恢复素材与参数'}</div>
+                      <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || 'Save Current Configuration'}</div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-2">{t.ff_save_as_example_desc || 'Restore materials and parameters quickly next time'}</div>
                     </div>
                   </div>
                 </button>

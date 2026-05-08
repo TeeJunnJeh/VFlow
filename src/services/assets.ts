@@ -107,7 +107,7 @@ export interface PlazaCollectPolicy {
 
 export const assetsApi = {
   // 1. GET List
-  getAssets: async (params?: { type?: LibraryAssetType; folderId?: string | null }): Promise<Asset[]> => {
+  getAssets: async (params?: { type?: LibraryAssetType; folderId?: string | null; hasSeedanceId?: boolean }): Promise<Asset[]> => {
     try {
       return traceApiRequest({
         metricName: 'assets_list',
@@ -119,6 +119,7 @@ export const assetsApi = {
           if (params && 'folderId' in params) {
             search.set('folder_id', params.folderId ?? '');
           }
+          if (params?.hasSeedanceId) search.set('has_seedance_id', 'true');
           const query = search.toString();
           const response = await fetch(`${API_BASE_URL}/list/${query ? `?${query}` : ''}`, {
             method: 'GET',

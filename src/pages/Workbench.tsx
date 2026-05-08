@@ -34,6 +34,14 @@ class ViewErrorBoundary extends React.Component<
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
 import { AppDialog } from '../components/common/AppDialog';
 import { InviteRewardDialog } from '../components/common/InviteRewardDialog';
+import { PromoModal } from '../components/promo/PromoModal';
+import { PROMO_DEBUG_ALWAYS_SHOW, usePromoEligibility } from '../components/promo/usePromoEligibility';
+
+/**
+ * 当前主推的限时活动 ID。以后想换 / 加活动只要改这个常量（或扩成数组按优先级显示）。
+ * 配套图片放在 `public/promo-events/<id>/{modal.jpg,banner.png}`。
+ */
+const ACTIVE_PROMO_CAMPAIGN_ID = 'promo_39_9_598v';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
@@ -42,13 +50,71 @@ import { AgentView } from '../components/workbench/AgentView_v2';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
-import { ReplayScriptView, type ReplayReusePayload } from '../components/workbench/ReplayScriptView';
+import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
+import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
 import { Sidebar } from '../components/workbench/Sidebar';
 import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 import { normalizeThemeMode, type ThemeMode } from '../utils/theme';
+import { setMetaDescription } from '../utils/seo';
+
+const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
+  workbench: 'VFLOW AI - 工作台',
+  assets: 'VFLOW AI - 素材库',
+  product_images_clothing_swap: 'VFLOW AI - 商品图 - 换装',
+  product_images_first_frame: 'VFLOW AI - 商品图 - 首帧图',
+  product_images_smart_repair: 'VFLOW AI - 商品图 - 智能修复',
+  product_images_gallery: 'VFLOW AI - 商品图 - 商品套图',
+  product_images_text_separation: 'VFLOW AI - 商品图 - 文本分离',
+  creative_lab_replay: 'VFLOW AI - 创意实验室 - 爆款复刻',
+  creative_lab_script_extract: 'VFLOW AI - 创意实验室 - 脚本提取',
+  templates: 'VFLOW AI - 模板',
+  history: 'VFLOW AI - 历史记录',
+  agent: 'VFLOW AI - Agent',
+  editor: 'VFLOW AI - 模板编辑',
+  profile: 'VFLOW AI - 设置',
+  billing: 'VFLOW AI - 计费',
+};
+
+const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
+  workbench:
+    'Use the VFLOW AI workspace to generate product videos and images, manage assets and templates, monitor tasks in real time, and export results for publishing.',
+  assets:
+    'Manage your asset library—products, backgrounds, audio, and virtual models—and reuse them across workflows for faster generation and consistent branding.',
+  product_images_clothing_swap:
+    'AI Clothing Swap: upload a garment photo and apply it to a model or scene while preserving fabric details to create clean, shop-ready product visuals.',
+  product_images_first_frame:
+    'Generate a high-quality first-frame product image for video covers and ads. Control style, scene, composition, and resolution to match your brand and platform.',
+  product_images_smart_repair:
+    'Fix imperfect product photos with AI Smart Repair. Remove artifacts, improve clarity, and restore details while keeping the original look for natural listings.',
+  product_images_gallery:
+    'Create AI product photo sets with virtual models or local uploads. Define scenes, ratios, and styles, preview outputs, and export a consistent store gallery.',
+  product_images_text_separation:
+    'Extract clean text layers from product images for faster editing. Automatically separate captions, labels, and design elements while keeping backgrounds intact.',
+  creative_lab_replay:
+    'Use Creative Lab viral replay to select reference videos, product images, and virtual models, then generate Seedance-ready product ads with safe fallback paths.',
+  creative_lab_script_extract:
+    'Extract Seedance-ready advertising scripts from reference videos, including reusable structure, shot rhythm, style tags, and selling point suggestions.',
+  templates:
+    'Browse templates for TikTok/Reels ads. Customize scenes, scripts, style, and branding to generate product videos faster and consistently across channels.',
+  history:
+    'Review your generation history, preview outputs, download results, and track task status across videos and product images in a searchable timeline dashboard.',
+  agent:
+    'Use Agent tools to experiment with advanced workflows and debugging features inside VFLOW AI, designed for power users, testing, and internal iteration.',
+  editor:
+    'Edit templates in detail—scenes, scripts, timing, and assets—so you can build reusable workflows in VFLOW AI that match your brand and publishing needs.',
+  profile:
+    'Update your profile, preferences, and security options. Manage account settings and integrations to keep your VFLOW AI workspace configured the way you want.',
+  billing:
+    'View your plan, balance, invoices, and usage. Manage payments and understand how credits are consumed for video and product image generation in one place.',
+};
+
+const isWorkbenchViewType = (value: string | null | undefined): value is ViewType => (
+  typeof value === 'string'
+  && Object.prototype.hasOwnProperty.call(WORKBENCH_VIEW_TITLES, value)
+);
 
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
@@ -74,25 +140,52 @@ const getDisplayUrl = (path: string | null): string | null => {
 };
 
 const Workbench = () => {
-  const { user, justLoggedIn, consumeJustLoggedIn } = useAuth();
+  const { user, theme, setTheme, justLoggedIn, consumeJustLoggedIn, updateUser } = useAuth();
 
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
-  const [theme, setTheme] = useState<ThemeMode>(normalizeThemeMode(user?.theme, 'dark'));
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
+
+  // 限时活动包：默认点击 sidebar「计费」时若用户没买过且 24h 内没关掉，弹活动弹窗。
+  // 调试模式（PROMO_DEBUG_ALWAYS_SHOW=true）下：挂载即弹，且不受 24h 去抖约束；
+  // 但「买过」依然永远不弹（hook 内部 shouldShowModal 把住）。
+  const promoEligibility = usePromoEligibility(ACTIVE_PROMO_CAMPAIGN_ID);
+  const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
+  useEffect(() => {
+    if (!user || promoEligibility.loading) return;
+    if (!promoEligibility.shouldShowModal(user.id)) return;
+    if (!PROMO_DEBUG_ALWAYS_SHOW && activeView !== 'billing') return;
+    setIsPromoModalOpen(true);
+  }, [activeView, user, promoEligibility.loading, promoEligibility.shouldShowModal]);
+
+  useEffect(() => {
+    const nextTitle = WORKBENCH_VIEW_TITLES[activeView] || 'VFLOW AI - 工作台';
+    if (typeof document !== 'undefined' && document.title !== nextTitle) {
+      document.title = nextTitle;
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    const nextDesc = WORKBENCH_VIEW_DESCRIPTIONS[activeView] || WORKBENCH_VIEW_DESCRIPTIONS.workbench;
+    setMetaDescription(nextDesc);
+  }, [activeView]);
 
   // Post-login reward popup: triggered only when the user has just logged in in this session,
   // NOT when the session is restored via /api/auth/me/ on page reload.
   // Honors the per-user "don't show again" flag stored in localStorage.
   useEffect(() => {
     if (!justLoggedIn || !user) return;
+
     let dismissed = false;
     try {
       dismissed = localStorage.getItem(`invite_reward_dismissed_${user.id}`) === '1';
     } catch {
       // localStorage unavailable (private mode etc.) → fall back to showing the dialog
     }
-    if (!dismissed) setIsInviteRewardOpen(true);
+
+    const willShowInviteReward = !dismissed;
+    if (willShowInviteReward) setIsInviteRewardOpen(true);
+
     consumeJustLoggedIn();
   }, [justLoggedIn, user, consumeJustLoggedIn]);
 
@@ -104,6 +197,10 @@ const Workbench = () => {
       // best-effort: if storage fails, user will simply see the dialog again next login
     }
   };
+
+
+
+
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
@@ -127,14 +224,8 @@ const Workbench = () => {
   const [isDebugModeEnabled, setIsDebugModeEnabledState] = useState(getDebugModeEnabled());
   const [isDebugModeUpdating, setIsDebugModeUpdating] = useState(false);
   const [assetsNavigationIntent, setAssetsNavigationIntent] = useState<AssetsNavigationIntent>(null);
-  const [replayReusePayload, setReplayReusePayload] = useState<ReplayReusePayload | null>(null);
 
   // --- Effects ---
-  useEffect(() => {
-    if (!user?.theme) return;
-    setTheme((prev) => normalizeThemeMode(user.theme, prev));
-  }, [user?.theme]);
-
   useEffect(() => {
     let mounted = true;
     const syncDebugMode = async () => {
@@ -158,17 +249,6 @@ const Workbench = () => {
       mounted = false;
     };
   }, [user?.id]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const root = document.documentElement;
-    root.classList.toggle('theme-light', theme === 'light');
-    root.classList.remove('theme-dim');
-    return () => {
-      root.classList.remove('theme-dim');
-    };
-  }, [theme]);
 
   useEffect(() => {
     if (user?.id) loadTemplates();
@@ -266,6 +346,7 @@ const Workbench = () => {
   };
 
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const state = location.state as {
@@ -308,6 +389,36 @@ const Workbench = () => {
       window.history.replaceState({}, document.title, location.pathname);
     }
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const viewParam = params.get('view');
+    const shouldOpenPosterEditor = params.get('poster_editor') === '1';
+    const nextView: ViewType | null = isWorkbenchViewType(viewParam)
+      ? viewParam
+      : (shouldOpenPosterEditor ? 'product_images_gallery' : null);
+
+    if (!nextView) return;
+
+    setActiveView(nextView);
+
+    params.delete('view');
+    params.delete('poster_editor');
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true }
+    );
+
+    if (shouldOpenPosterEditor) {
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('vflow:open_poster_editor'));
+      }, 60);
+    }
+  }, [location.pathname, location.search, navigate]);
 
   // Listen for custom navigation events from child components (e.g. ImageHistoryPanel)
   useEffect(() => {
@@ -400,7 +511,7 @@ const Workbench = () => {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [infoTitle, setInfoTitle] = useState('');
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | 'replay_apply' | null>(null);
+  const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | null>(null);
   const [transferProjectName, setTransferProjectName] = useState<string | null>(null);
   const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.0' | null>(null);
 
@@ -531,28 +642,20 @@ const Workbench = () => {
               setGeneratedVideoUrl={setGeneratedVideoUrl}
               onExportToServer={handleExportToServer}
               onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
-              replayReusePayload={replayReusePayload}
-              onReplayReusePayloadHandled={() => setReplayReusePayload(null)}
             />
             </ViewErrorBoundary>
           </div>
 
-          <div className={activeView === 'replay_lab' ? 'flex-1 h-full min-h-0' : 'hidden'}>
-            <ReplayScriptView
-              onReuseToWorkbench={(payload) => {
-                if (payload.createNewProject) {
-                  setTransferRole('replay_apply');
-                  setTransferProjectName(String(payload.newProjectName || '').trim() || null);
-                  setTransferModel(null);
-                } else {
-                  setTransferRole(null);
-                  setTransferProjectName(null);
-                  setTransferModel(null);
-                }
-                setReplayReusePayload(payload);
-                setActiveView('workbench');
-              }}
-            />
+          <div className={activeView === 'creative_lab_replay' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="CreativeLabReplayView">
+              <CreativeLabReplayView />
+            </ViewErrorBoundary>
+          </div>
+
+          <div className={activeView === 'creative_lab_script_extract' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="CreativeLabScriptExtractView">
+              <CreativeLabScriptExtractView />
+            </ViewErrorBoundary>
           </div>
 
           {activeView === 'assets' && (
@@ -610,6 +713,28 @@ const Workbench = () => {
             onClose={() => setIsInviteRewardOpen(false)}
             onDismissPermanent={handleInviteRewardDismissPermanent}
           />
+
+          {promoEligibility.campaign && (
+            <PromoModal
+              isOpen={isPromoModalOpen}
+              campaign={promoEligibility.campaign}
+              onClose={() => {
+                setIsPromoModalOpen(false);
+                if (user) promoEligibility.markDismissed(user.id);
+              }}
+              onPurchase={() => {
+                setIsPromoModalOpen(false);
+                // 标记"本会话已通过弹窗跳到计费"——之后切到 billing 时弹窗不会再次弹
+                if (user) promoEligibility.markPurchaseNavigated(user.id);
+                // 跳到计费页 + 用 hash 通知 BillingView 触发抢购流程（避免 Workbench 直接持有充值逻辑）
+                setActiveView('billing');
+                if (typeof window !== 'undefined') {
+                  window.location.hash = `promo_purchase=${ACTIVE_PROMO_CAMPAIGN_ID}`;
+                }
+              }}
+            />
+          )}
+
 
           {isInfoOpen && (
             <AppDialog

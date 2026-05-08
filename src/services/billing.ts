@@ -18,10 +18,10 @@ export const billingApi = {
     });
   },
 
-  createRecharge: async (amount: number) => {
+  createRecharge: async (amount: number, campaignId?: string) => {
     return apiRequest(`${API_BASE_URL}/recharge/wechat/`, {
       method: 'POST',
-      body: { amount },
+      body: campaignId ? { amount, campaign_id: campaignId } : { amount },
       fallbackMessage: 'Recharge failed',
     });
   },

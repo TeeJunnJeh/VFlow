@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, X, CheckCircle2, AlertCircle, Check } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
@@ -45,6 +45,8 @@ const LoginPage = () => {
   const [isLoginSuccess, setIsLoginSuccess] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState('');
+  const [hasAcceptedAgreement, setHasAcceptedAgreement] = useState(false);
+  const [showAgreementError, setShowAgreementError] = useState(false);
 
   // 主表单上的"有邀请码？"输入，初始值取 sessionStorage（URL 捕获），允许用户手动粘贴/修改
   const [inlineInviteCode, setInlineInviteCode] = useState<string>(() => readPendingInviteCode());
@@ -157,8 +159,18 @@ const LoginPage = () => {
     }
   }, [countdown]);
 
+  const requireAgreement = () => {
+    if (hasAcceptedAgreement) {
+      setShowAgreementError(false);
+      return true;
+    }
+    setShowAgreementError(true);
+    return false;
+  };
+
   // --- 发送验证码处理 ---
   const handleSendCode = async () => {
+    if (!requireAgreement()) return;
     if (phone.length !== 11) {
       setError(t.login_error_invalid_phone);
       return;
@@ -180,6 +192,7 @@ const LoginPage = () => {
     e.preventDefault();
     if (isLoginSuccess) return;
     setError('');
+    if (!requireAgreement()) return;
 
     try {
       // 1. 标记正在提交 (这会防止下方的自动跳转拦截逻辑生效)
@@ -460,6 +473,38 @@ const LoginPage = () => {
                   </button>
                 </div>
               )}
+
+              <div className="pt-4">
+                <label className="group flex items-start gap-3 text-xs font-medium text-zinc-400 leading-5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={hasAcceptedAgreement}
+                    onChange={(e) => {
+                      setHasAcceptedAgreement(e.target.checked);
+                      if (e.target.checked) setShowAgreementError(false);
+                    }}
+                    className="peer sr-only"
+                  />
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-white/20 bg-white/[0.03] text-transparent transition-all duration-200 group-hover:border-violet-400/70 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-500/50 peer-checked:border-violet-400 peer-checked:bg-violet-500 peer-checked:text-white peer-checked:shadow-[0_0_14px_rgba(139,92,246,0.45)]">
+                    <Check className="h-3 w-3 stroke-[3]" />
+                  </span>
+                  <span>
+                    {t.login_agreement_checkbox_prefix}
+                    <a href="/terms-of-service" target="_blank" rel="noreferrer" className="text-violet-300 hover:text-violet-200 transition">
+                      <span aria-hidden="true">《</span>{t.login_agreement_user}<span aria-hidden="true">》</span>
+                    </a>
+                    {t.login_agreement_checkbox_connector}
+                    <a href="/privacy-policy" target="_blank" rel="noreferrer" className="text-violet-300 hover:text-violet-200 transition">
+                      <span aria-hidden="true">《</span>{t.login_agreement_privacy}<span aria-hidden="true">》</span>
+                    </a>
+                  </span>
+                </label>
+                {showAgreementError && (
+                  <div className="mt-1.5 pl-6 text-xs font-bold text-red-500">
+                    {t.login_agreement_required}
+                  </div>
+                )}
+              </div>
 
               <button
                   type="submit"

@@ -53,6 +53,30 @@ function buildPickerTypes(blob: Blob, filename: string): SavePickerAcceptOption[
   ];
 }
 
+/**
+ * Download a URL directly into the browser's download queue — no save-picker dialog.
+ * Fetches the resource as a Blob so the `download` attribute is honoured even for
+ * cross-origin URLs (requires the server to allow CORS on that resource).
+ * Falls back to a plain anchor-click if fetch fails.
+ */
+export async function downloadUrlDirectly(url: string, filename: string): Promise<void> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    downloadBlobInBrowser(blob, filename);
+  } catch {
+    // CORS / network failure — best-effort direct anchor (works same-origin)
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
+
 export async function saveBlobWithPickerFallback(blob: Blob, filename: string): Promise<void> {
   const win = window as SavePickerWindow;
   if (typeof win.showSaveFilePicker !== 'function') {

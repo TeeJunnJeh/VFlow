@@ -48,8 +48,15 @@ export type FirstFrameHoldingStyle =
 
 export type FirstFrameAspectRatio = 
   | '9:16'
+  | '16:9'
+  | '1:1'
+  | '3:2'
+  | '2:3'
+  | '3:4'
+  | '4:3'
   | '4:5'
-  | '1:1';
+  | '5:4'
+  | '21:9';
 
 export type FirstFrameStyle = 
   | 'authentic'
@@ -58,8 +65,10 @@ export type FirstFrameStyle =
   | 'clean';
 
 export type FirstFrameModel =
+  | 'nano-banana-pro'
   | 'flux-2-pro'
   | 'flux-2-flex'
+  | 'gpt-image-2'
   | 'gpt-image-1.5';
 
 export type FirstFrameWhitespace = 
@@ -68,8 +77,15 @@ export type FirstFrameWhitespace =
   | 'right'
   | 'none';
 
+export type FirstFrameOpeningScene =
+  | 'person_selling'
+  | 'product_showcase'
+  | 'usage_demo'
+  | 'brand_ad';
+
 export interface FirstFrameParams {
   prompt?: string;
+  openingScene?: FirstFrameOpeningScene;
   category?: FirstFrameCategory;
   personType?: FirstFramePersonType;
   holdingStyle?: FirstFrameHoldingStyle;
@@ -77,14 +93,21 @@ export interface FirstFrameParams {
   model?: FirstFrameModel;
   style?: FirstFrameStyle;
   textWhitespace?: FirstFrameWhitespace;
-  outputCount?: 1 | 2 | 4;
+  outputCount?: 1 | 2 | 3 | 4;
 }
 
 // ==================== 智能修复相关类型 ====================
 
+// Flux 文生图 API 实际支持 9 个比例（无 21:9）。前端类型保持与上游对齐，
+// 这样 SmartRepair picker 暴露的全集和 Flux 的支持范围一致。
 export type SmartRepairAspectRatio =
   | '1:1'
+  | '2:3'
+  | '3:2'
+  | '3:4'
+  | '4:3'
   | '4:5'
+  | '5:4'
   | '9:16'
   | '16:9';
 
@@ -108,13 +131,140 @@ export type SmartRepairToolCode =
   | 'text_replace'
   | 'custom_retouch';
 
+export type SmartRepairModel = 'flux-2-pro' | 'flux-2-max' | 'flux-2-flex' | 'flux-2-dev';
+
 export interface SmartRepairParams {
   prompt: string;
   aspectRatio?: SmartRepairAspectRatio;
   strength?: SmartRepairStrength;
-  outputCount?: 1 | 2 | 4;
+  outputCount?: 1 | 2 | 3 | 4;
   subpage?: SmartRepairSubpage;
   toolCode?: SmartRepairToolCode;
+  model?: SmartRepairModel;
+}
+
+export type SmartRepairPollStatus = 'created' | 'processing' | 'succeeded' | 'failed';
+
+export interface SmartRepairSubmissionItem {
+  requestId: string;
+  status: SmartRepairPollStatus;
+  sortOrder: number;
+  role: string;
+}
+
+export interface SmartRepairSubmission {
+  requests: SmartRepairSubmissionItem[];
+  historyRecordId: string;
+  cost: number;
+  balance: number;
+  model: string;
+}
+
+export interface SmartRepairPollResult {
+  requestId: string;
+  status: SmartRepairPollStatus;
+  imageUrl: string;
+  outputs: string[];
+  error: string;
+  historyRecordId: string;
+  assetId: number;
+  sortOrder: number;
+}
+
+export interface SmartRepairPendingItem {
+  requestId: string;
+  historyRecordId: string;
+  assetId: number;
+  sortOrder: number;
+  role: string;
+  submittedAt: number;
+  settings: SmartRepairParams & {
+    sourceImagePath?: string;
+    referenceImagePath?: string;
+    referenceAssetId?: string;
+    modelImagePath?: string;
+    modelAssetId?: string;
+    model?: string;
+  };
+}
+
+/**
+ * AI 智能修复 — 用户自加的 preset。
+ * 内置 presets 写死在前端 SmartRepairView，本接口只携带用户自加的。
+ * 单语：用户填的时候是哪个语言，切语言后展示同一份。
+ */
+export interface SmartRepairUserPreset {
+  id: string;
+  toolCode: SmartRepairToolCode;
+  subpage?: SmartRepairSubpage;
+  label: string;
+  prompt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ==================== AI 换装 (ClothingSwap) 相关类型 ====================
+
+export type ClothingSwapCategory = 'Top' | 'Bottom' | 'Full Body';
+
+export type ClothingSwapColor =
+  | 'Original'
+  | 'Red'
+  | 'Orange'
+  | 'Yellow'
+  | 'Green'
+  | 'Blue'
+  | 'Purple'
+  | 'Pink'
+  | 'Black'
+  | 'White';
+
+export type ClothingSwapBackground = 'model' | 'runway' | 'street' | 'white_wall' | 'custom' | 'background_image';
+
+export type ClothingSwapAspectRatio =
+  | '1:1'
+  | '2:3'
+  | '3:2'
+  | '3:4'
+  | '4:3'
+  | '4:5'
+  | '5:4'
+  | '9:16'
+  | '16:9'
+  | '21:9';
+
+export type ClothingSwapOutputCount = 1 | 2 | 3 | 4;
+
+export interface ClothingSwapParams {
+  category: ClothingSwapCategory;
+  targetColor?: ClothingSwapColor;
+  background?: ClothingSwapBackground;
+  aspectRatio?: ClothingSwapAspectRatio;
+  outputCount?: ClothingSwapOutputCount;
+  customBackgroundPrompt?: string;
+  backgroundImagePath?: string;
+}
+
+export interface ClothingSwapResult {
+  imageUrl: string;
+  imageUrls: string[];
+  downloadUrl: string;
+  feedback?: string;
+  taskId?: number | string;
+  projectId?: string;
+  cost?: number;
+  balance?: number;
+  model?: string;
+  outputImages: ProductImageResult[];
+}
+
+export interface ClothingSwapVideoResult {
+  videoUrl: string;
+  background: ClothingSwapBackground;
+  requestedAspectRatio?: ClothingSwapAspectRatio;
+  veoAspectRatio?: '16:9' | '9:16';
+  cropped?: boolean;
+  sourceVideoUrl?: string;
 }
 
 // ==================== 生成任务相关类型 ====================
@@ -146,6 +296,8 @@ export interface ProductImageResult {
   downloadUrl: string;
   category?: ImageCategory;
   format?: string;
+  generationStatus?: 'pending' | 'processing' | 'succeeded' | 'failed';
+  errorMessage?: string;
   metadata?: Record<string, any>;
   size?: number; // bytes
 }
@@ -195,6 +347,17 @@ export interface GenerationStatusResponse {
   id: string;
   status: GenerationStatus;
   progress: number;
+  isAsync?: boolean;
+  requests?: Array<{
+    requestId: string;
+    status: string;
+    outputIndex?: number;
+    sortOrder?: number;
+    frameRole?: string;
+    role?: string;
+  }>;
+  projectId?: string;
+  historyRecordId?: string;
   outputImages?: ProductImageResult[];
   errorMessage?: string;
   completedAt?: string;

@@ -1,0 +1,1 @@
+export { ClothingSwapView } from './ClothingSwapView';

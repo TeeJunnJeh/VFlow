@@ -40,6 +40,7 @@ export type InviteSummary = {
   invited_count: number;
   cap: number;
   reward_per_invite: number;
+  invitee_reward: number;
   is_capped: boolean;
   total_reward_earned: number;
 };
@@ -68,6 +69,7 @@ type InviteApplicationResponse = {
     inviter: InviterPreview | null;
   };
 };
+
 
 export const authApi = {
   // 1. Send Verification Code
@@ -239,5 +241,39 @@ export const authApi = {
       fallbackMessage: 'Failed to submit application',
     });
     return json.data;
+  },
+
+
+  /**
+   * 游客->登录瞬间，前端把 localStorage 工作台数据搬到 user-keyed 后调用一次。
+   * 仅做监督性记录（OpsLog），失败静默——不影响业务流程。
+   */
+  reportGuestToAuthPromote: async (payload: {
+    migrated: boolean;
+    reason?: string;
+    stats?: {
+      workspaceCount?: number;
+      projectCount?: number;
+      uploadedFileCount?: number;
+      totalScriptCount?: number;
+      totalAssetQueueCount?: number;
+    };
+    guestSessionStartedAt?: string;
+  }): Promise<void> => {
+    try {
+      await apiRequest(`${API_BASE_URL}/guest-to-auth-promote/`, {
+        method: 'POST',
+        body: {
+          migrated: payload.migrated,
+          reason: payload.reason || '',
+          stats: payload.stats || {},
+          guest_session_started_at: payload.guestSessionStartedAt || '',
+          user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+        },
+        fallbackMessage: 'guest_to_auth_promote_report_failed',
+      });
+    } catch {
+      // Best-effort logging — never block the UI on this.
+    }
   },
 };

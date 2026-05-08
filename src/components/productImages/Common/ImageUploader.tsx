@@ -26,6 +26,10 @@ interface ImageUploaderProps {
 const DEFAULT_ACCEPTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp'];
 const DEFAULT_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
+const areSameFiles = (left: File[], right: File[]) => (
+  left.length === right.length && left.every((file, index) => file === right[index])
+);
+
 export const ImageUploader: React.FC<ImageUploaderProps> = ({
   maxFiles = 1,
   maxFileSize = DEFAULT_MAX_FILE_SIZE,
@@ -49,7 +53,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
 
   useEffect(() => {
     if (!Array.isArray(value)) return;
-    setSelectedFiles(value);
+    setSelectedFiles((current) => (areSameFiles(current, value) ? current : value));
   }, [value]);
 
   /**
@@ -111,12 +115,11 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   useEffect(() => {
     let alive = true;
     if (selectedFiles.length === 0) {
-      setPreviews([]);
+      setPreviews((current) => (current.length === 0 ? current : []));
       return () => {
         alive = false;
       };
     }
-    setPreviews([]);
     void generatePreviews(selectedFiles).then((nextPreviews) => {
       if (alive) setPreviews(nextPreviews);
     });

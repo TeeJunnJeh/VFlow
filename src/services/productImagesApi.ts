@@ -776,6 +776,7 @@ export const productImagesApi = {
       projectId?: string;
       workspaceId?: string;
       clientHistoryId?: string;
+      backgroundImage?: ClothingSwapImageInput;
     }
   ): Promise<ClothingSwapResult> {
     if (!modelImage) {
@@ -785,9 +786,12 @@ export const productImagesApi = {
       throw new Error('Please upload a garment image first');
     }
 
-    const [modelImagePath, garmentImagePath] = await Promise.all([
+    const [modelImagePath, garmentImagePath, resolvedBackgroundImagePath] = await Promise.all([
       resolveClothingSwapImageInput(modelImage, 'Please upload a model image first'),
       resolveClothingSwapImageInput(garmentImage, 'Please upload a garment image first'),
+      params.background === 'background_image' && options?.backgroundImage
+        ? resolveClothingSwapImageInput(options.backgroundImage, 'Please upload a background image first')
+        : Promise.resolve(''),
     ]);
 
     const payload: Record<string, unknown> = {
@@ -799,6 +803,12 @@ export const productImagesApi = {
       aspect_ratio: params.aspectRatio || '1:1',
       output_count: params.outputCount || 1,
     };
+    if (params.background === 'custom') {
+      payload.custom_background_prompt = params.customBackgroundPrompt || '';
+    }
+    if (params.background === 'background_image') {
+      payload.background_image_path = resolvedBackgroundImagePath;
+    }
     if (options?.projectId) payload.project_id = options.projectId;
     if (options?.workspaceId) payload.workspace_id = options.workspaceId;
     if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
@@ -835,6 +845,8 @@ export const productImagesApi = {
       background: String(data?.data?.background || params.background || 'model'),
       aspectRatio: String(data?.data?.aspect_ratio || params.aspectRatio || '16:9'),
       outputCount: Number(data?.data?.output_count || params.outputCount || 1),
+      customBackgroundPrompt: String(data?.data?.custom_background_prompt ?? params.customBackgroundPrompt ?? ''),
+      backgroundImagePath: String(data?.data?.background_image_path || resolvedBackgroundImagePath || params.backgroundImagePath || ''),
     };
 
     const outputImages: ProductImageResult[] = displayUrls.map((url: string, index: number) => ({

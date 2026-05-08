@@ -60,6 +60,8 @@ interface ClothingSwapHistoryItem {
     background?: ClothingSwapBackground;
     aspectRatio?: ClothingSwapAspectRatio;
     outputCount?: ClothingSwapOutputCount;
+    customBackgroundPrompt?: string;
+    backgroundImagePath?: string;
   };
 }
 
@@ -95,11 +97,11 @@ type ClothingSwapInputSource = {
   assetId?: string;
 };
 
-type ClothingSwapPickerTarget = 'model' | 'garment';
-type ClothingSwapResultSettings = Partial<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>>;
+type ClothingSwapPickerTarget = 'model' | 'garment' | 'background';
+type ClothingSwapResultSettings = Partial<ClothingSwapParams>;
 
 const CS_VALID_ASPECT_RATIOS = new Set<string>(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']);
-const CS_VALID_BACKGROUNDS = new Set<string>(['model', 'runway', 'street', 'white_wall']);
+const CS_VALID_BACKGROUNDS = new Set<string>(['model', 'runway', 'street', 'white_wall', 'custom', 'background_image']);
 
 const normalizeClothingSwapAspectRatio = (value: unknown): ClothingSwapAspectRatio | undefined => {
   const normalized = String(value || '').trim().replace('：', ':');
@@ -118,13 +120,21 @@ const normalizeClothingSwapOutputCount = (value: unknown): ClothingSwapOutputCou
 
 const normalizeClothingSwapSettings = (settings?: Record<string, any> | null): ClothingSwapResultSettings => {
   if (!settings || typeof settings !== 'object') return {};
-  return {
-    category: settings.category as ClothingSwapCategory | undefined,
-    targetColor: (settings.targetColor || settings.target_color) as ClothingSwapColor | undefined,
-    background: normalizeClothingSwapBackground(settings.background),
-    aspectRatio: normalizeClothingSwapAspectRatio(settings.aspectRatio || settings.aspect_ratio),
-    outputCount: normalizeClothingSwapOutputCount(settings.outputCount || settings.output_count),
-  };
+  const normalized: ClothingSwapResultSettings = {};
+  if (settings.category) normalized.category = settings.category as ClothingSwapCategory;
+  if (settings.targetColor || settings.target_color) normalized.targetColor = (settings.targetColor || settings.target_color) as ClothingSwapColor;
+  const background = normalizeClothingSwapBackground(settings.background);
+  if (background) normalized.background = background;
+  const aspectRatio = normalizeClothingSwapAspectRatio(settings.aspectRatio || settings.aspect_ratio);
+  if (aspectRatio) normalized.aspectRatio = aspectRatio;
+  const outputCount = normalizeClothingSwapOutputCount(settings.outputCount || settings.output_count);
+  if (outputCount) normalized.outputCount = outputCount;
+  if (settings.customBackgroundPrompt != null || settings.custom_background_prompt != null) {
+    normalized.customBackgroundPrompt = String(settings.customBackgroundPrompt ?? settings.custom_background_prompt ?? '');
+  }
+  const backgroundImagePath = String(settings.backgroundImagePath || settings.background_image_path || '').trim();
+  if (backgroundImagePath) normalized.backgroundImagePath = backgroundImagePath;
+  return normalized;
 };
 
 const attachClothingSwapSettings = (images: ProductImageResult[], settings: ClothingSwapResultSettings): ProductImageResult[] => (
@@ -217,6 +227,8 @@ const mapImageHistoryToCsItem = (item: ImageHistoryItem): ClothingSwapHistoryIte
       background: settings.background as ClothingSwapBackground | undefined,
       aspectRatio: settings.aspectRatio as ClothingSwapAspectRatio | undefined,
       outputCount: settings.outputCount as ClothingSwapOutputCount | undefined,
+      customBackgroundPrompt: settings.customBackgroundPrompt,
+      backgroundImagePath: settings.backgroundImagePath,
     },
   } satisfies ClothingSwapHistoryItem;
 };
@@ -349,8 +361,11 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const [phase, setPhase] = useState<Phase>('upload');
   const [modelSource, setModelSource] = useState<ClothingSwapInputSource | null>(null);
   const [garmentSource, setGarmentSource] = useState<ClothingSwapInputSource | null>(null);
+  const [backgroundSource, setBackgroundSource] = useState<ClothingSwapInputSource | null>(null);
+  const [selectedBackgroundMode, setSelectedBackgroundMode] = useState<ClothingSwapBackground>('model');
   const [modelUploaderKey, setModelUploaderKey] = useState(0);
   const [garmentUploaderKey, setGarmentUploaderKey] = useState(0);
+  const [backgroundUploaderKey, setBackgroundUploaderKey] = useState(0);
   const [results, setResults] = useState<ProductImageResult[]>([]);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<ErrorInfo | null>(null);
@@ -373,10 +388,12 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const [generatingVideoIds, setGeneratingVideoIds] = useState<Set<string>>(new Set());
   const [lastGeneratedBackground, setLastGeneratedBackground] = useState<ClothingSwapBackground>('model');
   const [lastGeneratedAspectRatio, setLastGeneratedAspectRatio] = useState<ClothingSwapAspectRatio>('16:9');
+  const modelUploaderValue = useMemo(() => (modelSource?.file ? [modelSource.file] : []), [modelSource?.file]);
+  const garmentUploaderValue = useMemo(() => (garmentSource?.file ? [garmentSource.file] : []), [garmentSource?.file]);
+  const backgroundUploaderValue = useMemo(() => (backgroundSource?.file ? [backgroundSource.file] : []), [backgroundSource?.file]);
 
   const modelImage = modelSource?.file ?? null;
   const garmentImage = garmentSource?.file ?? null;
-
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressStartedAtRef = useRef<number | null>(null);
@@ -410,7 +427,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   useEffect(() => {
     let alive = true;
     const createdUrls: string[] = [];
-    const sourceUrls = [modelSource, garmentSource]
+    const sourceUrls = [modelSource, garmentSource, backgroundSource]
       .map((source) => {
         if (!source) return '';
         if (source.file) {
@@ -435,7 +452,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       alive = false;
       createdUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [modelSource, garmentSource]);
+  }, [modelSource, garmentSource, backgroundSource]);
 
   const clearProgressTimer = useCallback(() => {
     if (progressTimerRef.current) {
@@ -480,8 +497,17 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
     setResults([]);
   }, []);
 
+  const handleBackgroundImagesSelected = useCallback((files: File[]) => {
+    const file = files[0] || null;
+    setBackgroundSource(file ? { source: 'local', file, name: file.name } : null);
+    setRestoredParams(undefined);
+    setError(null);
+    setProgress(0);
+    setResults([]);
+  }, []);
+
   const handleGenerateFormSubmit = async (
-    params: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>>,
+    params: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>> & Pick<ClothingSwapParams, 'customBackgroundPrompt'>,
   ) => {
     if (!requireAuth()) return;
     if (!modelSource || !garmentSource) {
@@ -492,6 +518,28 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       });
       return;
     }
+    if (params.background === 'custom' && !String(params.customBackgroundPrompt || '').trim()) {
+      setError({
+        code: 'CUSTOM_BACKGROUND_REQUIRED',
+        message: (t as any).cs_custom_background_required || '请填写自定义背景',
+        severity: 'warning',
+      });
+      return;
+    }
+    if (params.background === 'background_image' && !backgroundSource) {
+      setError({
+        code: 'BACKGROUND_IMAGE_REQUIRED',
+        message: (t as any).cs_background_image_required || '请添加背景图',
+        severity: 'warning',
+      });
+      return;
+    }
+
+    const submittedParams: ClothingSwapParams = {
+      ...params,
+      customBackgroundPrompt: params.background === 'custom' ? params.customBackgroundPrompt : undefined,
+      backgroundImagePath: params.background === 'background_image' ? backgroundSource?.path : undefined,
+    };
 
     const runSeq = generationSeqRef.current + 1;
     generationSeqRef.current = runSeq;
@@ -501,8 +549,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       setRightPanel('preview');
       setError(null);
       setProgress(2);
-      setLastGeneratedBackground(params.background ?? 'model');
-      setLastGeneratedAspectRatio(params.aspectRatio ?? '16:9');
+      setLastGeneratedBackground(submittedParams.background ?? 'model');
+      setLastGeneratedAspectRatio(submittedParams.aspectRatio ?? '16:9');
       startProgressSimulation();
 
       const clientHistoryId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -512,8 +560,13 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       const response = await productImagesApi.generateClothingSwap(
         makeClothingSwapInput(modelSource),
         makeClothingSwapInput(garmentSource),
-        params,
-        { projectId, workspaceId, clientHistoryId },
+        submittedParams,
+        {
+          projectId,
+          workspaceId,
+          clientHistoryId,
+          backgroundImage: backgroundSource ? makeClothingSwapInput(backgroundSource) : undefined,
+        },
       );
 
       if (generationSeqRef.current !== runSeq) return;
@@ -523,7 +576,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       progressStartedAtRef.current = null;
 
       if (response && response.outputImages && response.outputImages.length > 0) {
-        setResults(attachClothingSwapSettings(response.outputImages, params));
+        setResults(attachClothingSwapSettings(response.outputImages, submittedParams));
         setResultSelectionKey(`generation:${workspaceId}:${Date.now()}`);
         await refreshWorkspaceHistory();
         notifyImageHistoryUpdated();
@@ -704,9 +757,23 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         background: item.settings.background,
         aspectRatio: item.settings.aspectRatio,
         outputCount: item.settings.outputCount,
+        customBackgroundPrompt: item.settings.customBackgroundPrompt,
+        backgroundImagePath: item.settings.backgroundImagePath,
       });
       setLastGeneratedBackground(item.settings.background ?? 'model');
       setLastGeneratedAspectRatio(item.settings.aspectRatio ?? '16:9');
+      setSelectedBackgroundMode(item.settings.background ?? 'model');
+      if (item.settings.backgroundImagePath) {
+        setBackgroundSource({
+          source: 'asset',
+          name: (t as any).cs_background_image_upload_title || '背景图',
+          path: item.settings.backgroundImagePath,
+          previewUrl: item.settings.backgroundImagePath,
+        });
+        setBackgroundUploaderKey((key) => key + 1);
+      } else if (item.settings.background !== 'background_image') {
+        setBackgroundSource(null);
+      }
     }
     setPhase('result');
     setProgress(100);
@@ -839,9 +906,11 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const resetUploaders = () => {
     setModelSource(null);
     setGarmentSource(null);
+    setBackgroundSource(null);
     setRestoredParams(undefined);
     setModelUploaderKey((k) => k + 1);
     setGarmentUploaderKey((k) => k + 1);
+    setBackgroundUploaderKey((k) => k + 1);
   };
 
   const handleOpenAssetPicker = (target: ClothingSwapPickerTarget) => {
@@ -851,7 +920,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const applySourceFromAsset = (target: ClothingSwapPickerTarget, asset: Asset) => {
     const next: ClothingSwapInputSource = {
       source: 'asset',
-      name: asset.name || (target === 'model' ? t.cs_upload_model_title : t.cs_upload_garment_title),
+      name: asset.name || (target === 'model' ? t.cs_upload_model_title : target === 'background' ? ((t as any).cs_background_image_upload_title || '背景图') : t.cs_upload_garment_title),
       path: asset.file_url,
       previewUrl: asset.thumbnail || asset.file_url,
       assetId: asset.id,
@@ -859,6 +928,9 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
     if (target === 'model') {
       setModelSource(next);
       setModelUploaderKey((k) => k + 1);
+    } else if (target === 'background') {
+      setBackgroundSource(next);
+      setBackgroundUploaderKey((k) => k + 1);
     } else {
       setGarmentSource(next);
       setGarmentUploaderKey((k) => k + 1);
@@ -884,8 +956,11 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
       ]);
       setModelSource({ source: 'example', file: modelFile, name: modelFile.name, previewUrl: CS_EXAMPLE_ASSETS.model });
       setGarmentSource({ source: 'example', file: garmentFile, name: garmentFile.name, previewUrl: CS_EXAMPLE_ASSETS.garment });
+      setBackgroundSource(null);
+      setSelectedBackgroundMode('model');
       setModelUploaderKey((k) => k + 1);
       setGarmentUploaderKey((k) => k + 1);
+      setBackgroundUploaderKey((k) => k + 1);
       setRestoredParams(CS_EXAMPLE_PARAMS);
       setPresetToken(Date.now());
       setResults([]);
@@ -904,12 +979,15 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
     title: string,
     source: ClothingSwapInputSource | null,
     uploaderKey: number,
+    uploaderValue: File[],
     onFilesSelected: (files: File[]) => void,
   ) => {
     const isAssetSource = !!source && !source.file;
     const pickerLabel = target === 'model'
       ? ((t as any).cs_select_model_from_library || '从素材库选择模特')
-      : ((t as any).cs_select_garment_from_library || '从素材库选择服装');
+      : target === 'background'
+        ? ((t as any).cs_select_background_from_library || '从图片素材选择背景图')
+        : ((t as any).cs_select_garment_from_library || '从素材库选择服装');
 
     return (
       <div>
@@ -946,6 +1024,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
                 type="button"
                 onClick={() => {
                   if (target === 'model') setModelSource(null);
+                  else if (target === 'background') setBackgroundSource(null);
                   else setGarmentSource(null);
                 }}
                 className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] font-bold text-zinc-300 transition hover:bg-white/10"
@@ -959,7 +1038,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
             key={`${workspaceId}-${target}-${uploaderKey}`}
             maxFiles={1}
             previewVariant="first-frame"
-            value={source?.file ? [source.file] : []}
+            value={uploaderValue}
             onFilesSelected={onFilesSelected}
             onError={(err) => setError({ code: 'UPLOAD_ERROR', message: err, severity: 'warning' })}
           />
@@ -985,7 +1064,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
           >
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">{t.cs_upload_materials}</h2>
-              {(modelImage || garmentImage) && (
+              {(modelSource || garmentSource || backgroundSource) && (
                 <button
                   type="button"
                   onClick={resetUploaders}
@@ -997,8 +1076,11 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
             </div>
 
             <div className="space-y-5">
-              {renderSourceInput('model', t.cs_upload_model_title, modelSource, modelUploaderKey, handleModelImagesSelected)}
-              {renderSourceInput('garment', t.cs_upload_garment_title, garmentSource, garmentUploaderKey, handleGarmentImagesSelected)}
+              {renderSourceInput('model', t.cs_upload_model_title, modelSource, modelUploaderKey, modelUploaderValue, handleModelImagesSelected)}
+              {renderSourceInput('garment', t.cs_upload_garment_title, garmentSource, garmentUploaderKey, garmentUploaderValue, handleGarmentImagesSelected)}
+              {selectedBackgroundMode === 'background_image'
+                ? renderSourceInput('background', (t as any).cs_background_image_upload_title || '背景图', backgroundSource, backgroundUploaderKey, backgroundUploaderValue, handleBackgroundImagesSelected)
+                : null}
             </div>
           </section>
 
@@ -1027,6 +1109,8 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
               garmentReady={!!garmentSource}
               workspaceId={workspaceId}
               isSubmitting={isGenerating}
+              backgroundImageReady={!!backgroundSource}
+              onBackgroundChange={setSelectedBackgroundMode}
               onSubmit={handleGenerateFormSubmit}
               onReset={handleResetLayout}
               defaultParams={restoredParams}
@@ -1207,14 +1291,20 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         multiple={false}
         selectedIds={assetPickerTarget === 'model'
           ? (modelSource?.assetId ? [modelSource.assetId] : [])
-          : (garmentSource?.assetId ? [garmentSource.assetId] : [])}
+          : assetPickerTarget === 'background'
+            ? (backgroundSource?.assetId ? [backgroundSource.assetId] : [])
+            : (garmentSource?.assetId ? [garmentSource.assetId] : [])}
         title={assetPickerTarget === 'model'
           ? ((t as any).cs_model_picker_title || '选择模特素材')
-          : ((t as any).cs_garment_picker_title || '选择服装素材')}
+          : assetPickerTarget === 'background'
+            ? ((t as any).cs_background_picker_title || '选择背景图')
+            : ((t as any).cs_garment_picker_title || '选择服装素材')}
         subtitle={(t as any).cs_asset_picker_desc || '可从素材库选择图片，或从本地上传并保存后直接使用。'}
         emptyLabel={assetPickerTarget === 'model'
           ? ((t as any).cs_model_picker_empty || '素材库里还没有模特图片')
-          : ((t as any).cs_garment_picker_empty || '素材库里还没有服装图片')}
+          : assetPickerTarget === 'background'
+            ? ((t as any).cs_background_picker_empty || '图片素材里还没有可用图片')
+            : ((t as any).cs_garment_picker_empty || '素材库里还没有服装图片')}
         requireSeedanceId={false}
         imageOnly
         autoSelectUploaded

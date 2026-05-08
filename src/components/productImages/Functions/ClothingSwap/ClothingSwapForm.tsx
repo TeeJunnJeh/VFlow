@@ -21,14 +21,18 @@ interface ClothingSwapFormProps {
   garmentReady?: boolean;
   workspaceId?: string;
   isSubmitting?: boolean;
-  onSubmit: (params: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>>) => Promise<void> | void;
+  backgroundImageReady?: boolean;
+  onBackgroundChange?: (background: ClothingSwapBackground) => void;
+  onSubmit: (params: ClothingSwapFormData) => Promise<void> | void;
   onReset: () => void;
   defaultParams?: Partial<ClothingSwapParams>;
   presetToken?: number;
 }
 
+type ClothingSwapFormData = Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>> & Pick<ClothingSwapParams, 'customBackgroundPrompt'>;
+
 const CATEGORIES: ClothingSwapCategory[] = ['Top', 'Bottom', 'Full Body'];
-const BACKGROUNDS: ClothingSwapBackground[] = ['model', 'runway', 'street', 'white_wall'];
+const BACKGROUNDS: ClothingSwapBackground[] = ['model', 'runway', 'street', 'white_wall', 'custom', 'background_image'];
 const OUTPUT_COUNTS: ClothingSwapOutputCount[] = [1, 2, 3, 4];
 
 interface ColorChoice {
@@ -55,12 +59,13 @@ const colorSwatchStyle = (hex: string): React.CSSProperties => ({
 
 const PRICING_MODEL_SLUG = 'gemini-2.5-flash-image';
 
-const FALLBACK: Required<Pick<ClothingSwapParams, 'category' | 'targetColor' | 'background' | 'aspectRatio' | 'outputCount'>> = {
+const FALLBACK: ClothingSwapFormData = {
   category: 'Top',
   targetColor: 'Original',
   background: 'model',
   aspectRatio: '16:9',
   outputCount: 1,
+  customBackgroundPrompt: '',
 };
 
 const VIDEO_NATIVE_RATIOS = new Set<string>(['16:9', '9:16']);
@@ -77,6 +82,8 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
   garmentReady,
   workspaceId,
   isSubmitting = false,
+  backgroundImageReady = false,
+  onBackgroundChange,
   onSubmit,
   onReset,
   defaultParams,
@@ -88,7 +95,8 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
   const mergedDefaults = useMemo(() => ({
     ...FALLBACK,
     ...(defaultParams || {}),
-  }) as typeof FALLBACK, [defaultParams]);
+    customBackgroundPrompt: defaultParams?.customBackgroundPrompt || '',
+  }) as ClothingSwapFormData, [defaultParams]);
 
   const [formData, setFormData] = useState<typeof FALLBACK>(() => {
     const base = { ...mergedDefaults };
@@ -128,6 +136,10 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
   }, [mergedDefaults, presetToken]);
 
   useEffect(() => {
+    onBackgroundChange?.(formData.background);
+  }, [formData.background, onBackgroundChange]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(formData));
     } catch {
@@ -164,7 +176,9 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
     if (key === 'model') return t.cs_bg_model;
     if (key === 'runway') return t.cs_bg_runway;
     if (key === 'street') return t.cs_bg_street;
-    return t.cs_bg_white_wall;
+    if (key === 'white_wall') return t.cs_bg_white_wall;
+    if (key === 'custom') return (t as any).cs_bg_custom || 'Custom';
+    return (t as any).cs_bg_background_image || 'Add background image';
   }, [t]);
 
   const colorLabel = useCallback((key: ClothingSwapColor): string => {
@@ -183,7 +197,9 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
     return map[key] || key;
   }, [t]);
 
-  const canSubmit = (modelReady ?? !!modelImage) && (garmentReady ?? !!garmentImage) && !isSubmitting;
+  const customBackgroundReady = formData.background !== 'custom' || String(formData.customBackgroundPrompt || '').trim().length > 0;
+  const selectedBackgroundImageReady = formData.background !== 'background_image' || backgroundImageReady;
+  const canSubmit = (modelReady ?? !!modelImage) && (garmentReady ?? !!garmentImage) && customBackgroundReady && selectedBackgroundImageReady && !isSubmitting;
 
   const ratioOptionHints = useMemo(() => {
     const hint = (t as any).cs_ratio_video_crop_warning || 'Video may be cropped';
@@ -250,7 +266,7 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
               <button
                 key={item}
                 type="button"
-                onClick={() => setFormData({ ...formData, background: item })}
+                onClick={() => setFormData({ ...formData, background: item, customBackgroundPrompt: item === 'custom' ? formData.customBackgroundPrompt : '' })}
                 className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${
                   formData.background === item
                     ? 'border-orange-500/60 bg-orange-500/10 text-orange-200'
@@ -261,6 +277,31 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
               </button>
             ))}
           </div>
+          {formData.background === 'custom' && (
+            <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+              <label className="mb-1.5 block text-xs font-semibold text-zinc-300">
+                {(t as any).cs_custom_background_label || 'Custom background'}
+              </label>
+              <textarea
+                value={formData.customBackgroundPrompt || ''}
+                onChange={(e) => setFormData({ ...formData, customBackgroundPrompt: e.target.value })}
+                maxLength={240}
+                rows={3}
+                className="w-full resize-none rounded-lg border border-white/10 bg-zinc-950/80 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+                placeholder={(t as any).cs_custom_background_placeholder || 'Describe the background you want'}
+              />
+              {!customBackgroundReady ? (
+                <p className="mt-2 text-xs text-amber-300">{(t as any).cs_custom_background_required || 'Please enter a custom background.'}</p>
+              ) : null}
+            </div>
+          )}
+          {formData.background === 'background_image' && (
+            <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-zinc-400">
+              {backgroundImageReady
+                ? ((t as any).cs_background_image_ready || 'Background image selected.')
+                : ((t as any).cs_background_image_required || 'Please add a background image in the materials panel.')}
+            </div>
+          )}
         </div>
 
         {/* Aspect ratio */}

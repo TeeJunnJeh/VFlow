@@ -4,14 +4,12 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, Download, Eye, Library, Play, Sparkles, UploadCloud } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Library, Sparkles, UploadCloud } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { ImageUploader } from '../../Common/ImageUploader';
 import { ClothingSwapForm } from './ClothingSwapForm';
 import { ClothingSwapResult } from './ClothingSwapResult';
-import { ClothingSwapVideoPlayer } from './ClothingSwapVideoPlayer';
 import ResizableSplitter from '../../../common/ResizableSplitter';
-import { AppDialog } from '../../../common/AppDialog';
 import { CreativeAssetPickerDialog } from '../../../creativeLab/CreativeAssetPickerDialog';
 import { LoadingProgress } from '../../Common/LoadingProgress';
 import { ErrorDialog, type ErrorInfo } from '../../Common/ErrorDialog';
@@ -243,122 +241,85 @@ const fetchPublicImageAsFile = async (url: string, filename: string): Promise<Fi
 interface ClothingSwapExampleFlowProps {
   t: Record<string, any>;
   onUseExample: () => void;
-  onOpenExample: () => void;
-  onDownloadExampleVideo: () => void;
 }
 
-const ClothingSwapExampleFlow: React.FC<ClothingSwapExampleFlowProps> = ({ t, onUseExample, onOpenExample, onDownloadExampleVideo }) => {
-  const chips = [
-    t.cs_category_top || 'Top',
-    t.cs_color_red || 'Red',
-    '16:9',
-    `${t.cs_output_count_label || 'Output count'} 3`,
-  ];
+const ClothingSwapExampleFlow: React.FC<ClothingSwapExampleFlowProps> = ({ t, onUseExample }) => {
+  const stepCardClassName = 'flex h-full min-h-[172px] flex-col rounded-xl border border-white/10 bg-black/20 p-3';
+  const stepTitleClassName = 'mb-2 flex items-center gap-2 text-xs font-black text-orange-200';
+  const stepNumberClassName = 'flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] text-black';
+  const mediaFrameClassName = 'relative aspect-video w-full overflow-hidden rounded-lg bg-zinc-950';
 
   return (
     <section className="shrink-0 rounded-2xl border border-orange-500/15 bg-gradient-to-r from-white/[0.065] via-white/[0.04] to-white/[0.025] p-4 shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch xl:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-500/15 text-orange-300">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div>
-                <h3 className="text-sm font-black text-zinc-100">{(t as any).cs_example_flow_title || '示例流程'}</h3>
-                <p className="mt-0.5 text-xs text-zinc-400">{(t as any).cs_example_flow_desc || '上传人像与服装，生成试穿图，并一键生成展示视频'}</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {chips.map((chip) => (
-                <span key={chip} className="rounded-full border border-orange-400/20 bg-orange-500/10 px-2.5 py-1 text-[11px] font-bold text-orange-200">
-                  {chip}
-                </span>
-              ))}
-            </div>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-500/15 text-orange-300">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-sm font-black text-zinc-100">{(t as any).cs_example_flow_title || '示例流程'}</h3>
+            <p className="mt-0.5 text-xs text-zinc-400">{(t as any).cs_example_flow_desc || '上传人像与服装，生成试穿图，并一键生成展示视频'}</p>
           </div>
+        </div>
+        <button
+          type="button"
+          onClick={onUseExample}
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-xs font-black text-black transition hover:bg-orange-400"
+        >
+          <UploadCloud className="h-4 w-4" />
+          {(t as any).cs_use_example_assets || '使用示例素材'}
+        </button>
+      </div>
 
-          <div className="grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr] lg:items-center">
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-black text-orange-200">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] text-black">1</span>
-                {(t as any).cs_example_step_upload || '上传素材'}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-stretch">
+        <div className={stepCardClassName}>
+          <div className={stepTitleClassName}>
+            <span className={stepNumberClassName}>1</span>
+            {(t as any).cs_example_step_upload || '上传素材'}
+          </div>
+          <div className={mediaFrameClassName}>
+            <div className="grid h-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 p-2">
+              <div className="min-w-0 overflow-hidden rounded-md bg-black">
+                <img src={CS_EXAMPLE_ASSETS.model} alt="model example" className="h-full w-full object-cover" />
               </div>
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                <div>
-                  <img src={CS_EXAMPLE_ASSETS.model} alt="model example" className="aspect-square w-full rounded-lg object-cover" />
-                  <div className="mt-1 text-center text-[10px] text-zinc-400">{t.cs_upload_model_title}</div>
-                </div>
-                <span className="text-lg font-black text-zinc-300">+</span>
-                <div>
-                  <img src={CS_EXAMPLE_ASSETS.garment} alt="garment example" className="aspect-square w-full rounded-lg object-cover" />
-                  <div className="mt-1 text-center text-[10px] text-zinc-400">{t.cs_upload_garment_title}</div>
-                </div>
-              </div>
-            </div>
-
-            <ArrowRight className="hidden h-5 w-5 text-orange-300/80 lg:block" />
-
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-black text-orange-200">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] text-black">2</span>
-                {(t as any).cs_example_step_generate || '生成试穿图'}
-              </div>
-              <img src={CS_EXAMPLE_ASSETS.result} alt="clothing swap result example" className="mx-auto aspect-[16/9] max-h-28 rounded-lg object-cover" />
-            </div>
-
-            <ArrowRight className="hidden h-5 w-5 text-orange-300/80 lg:block" />
-
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-black text-orange-200">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[11px] text-black">3</span>
-                {(t as any).cs_example_step_video || '一键生成视频'}
-              </div>
-              <div className="relative overflow-hidden rounded-lg bg-black">
-                <video src={CS_EXAMPLE_ASSETS.video} className="aspect-video w-full object-cover" muted loop playsInline preload="metadata" disableRemotePlayback />
-                <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
-                  <Play className="h-7 w-7 fill-white/80" />
-                </span>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={onOpenExample}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-zinc-200 transition hover:bg-white/10"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  {(t as any).cs_preview_tab || '预览'}
-                </button>
-                <button
-                  type="button"
-                  onClick={onDownloadExampleVideo}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-zinc-200 transition hover:bg-white/10"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  {(t as any).cs_download_video || '下载视频'}
-                </button>
+              <span className="flex items-center text-lg font-black text-zinc-300">+</span>
+              <div className="min-w-0 overflow-hidden rounded-md bg-black">
+                <img src={CS_EXAMPLE_ASSETS.garment} alt="garment example" className="h-full w-full object-cover" />
               </div>
             </div>
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-row gap-2 xl:w-44 xl:flex-col xl:justify-center xl:items-center xl:gap-4">
-          <button
-            type="button"
-            onClick={onUseExample}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-xs font-black text-black transition hover:bg-orange-400"
-          >
-            <UploadCloud className="h-4 w-4" />
-            {(t as any).cs_use_example_assets || '使用示例素材'}
-          </button>
-          <button
-            type="button"
-            onClick={onOpenExample}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-zinc-200 transition hover:bg-white/10"
-          >
-            <Eye className="h-4 w-4" />
-            {(t as any).cs_view_full_example || '查看完整示例'}
-          </button>
+        <ArrowRight className="hidden h-5 w-5 self-center text-orange-300/80 lg:block" />
+
+        <div className={stepCardClassName}>
+          <div className={stepTitleClassName}>
+            <span className={stepNumberClassName}>2</span>
+            {(t as any).cs_example_step_generate || '生成试穿图'}
+          </div>
+          <div className={mediaFrameClassName}>
+            <img src={CS_EXAMPLE_ASSETS.result} alt="clothing swap result example" className="h-full w-full object-cover" />
+          </div>
+        </div>
+
+        <ArrowRight className="hidden h-5 w-5 self-center text-orange-300/80 lg:block" />
+
+        <div className={stepCardClassName}>
+          <div className={stepTitleClassName}>
+            <span className={stepNumberClassName}>3</span>
+            {(t as any).cs_example_step_video || '一键生成视频'}
+          </div>
+          <div className={mediaFrameClassName}>
+            <video
+              src={CS_EXAMPLE_ASSETS.video}
+              className="h-full w-full object-cover"
+              controls
+              muted
+              loop
+              playsInline
+              preload="metadata"
+            />
+          </div>
         </div>
       </div>
     </section>
@@ -400,7 +361,6 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
   const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
   const [assetPickerTarget, setAssetPickerTarget] = useState<ClothingSwapPickerTarget | null>(null);
-  const [isExamplePreviewOpen, setIsExamplePreviewOpen] = useState(false);
   const [presetToken, setPresetToken] = useState(0);
   // ── video state ──────────────────────────────────────────────────────────────
   const [videoMap, setVideoMap] = useState<Record<string, string>>(() => {
@@ -939,10 +899,6 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
     }
   };
 
-  const handleDownloadExampleVideo = useCallback(() => {
-    void downloadUrlDirectly(CS_EXAMPLE_ASSETS.video, 'ai_clothing_swap_example_video.mp4');
-  }, []);
-
   const renderSourceInput = (
     target: ClothingSwapPickerTarget,
     title: string,
@@ -1019,8 +975,6 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
           <ClothingSwapExampleFlow
             t={t as any}
             onUseExample={() => void handleUseExampleAssets()}
-            onOpenExample={() => setIsExamplePreviewOpen(true)}
-            onDownloadExampleVideo={handleDownloadExampleVideo}
           />
 
         <div ref={containerRef} className="relative flex min-h-[720px] flex-1 items-stretch overflow-hidden">
@@ -1267,67 +1221,6 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
         onConfirm={handleAssetPickerConfirm}
         onClose={() => setAssetPickerTarget(null)}
       />
-
-      <AppDialog
-        isOpen={isExamplePreviewOpen}
-        title={(t as any).cs_full_example_title || '完整示例'}
-        onClose={() => setIsExamplePreviewOpen(false)}
-        widthClassName="max-w-5xl"
-        footer={(
-          <>
-            <button
-              type="button"
-              onClick={handleDownloadExampleVideo}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-200 transition hover:bg-white/10"
-            >
-              <Download className="h-4 w-4" />
-              {t.cs_download_video || '下载视频'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsExamplePreviewOpen(false)}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-200 transition hover:bg-white/10"
-            >
-              {t.wb_guide_close || '关闭'}
-            </button>
-          </>
-        )}
-      >
-        <div className="grid gap-4 lg:grid-cols-[0.75fr_1.25fr]">
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-                <img src={CS_EXAMPLE_ASSETS.model} alt="model example" className="aspect-square w-full rounded-lg object-cover" />
-                <div className="mt-2 text-center text-xs font-bold text-zinc-300">{t.cs_upload_model_title}</div>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-                <img src={CS_EXAMPLE_ASSETS.garment} alt="garment example" className="aspect-square w-full rounded-lg object-cover" />
-                <div className="mt-2 text-center text-xs font-bold text-zinc-300">{t.cs_upload_garment_title}</div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-3 text-xs text-orange-100">
-              <div className="mb-2 font-black">{(t as any).cs_example_settings || '示例设置'}</div>
-              <div className="flex flex-wrap gap-1.5">
-                {[t.cs_category_top, t.cs_color_red, '16:9', `${t.cs_output_count_label} 3`].map((label) => (
-                  <span key={label} className="rounded-full border border-orange-400/30 bg-black/20 px-2.5 py-1 font-bold">{label}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-              <img src={CS_EXAMPLE_ASSETS.result} alt="clothing swap result example" className="mx-auto max-h-[58vh] rounded-lg object-contain" />
-            </div>
-            <div className="rounded-xl border border-white/10 bg-black/20 p-2">
-              <ClothingSwapVideoPlayer
-                src={CS_EXAMPLE_ASSETS.video}
-                className="h-full min-h-[280px] w-full rounded-lg bg-black object-contain"
-                videoClassName="min-h-[280px]"
-              />
-            </div>
-          </div>
-        </div>
-      </AppDialog>
     </>
   );
 };

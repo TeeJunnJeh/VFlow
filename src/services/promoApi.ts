@@ -26,6 +26,14 @@ export interface PromoCampaign {
   ctaTextEn: string;
   purchaseLimitPerUser: number;
   purchasedCount: number;
+  /** 全局售卖上限；null = 不限 */
+  totalLimit: number | null;
+  /** 全局已售出（仅算 PAID） */
+  soldCount: number;
+  /** 剩余库存；null = 不限 */
+  remaining: number | null;
+  /** 是否已售罄 */
+  isSoldOut: boolean;
   canPurchase: boolean;
 }
 
@@ -43,10 +51,16 @@ interface RawPromoCampaign {
   cta_text_en?: unknown;
   purchase_limit_per_user?: unknown;
   purchased_count?: unknown;
+  total_limit?: unknown;
+  sold_count?: unknown;
+  remaining?: unknown;
+  is_sold_out?: unknown;
   can_purchase?: unknown;
 }
 
 function normalize(raw: RawPromoCampaign): PromoCampaign {
+  const totalLimit = raw.total_limit == null ? null : Number(raw.total_limit);
+  const remaining = raw.remaining == null ? null : Number(raw.remaining);
   return {
     id: String(raw.id || ''),
     name: String(raw.name || ''),
@@ -61,6 +75,10 @@ function normalize(raw: RawPromoCampaign): PromoCampaign {
     ctaTextEn: String(raw.cta_text_en || 'Grab Now'),
     purchaseLimitPerUser: Number(raw.purchase_limit_per_user || 1),
     purchasedCount: Number(raw.purchased_count || 0),
+    totalLimit: Number.isFinite(totalLimit) ? (totalLimit as number) : null,
+    soldCount: Number(raw.sold_count || 0),
+    remaining: Number.isFinite(remaining) ? (remaining as number) : null,
+    isSoldOut: Boolean(raw.is_sold_out),
     canPurchase: Boolean(raw.can_purchase),
   };
 }

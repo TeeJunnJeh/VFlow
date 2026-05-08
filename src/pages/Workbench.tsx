@@ -839,6 +839,8 @@ const Workbench = () => {
               }}
               onPurchase={() => {
                 setIsPromoModalOpen(false);
+                // 标记"本会话已通过弹窗跳到计费"——之后切到 billing 时弹窗不会再次弹
+                if (user) promoEligibility.markPurchaseNavigated(user.id);
                 // 跳到计费页 + 用 hash 通知 BillingView 触发抢购流程（避免 Workbench 直接持有充值逻辑）
                 setActiveView('billing');
                 if (typeof window !== 'undefined') {

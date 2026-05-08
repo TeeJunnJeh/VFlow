@@ -19,15 +19,20 @@ const DISMISS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const dismissKey = (campaignId: string, userId: string | number) =>
   `promo_dismissed_${campaignId}_${userId}`;
 
+const sessionNavigatedKey = (campaignId: string, userId: string | number) =>
+  `promo_session_navigated_${campaignId}_${userId}`;
+
 interface UsePromoEligibilityResult {
   campaign: PromoCampaign | null;
   loading: boolean;
   /** banner 是否应该显示（活动活跃 + 用户没买完限购） */
   canShow: boolean;
-  /** 弹窗是否应该弹（叠加 24 小时去抖） */
+  /** 弹窗是否应该弹（叠加 24 小时去抖 + 本会话点过立即抢购则不再弹） */
   shouldShowModal: (userId: string | number) => boolean;
-  /** 用户点 X 关闭后调用：写时间戳 */
+  /** 用户点 X 关闭后调用：写时间戳，触发 24 小时去抖 */
   markDismissed: (userId: string | number) => void;
+  /** 用户点立即抢购跳到计费页时调用：写本会话标记，整个 session 内不再弹 */
+  markPurchaseNavigated: (userId: string | number) => void;
   /** 强制刷新（购买成功后调用，让 banner / 弹窗状态及时更新） */
   refresh: () => Promise<void>;
 }
@@ -83,19 +88,46 @@ export function usePromoEligibility(campaignId: string): UsePromoEligibilityResu
     [campaignId],
   );
 
-  // banner / 弹窗的"是否能展示"统一靠 campaign.canPurchase（后端给的）：
-  // 用户买过 → can_purchase=false → 弹窗 + banner 永久消失。
-  // 这条逻辑在调试模式下也保留——只是去掉 24h 去抖。
-  const canShow = !!campaign && campaign.canPurchase;
+  const isPurchaseNavigatedInSession = useCallback(
+    (userId: string | number) => {
+      if (typeof window === 'undefined') return false;
+      try {
+        return window.sessionStorage.getItem(sessionNavigatedKey(campaignId, userId)) === '1';
+      } catch {
+        return false;
+      }
+    },
+    [campaignId],
+  );
+
+  const markPurchaseNavigated = useCallback(
+    (userId: string | number) => {
+      if (typeof window === 'undefined') return;
+      try {
+        window.sessionStorage.setItem(sessionNavigatedKey(campaignId, userId), '1');
+      } catch {
+        // sessionStorage 不可用（隐私模式）；什么都不做
+      }
+    },
+    [campaignId],
+  );
+
+  // banner 是否应该显示：
+  // - 可购买（`canPurchase=true`）→ 显示正常版（用户没买过 + 全局未售罄 + 活跃）
+  // - 全局售罄（`isSoldOut=true`）→ 仍显示，banner 内部渲染为灰版"已售罄"
+  // - 用户已购买（`canPurchase=false && isSoldOut=false`）→ 不再显示
+  const canShow = !!campaign && (campaign.canPurchase || campaign.isSoldOut);
 
   const shouldShowModal = useCallback(
     (userId: string | number) => {
       if (!campaign || !campaign.canPurchase) return false;
       if (PROMO_DEBUG_ALWAYS_SHOW) return true;
+      // 本会话内已通过弹窗"立即抢购"跳过计费 → 整个 session 内不再弹
+      if (isPurchaseNavigatedInSession(userId)) return false;
       return !isDismissedRecently(userId);
     },
-    [campaign, isDismissedRecently],
+    [campaign, isDismissedRecently, isPurchaseNavigatedInSession],
   );
 
-  return { campaign, loading, canShow, shouldShowModal, markDismissed, refresh };
+  return { campaign, loading, canShow, shouldShowModal, markDismissed, markPurchaseNavigated, refresh };
 }

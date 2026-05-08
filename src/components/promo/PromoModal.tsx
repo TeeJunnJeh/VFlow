@@ -31,7 +31,7 @@ export const PromoModal: React.FC<PromoModalProps> = ({ isOpen, campaign, onClos
 
   return (
     <div
-      className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6"
+      className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-6"
       onClick={onClose}
       role="dialog"
       aria-label={campaign.name}

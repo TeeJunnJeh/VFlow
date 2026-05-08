@@ -129,29 +129,6 @@ type WorkbenchApplyOptions = {
 };
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 
-const MAYDAY_CHECKIN_TZ = 'Asia/Shanghai';
-const MAYDAY_CHECKIN_START_YMD = '2026-05-01';
-const MAYDAY_CHECKIN_END_YMD = '2026-05-05';
-const MAYDAY_CHECKIN_REWARD = 300;
-
-const getBeijingYmd = (date: Date = new Date()): string => {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: MAYDAY_CHECKIN_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-
-  const y = parts.find((p) => p.type === 'year')?.value || '1970';
-  const m = parts.find((p) => p.type === 'month')?.value || '01';
-  const d = parts.find((p) => p.type === 'day')?.value || '01';
-  return `${y}-${m}-${d}`;
-};
-
-const isMaydayCheckinWindowActive = (ymd: string): boolean => {
-  return ymd >= MAYDAY_CHECKIN_START_YMD && ymd <= MAYDAY_CHECKIN_END_YMD;
-};
-
 // Helper to get display URL for asset passing
 const getDisplayUrl = (path: string | null): string | null => {
   if (!path) return null;
@@ -168,14 +145,6 @@ const Workbench = () => {
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
-  const [isMaydayCheckinOpen, setIsMaydayCheckinOpen] = useState(false);
-  const [maydayCheckinPendingOpen, setMaydayCheckinPendingOpen] = useState(false);
-  const [maydayCheckinLoading, setMaydayCheckinLoading] = useState(false);
-  const [maydayCheckinActionLoading, setMaydayCheckinActionLoading] = useState(false);
-  const [maydayCheckinError, setMaydayCheckinError] = useState('');
-  const [maydayCheckinTodayYmd, setMaydayCheckinTodayYmd] = useState<string>('');
-  const [maydayCheckedInToday, setMaydayCheckedInToday] = useState(false);
-  const [maydayRewarded, setMaydayRewarded] = useState<number | null>(null);
 
   // 限时活动包：默认点击 sidebar「计费」时若用户没买过且 24h 内没关掉，弹活动弹窗。
   // 调试模式（PROMO_DEBUG_ALWAYS_SHOW=true）下：挂载即弹，且不受 24h 去抖约束；
@@ -217,45 +186,6 @@ const Workbench = () => {
     const willShowInviteReward = !dismissed;
     if (willShowInviteReward) setIsInviteRewardOpen(true);
 
-    const forceCheckin = new URLSearchParams(window.location.search).get('checkin_test') === '1';
-
-    const todayYmd = getBeijingYmd();
-    setMaydayCheckinTodayYmd(todayYmd);
-
-    if (forceCheckin || isMaydayCheckinWindowActive(todayYmd)) {
-      setMaydayCheckinLoading(true);
-      setMaydayCheckinActionLoading(false);
-      setMaydayCheckinError('');
-      setMaydayRewarded(null);
-
-      authApi
-        .getMaydayCheckinStatus(forceCheckin)
-        .then((status) => {
-          setMaydayCheckedInToday(status.checked_in_today === true);
-
-          if (forceCheckin) {
-            if (willShowInviteReward) setMaydayCheckinPendingOpen(true);
-            else setIsMaydayCheckinOpen(true);
-            return;
-          }
-
-          if (status.checked_in_today !== true) {
-            if (willShowInviteReward) setMaydayCheckinPendingOpen(true);
-            else setIsMaydayCheckinOpen(true);
-          }
-        })
-        .catch((err: any) => {
-          setMaydayCheckinError(err?.message || '打卡服务暂不可用');
-          if (forceCheckin) {
-            if (willShowInviteReward) setMaydayCheckinPendingOpen(true);
-            else setIsMaydayCheckinOpen(true);
-          }
-        })
-        .finally(() => {
-          setMaydayCheckinLoading(false);
-        });
-    }
-
     consumeJustLoggedIn();
   }, [justLoggedIn, user, consumeJustLoggedIn]);
 
@@ -268,54 +198,9 @@ const Workbench = () => {
     }
   };
 
-  useEffect(() => {
-    if (isInviteRewardOpen) return;
-    if (!maydayCheckinPendingOpen) return;
-    setIsMaydayCheckinOpen(true);
-    setMaydayCheckinPendingOpen(false);
-  }, [isInviteRewardOpen, maydayCheckinPendingOpen]);
 
-  useEffect(() => {
-    if (!user) return;
-    const forceCheckin = new URLSearchParams(window.location.search).get('checkin_test') === '1';
-    if (!forceCheckin) return;
 
-    setIsMaydayCheckinOpen(true);
-    setMaydayCheckinLoading(true);
-    setMaydayCheckinActionLoading(false);
-    setMaydayCheckinError('');
-    setMaydayRewarded(null);
 
-    authApi
-      .getMaydayCheckinStatus(true)
-      .then((status) => {
-        setMaydayCheckedInToday(status.checked_in_today === true);
-      })
-      .catch((err: any) => {
-        setMaydayCheckinError(err?.message || '打卡服务暂不可用');
-      })
-      .finally(() => {
-        setMaydayCheckinLoading(false);
-      });
-  }, [user?.id]);
-
-  const handleMaydayCheckin = async (force?: boolean) => {
-    if (maydayCheckinActionLoading) return;
-    setMaydayCheckinActionLoading(true);
-    setMaydayCheckinError('');
-    try {
-      const res = await authApi.doMaydayCheckin(force);
-      setMaydayCheckedInToday(true);
-      setMaydayRewarded(Number(res.rewarded || MAYDAY_CHECKIN_REWARD));
-      if (res.balance !== undefined && res.balance !== null && !Number.isNaN(Number(res.balance))) {
-        updateUser({ credits: Number(res.balance) });
-      }
-    } catch (err: any) {
-      setMaydayCheckinError(err?.message || '打卡失败，请稍后重试');
-    } finally {
-      setMaydayCheckinActionLoading(false);
-    }
-  };
 
   // --- Data Passing State ---
   const [selectedAssetForWorkbench, setSelectedAssetForWorkbench] = useState<{
@@ -850,67 +735,6 @@ const Workbench = () => {
             />
           )}
 
-          <AppDialog
-            isOpen={isMaydayCheckinOpen}
-            onClose={() => setIsMaydayCheckinOpen(false)}
-            title="五一打卡活动"
-            subtitle={`北京时间 ${MAYDAY_CHECKIN_START_YMD.replace('2026-', '')} ~ ${MAYDAY_CHECKIN_END_YMD.replace('2026-', '')}，每日打卡 +${MAYDAY_CHECKIN_REWARD} V点`}
-            overlayClassName="z-[125]"
-            footer={
-              <>
-                <button
-                  type="button"
-                  onClick={() => setIsMaydayCheckinOpen(false)}
-                  disabled={maydayCheckinActionLoading}
-                  className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition disabled:opacity-60"
-                >
-                  关闭
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const forceCheckin = new URLSearchParams(window.location.search).get('checkin_test') === '1';
-                    void handleMaydayCheckin(forceCheckin);
-                  }}
-                  disabled={maydayCheckinLoading || maydayCheckinActionLoading || maydayCheckedInToday}
-                  className="px-4 py-2 rounded-lg bg-orange-500/80 hover:bg-orange-500 text-white text-xs font-bold transition disabled:opacity-60"
-                >
-                  {maydayCheckedInToday ? '今日已打卡' : (maydayCheckinActionLoading ? '打卡中...' : '立即打卡')}
-                </button>
-              </>
-            }
-          >
-            {maydayCheckinLoading ? (
-              <div className="py-6 text-center text-xs text-zinc-400">加载中...</div>
-            ) : (
-              <div className="space-y-3 text-sm text-zinc-300">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <div className="text-xs text-zinc-400">今日（北京时间）</div>
-                  <div className="mt-1 text-sm font-bold text-zinc-100">{maydayCheckinTodayYmd || getBeijingYmd()}</div>
-                </div>
-
-                {maydayRewarded !== null ? (
-                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-emerald-100 text-sm font-bold">
-                    打卡成功，+{maydayRewarded} V点
-                  </div>
-                ) : maydayCheckedInToday ? (
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-zinc-200">
-                    你今天已经打过卡啦，明天再来可继续领取。
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-zinc-200">
-                    今天还未打卡，点击“立即打卡”即可领取 +{MAYDAY_CHECKIN_REWARD} V点（可累加）。
-                  </div>
-                )}
-
-                {maydayCheckinError ? (
-                  <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-xs text-red-200 whitespace-pre-line">
-                    {maydayCheckinError}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </AppDialog>
 
           {isInfoOpen && (
             <AppDialog

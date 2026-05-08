@@ -146,7 +146,48 @@ export const BillingView: React.FC = () => {
 
   const balance = overview?.balance ?? 0;
   const planMeta = overview?.plan_meta || {};
-  const rechargeAmounts = [0.1, 9, 29, 99, 199];
+  // 快捷充值档位：金额（元）+ 对应 V 点 + 卡片图片路径。
+  // V 点 = 金额 × 10（默认 CREDIT_EXCHANGE_RATE）。图片裁自设计稿，命名 tier_<V点>.png。
+  const RECHARGE_TIERS: { yuan: number; vPoints: number; image: string }[] = [
+    { yuan: 1, vPoints: 10, image: '/recharge-tiers/tier_10.png' },
+    { yuan: 6, vPoints: 60, image: '/recharge-tiers/tier_60.png' },
+    { yuan: 45, vPoints: 450, image: '/recharge-tiers/tier_450.png' },
+    { yuan: 68, vPoints: 680, image: '/recharge-tiers/tier_680.png' },
+    { yuan: 118, vPoints: 1180, image: '/recharge-tiers/tier_1180.png' },
+    { yuan: 198, vPoints: 1980, image: '/recharge-tiers/tier_1980.png' },
+    { yuan: 348, vPoints: 3480, image: '/recharge-tiers/tier_3480.png' },
+    { yuan: 648, vPoints: 6480, image: '/recharge-tiers/tier_6480.png' },
+    { yuan: 898, vPoints: 8980, image: '/recharge-tiers/tier_8980.png' },
+    { yuan: 1298, vPoints: 12980, image: '/recharge-tiers/tier_12980.png' },
+  ];
+  const CUSTOM_AMOUNT_MIN = 1;
+  const CUSTOM_AMOUNT_MAX = 10000;
+  const [customAmountInput, setCustomAmountInput] = useState<string>('');
+  const [customAmountError, setCustomAmountError] = useState<string>('');
+
+  const handleCustomRecharge = () => {
+    setCustomAmountError('');
+    const raw = customAmountInput.trim();
+    if (!raw) {
+      setCustomAmountError(((t as any).billing_custom_amount_required as string) || '请输入金额');
+      return;
+    }
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setCustomAmountError(((t as any).billing_custom_amount_invalid as string) || '金额格式无效');
+      return;
+    }
+    if (amount < CUSTOM_AMOUNT_MIN || amount > CUSTOM_AMOUNT_MAX) {
+      const tpl = ((t as any).billing_custom_amount_range as string) || '金额需在 ¥{min} ~ ¥{max} 之间';
+      setCustomAmountError(
+        tpl.replace('{min}', String(CUSTOM_AMOUNT_MIN)).replace('{max}', String(CUSTOM_AMOUNT_MAX)),
+      );
+      return;
+    }
+    // 保留 2 位小数避免后端 quantize 失败
+    const rounded = Math.round(amount * 100) / 100;
+    void handleRecharge(rounded);
+  };
 
   const getTxTypeLabel = (tx: any) => {
     const byType: Record<string, string> = {
@@ -325,18 +366,68 @@ export const BillingView: React.FC = () => {
           <h2 className="text-sm font-semibold text-zinc-300 mb-3">
             {t.billing_recharge_title || 'Quick Recharge'}
           </h2>
-          <div className="flex flex-wrap gap-3">
-            {rechargeAmounts.map((amt) => (
+          <div className="grid grid-cols-5 gap-3">
+            {RECHARGE_TIERS.map((tier) => (
               <button
-                key={amt}
+                key={tier.yuan}
                 disabled={loading}
-                onClick={() => handleRecharge(amt)}
-                className="px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-100 hover:border-orange-500 hover:text-orange-400 transition disabled:opacity-50"
+                onClick={() => handleRecharge(tier.yuan)}
+                className="group flex flex-col items-stretch overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 transition hover:border-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={`充值 ¥${tier.yuan} 得 ${tier.vPoints} V 点`}
               >
-                ¥{amt < 1 ? amt.toFixed(2) : amt}
+                <div className="aspect-square w-full overflow-hidden bg-black/30">
+                  <img
+                    src={tier.image}
+                    alt={`${tier.vPoints} V`}
+                    draggable={false}
+                    className="block h-full w-full object-cover transition group-hover:scale-[1.02]"
+                  />
+                </div>
+                <div className="flex items-center justify-center border-t border-white/10 bg-zinc-950 py-2">
+                  <span className="text-base font-bold text-zinc-100 group-hover:text-orange-400">
+                    ¥{tier.yuan}
+                  </span>
+                </div>
               </button>
             ))}
           </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm text-zinc-300">
+              {((t as any).billing_custom_amount_label as string) || '自定义金额：'}
+            </span>
+            <div className="inline-flex items-center rounded-xl border border-white/10 bg-zinc-900 overflow-hidden">
+              <span className="px-3 text-sm text-zinc-400">¥</span>
+              <input
+                type="number"
+                min={CUSTOM_AMOUNT_MIN}
+                max={CUSTOM_AMOUNT_MAX}
+                step="0.01"
+                value={customAmountInput}
+                onChange={(e) => {
+                  setCustomAmountInput(e.target.value);
+                  if (customAmountError) setCustomAmountError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !loading) handleCustomRecharge();
+                }}
+                placeholder={String(CUSTOM_AMOUNT_MIN) + ' ~ ' + String(CUSTOM_AMOUNT_MAX)}
+                className="w-32 bg-transparent px-2 py-2 text-sm text-zinc-100 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleCustomRecharge}
+              className="px-4 py-2 rounded-xl bg-orange-500 text-sm font-bold text-black hover:bg-orange-400 transition disabled:opacity-50"
+            >
+              {((t as any).billing_custom_amount_submit as string) || '充值'}
+            </button>
+            {customAmountError ? (
+              <span className="text-xs text-red-400">{customAmountError}</span>
+            ) : null}
+          </div>
+
           <p className="text-xs text-zinc-500 mt-2">
             {t.billing_recharge_hint ||
               'Select an amount to recharge via WeChat Pay.'}

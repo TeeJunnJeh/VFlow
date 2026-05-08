@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Wand2 } from 'lucide-react';
+import { Check, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { billingApi } from '../../../../services/billing';
 import type {
@@ -11,6 +11,7 @@ import type {
   ClothingSwapParams,
 } from '../../../../types/productImages';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
+import { DropdownSelect } from '../../../common/DropdownSelect';
 import { AspectRatioPicker, CLOTHING_SWAP_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
 
 interface ClothingSwapFormProps {
@@ -46,6 +47,11 @@ const COLOR_CHOICES: ColorChoice[] = [
   { key: 'Black', hex: '#09090b' },
   { key: 'White', hex: '#fafafa' },
 ];
+
+const colorSwatchStyle = (hex: string): React.CSSProperties => ({
+  backgroundColor: hex,
+  boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.38), 0 0 0 1px rgba(255,255,255,0.18)',
+});
 
 const PRICING_MODEL_SLUG = 'gemini-2.5-flash-image';
 
@@ -198,6 +204,20 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
     onReset();
   };
 
+  const colorOptions = COLOR_CHOICES.map((choice) => ({
+    value: choice.key,
+    label: (
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          className="h-4 w-4 shrink-0 rounded-full border border-white/30"
+          style={colorSwatchStyle(choice.hex)}
+          aria-hidden="true"
+        />
+        <span className="truncate">{colorLabel(choice.key)}</span>
+      </span>
+    ),
+  }));
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
       <div className="space-y-6">
@@ -265,23 +285,41 @@ export const ClothingSwapForm: React.FC<ClothingSwapFormProps> = ({
         {/* Color */}
         <div>
           <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.cs_color_label}</label>
-          <div className="flex flex-wrap gap-2">
-            {COLOR_CHOICES.map((c) => {
-              const selected = formData.targetColor === c.key;
+          <DropdownSelect
+            value={formData.targetColor}
+            options={colorOptions}
+            onChange={(nextValue) => {
+              const nextColor = COLOR_CHOICES.find((choice) => choice.key === nextValue)?.key ?? 'Original';
+              setFormData({ ...formData, targetColor: nextColor });
+            }}
+            buttonClassName="h-10 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-medium text-zinc-200 hover:border-white/20 hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-orange-500/50"
+            labelClassName="font-medium text-zinc-200"
+            iconClassName="h-4 w-4 text-zinc-500"
+            menuClassName="max-h-72 bg-zinc-950/95"
+            renderInPortal
+            renderOption={({ option, isSelected, onSelect }) => {
+              const colorChoice = COLOR_CHOICES.find((choice) => choice.key === option.value) ?? COLOR_CHOICES[0];
               return (
                 <button
-                  key={c.key}
                   type="button"
-                  title={colorLabel(c.key)}
-                  onClick={() => setFormData({ ...formData, targetColor: c.key })}
-                  className={`w-8 h-8 rounded-full border-2 transition ${
-                    selected ? 'border-orange-400 ring-2 ring-orange-400/40' : 'border-white/20 hover:border-white/40'
+                  onClick={onSelect}
+                  className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition ${
+                    isSelected ? 'bg-orange-500/10 text-orange-200' : 'text-zinc-200 hover:bg-white/5'
                   }`}
-                  style={{ backgroundColor: c.hex }}
-                />
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-4 w-4 shrink-0 rounded-full border border-white/30"
+                      style={colorSwatchStyle(colorChoice.hex)}
+                      aria-hidden="true"
+                    />
+                    <span className="truncate">{colorLabel(colorChoice.key)}</span>
+                  </span>
+                  {isSelected ? <Check className="h-4 w-4 shrink-0 text-orange-300" /> : null}
+                </button>
               );
-            })}
-          </div>
+            }}
+          />
         </div>
 
         {/* Output count */}

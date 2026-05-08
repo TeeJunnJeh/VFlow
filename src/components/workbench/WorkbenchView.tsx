@@ -4155,11 +4155,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!Number.isFinite(rate) || rate <= 0) return '-';
     return `${formatCreditAmount(rate)}${t.wb_vpoints_per_sec || ''}`;
   };
-  const formatApproxVideoRateLabel = (entry: BillingPricingModelEntry | null | undefined) => {
-    const label = formatVideoRateLabel(entry);
-    if (label === '-') return label;
-    return `${t.wb_rate_approx_prefix || 'Approx. '}${label}`;
-  };
   const estimatedVideoCost = useMemo(() => {
     const rate = Number(selectedVideoPricing?.rate ?? 0);
     if (!Number.isFinite(rate) || rate <= 0) return 0;

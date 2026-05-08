@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { flushSync } from 'react-dom';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, Eye,
-  Wand2, Loader2, Clapperboard, ArrowRight, BookmarkPlus, FolderOpen,
+  Wand2, Loader2, Clapperboard, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus, Users, Image as ImageIcon,
+  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronsDown, Library
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
@@ -9638,7 +9638,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
       const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
-      const rateLabel = formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
+      const rateLabel = opt.id === 'seedance2.0'
+        ? (t.wb_usage_based_billing || '按量付费')
+        : formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
       return (
         <button
           key={opt.id}
@@ -9683,7 +9685,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           {locked ? (
             <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
           ) : (
-            <div className="flex flex-col items-center gap-2 shrink-0">
+            <div className="flex w-14 shrink-0 flex-col items-center gap-2">
               <div
                 className={[
                   'model-check w-4 h-4 rounded-full border flex items-center justify-center',
@@ -9740,49 +9742,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               ].join(' ')}
             >
               <div className="space-y-3">
-                <div className="mb-3">
-                  <h2 className="mx-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                    <ArrowRight className="w-3 h-3 text-zinc-500" />
-                    {t.wb_render_power_title}
-                  </h2>
-                  <div className="group w-full text-left rounded-2xl border border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10 p-4 flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-orange-500/20 border border-orange-500/30">
-                      <Video className="w-5 h-5 text-orange-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <div className="text-[14px] font-black tracking-wide text-zinc-200 whitespace-nowrap">Seedance 2.0</div>
-                        <div className="min-w-0 overflow-hidden">
-                          <div className="flex max-w-0 items-center gap-1.5 whitespace-nowrap opacity-0 transition-all duration-300 ease-out group-hover:max-w-[176px] group-hover:opacity-100">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <ImageIcon className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <Video className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <Music className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400">
-                              <Users className="h-3.5 w-3.5" />
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-center gap-2 shrink-0">
-                      <div
-                        className="model-check w-4 h-4 rounded-full border border-orange-500 bg-orange-500 flex items-center justify-center"
-                        aria-hidden="true"
-                      >
-                        <Check className="w-2.5 h-2.5 text-white" />
-                      </div>
-                      <div className="text-[8px] whitespace-nowrap font-bold text-orange-500">
-                        {formatApproxVideoRateLabel(getVideoModelPricingEntry(billingPricing, 'seedance2.0', 'replay'))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
                 <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
               </div>
             </div>

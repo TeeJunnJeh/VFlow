@@ -219,7 +219,7 @@ export type ClothingSwapColor =
   | 'Black'
   | 'White';
 
-export type ClothingSwapBackground = 'model' | 'runway' | 'street' | 'white_wall';
+export type ClothingSwapBackground = 'model' | 'runway' | 'street' | 'white_wall' | 'custom' | 'background_image';
 
 export type ClothingSwapAspectRatio =
   | '1:1'
@@ -241,6 +241,8 @@ export interface ClothingSwapParams {
   background?: ClothingSwapBackground;
   aspectRatio?: ClothingSwapAspectRatio;
   outputCount?: ClothingSwapOutputCount;
+  customBackgroundPrompt?: string;
+  backgroundImagePath?: string;
 }
 
 export interface ClothingSwapResult {

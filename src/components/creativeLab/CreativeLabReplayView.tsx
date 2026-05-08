@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, Clipboard, Download, ExternalLink, History, Image as ImageIcon, Loader2, Pencil, Plus, Send, Trash2, UserRound, Video, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -53,6 +53,7 @@ type ReplayFilmState = {
   order: number[];
   previousOrder: number[];
   phase: 'idle' | 'sliding';
+  cycle: number;
 };
 
 const makeId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -118,11 +119,29 @@ const messageCopyText = (message: CreativeLabMessage) => {
   return message.seedancePrompt || message.script || message.content;
 };
 
-const rotateReplayOrder = (order: number[]) => [
-  order[2] ?? INITIAL_REPLAY_ORDER[2],
-  order[0] ?? INITIAL_REPLAY_ORDER[0],
-  order[1] ?? INITIAL_REPLAY_ORDER[1],
-];
+const normalizeReplayOrder = (order?: number[]) => {
+  const seen = new Set<number>();
+  const normalized: number[] = [];
+  (Array.isArray(order) ? order : []).forEach((value) => {
+    const index = Number(value);
+    if (!Number.isInteger(index) || index < 0 || index >= DEMO_REPLAY_VIDEOS.length || seen.has(index)) return;
+    seen.add(index);
+    normalized.push(index);
+  });
+  INITIAL_REPLAY_ORDER.forEach((index) => {
+    if (!seen.has(index)) normalized.push(index);
+  });
+  return normalized.slice(0, INITIAL_REPLAY_ORDER.length);
+};
+
+const rotateReplayOrder = (order: number[]) => {
+  const safeOrder = normalizeReplayOrder(order);
+  return [
+    safeOrder[2] ?? INITIAL_REPLAY_ORDER[2],
+    safeOrder[0] ?? INITIAL_REPLAY_ORDER[0],
+    safeOrder[1] ?? INITIAL_REPLAY_ORDER[1],
+  ];
+};
 
 const getReplayVideoSrc = (index: number) => DEMO_REPLAY_VIDEOS[index] || DEMO_REPLAY_VIDEOS[0];
 
@@ -154,16 +173,33 @@ export const CreativeLabReplayView: React.FC = () => {
     order: INITIAL_REPLAY_ORDER,
     previousOrder: INITIAL_REPLAY_ORDER,
     phase: 'idle',
+    cycle: 0,
   }));
   const [composerFlight, setComposerFlight] = useState<ComposerFlight | null>(null);
   const [hideLiveComposer, setHideLiveComposer] = useState(false);
   const composerRef = useRef<HTMLDivElement | null>(null);
   const replayFilmTimerRef = useRef<number | null>(null);
+  const replayVideoReadyRef = useRef<Record<string, boolean>>({});
   const composerFlightTimerRef = useRef<number | null>(null);
   const composerFlightFrameRef = useRef<number | null>(null);
   const composerFlightMeasureFrameRef = useRef<number | null>(null);
 
   const refreshSessions = () => setSessionMetas(listCreativeLabSessions(user?.id, FEATURE));
+
+  const clearReplayFilmTimer = useCallback(() => {
+    if (replayFilmTimerRef.current !== null) {
+      window.clearTimeout(replayFilmTimerRef.current);
+      replayFilmTimerRef.current = null;
+    }
+  }, []);
+
+  const markReplayVideoReady = useCallback((src: string) => {
+    replayVideoReadyRef.current = { ...replayVideoReadyRef.current, [src]: true };
+  }, []);
+
+  const areReplayVideosReady = useCallback((order: number[]) => (
+    normalizeReplayOrder(order).every((index) => replayVideoReadyRef.current[getReplayVideoSrc(index)])
+  ), []);
 
   useEffect(() => {
     const metas = listCreativeLabSessions(user?.id, FEATURE);
@@ -181,35 +217,75 @@ export const CreativeLabReplayView: React.FC = () => {
   }, [user?.id]);
 
   useEffect(() => () => {
-    if (replayFilmTimerRef.current !== null) window.clearTimeout(replayFilmTimerRef.current);
+    clearReplayFilmTimer();
     if (composerFlightTimerRef.current !== null) window.clearTimeout(composerFlightTimerRef.current);
     if (composerFlightFrameRef.current !== null) window.cancelAnimationFrame(composerFlightFrameRef.current);
     if (composerFlightMeasureFrameRef.current !== null) window.cancelAnimationFrame(composerFlightMeasureFrameRef.current);
-  }, []);
+  }, [clearReplayFilmTimer]);
 
   useEffect(() => {
-    if (viewMode !== 'home') return;
+    if (typeof document === 'undefined') return;
+    const preloaders = DEMO_REPLAY_VIDEOS.map((src) => {
+      const video = document.createElement('video');
+      const markReady = () => markReplayVideoReady(src);
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.addEventListener('loadeddata', markReady, { once: true });
+      video.addEventListener('canplay', markReady, { once: true });
+      video.src = src;
+      video.load();
+      return { video, markReady };
+    });
+    return () => {
+      preloaders.forEach(({ video, markReady }) => {
+        video.removeEventListener('loadeddata', markReady);
+        video.removeEventListener('canplay', markReady);
+        video.removeAttribute('src');
+        video.load();
+      });
+    };
+  }, [markReplayVideoReady]);
+
+  useEffect(() => {
+    if (viewMode !== 'home') {
+      clearReplayFilmTimer();
+      setReplayFilm((prev) => {
+        if (prev.phase !== 'sliding') return prev;
+        const safeOrder = normalizeReplayOrder(prev.order);
+        return { ...prev, order: safeOrder, previousOrder: safeOrder, phase: 'idle' };
+      });
+      return;
+    }
     const timer = window.setInterval(() => {
       setReplayFilm((prev) => {
         if (prev.phase === 'sliding') return prev;
-        const nextOrder = rotateReplayOrder(prev.order);
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-          return { order: nextOrder, previousOrder: nextOrder, phase: 'idle' };
+        const currentOrder = normalizeReplayOrder(prev.order);
+        const nextOrder = rotateReplayOrder(currentOrder);
+        if (!areReplayVideosReady(nextOrder)) {
+          return { ...prev, order: currentOrder, previousOrder: currentOrder, phase: 'idle' };
         }
-        if (replayFilmTimerRef.current !== null) window.clearTimeout(replayFilmTimerRef.current);
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          return { order: nextOrder, previousOrder: nextOrder, phase: 'idle', cycle: prev.cycle + 1 };
+        }
+        clearReplayFilmTimer();
         replayFilmTimerRef.current = window.setTimeout(() => {
           replayFilmTimerRef.current = null;
           setReplayFilm((current) => ({
-            order: current.order,
-            previousOrder: current.order,
+            order: normalizeReplayOrder(current.order),
+            previousOrder: normalizeReplayOrder(current.order),
             phase: 'idle',
+            cycle: current.cycle,
           }));
-        }, REPLAY_FILM_TRANSITION_MS);
-        return { order: nextOrder, previousOrder: prev.order, phase: 'sliding' };
+        }, REPLAY_FILM_TRANSITION_MS + 80);
+        return { order: nextOrder, previousOrder: currentOrder, phase: 'sliding', cycle: prev.cycle + 1 };
       });
     }, REPLAY_CAROUSEL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [viewMode]);
+    return () => {
+      window.clearInterval(timer);
+      clearReplayFilmTimer();
+    };
+  }, [areReplayVideosReady, clearReplayFilmTimer, viewMode]);
 
   useEffect(() => {
     if (!activeSession) return;
@@ -778,8 +854,10 @@ export const CreativeLabReplayView: React.FC = () => {
   };
 
   const renderDemoReplaySlot = (slotIndex: number, slot: 'large' | 'small', direction: 'up' | 'down') => {
-    const currentVideoIndex = replayFilm.order[slotIndex] ?? INITIAL_REPLAY_ORDER[slotIndex] ?? 0;
-    const previousVideoIndex = replayFilm.previousOrder[slotIndex] ?? currentVideoIndex;
+    const currentOrder = normalizeReplayOrder(replayFilm.order);
+    const previousOrder = normalizeReplayOrder(replayFilm.previousOrder);
+    const currentVideoIndex = currentOrder[slotIndex] ?? INITIAL_REPLAY_ORDER[slotIndex] ?? 0;
+    const previousVideoIndex = previousOrder[slotIndex] ?? currentVideoIndex;
     const currentSrc = getReplayVideoSrc(currentVideoIndex);
 
     return (
@@ -800,12 +878,15 @@ export const CreativeLabReplayView: React.FC = () => {
                 key={`replay-film-${slotIndex}-${src}`}
                 className={`creative-replay-film-frame creative-replay-film-frame-${frameState} creative-replay-film-frame-${direction}-${frameState}`}
                 data-film-frame={videoIndex + 1}
+                data-film-cycle={replayFilm.cycle}
                 src={src}
                 muted
                 autoPlay
                 loop
                 playsInline
                 preload="auto"
+                onCanPlay={() => markReplayVideoReady(src)}
+                onLoadedData={() => markReplayVideoReady(src)}
               />
             );
           })}

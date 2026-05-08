@@ -159,8 +159,18 @@ const LoginPage = () => {
     }
   }, [countdown]);
 
+  const requireAgreement = () => {
+    if (hasAcceptedAgreement) {
+      setShowAgreementError(false);
+      return true;
+    }
+    setShowAgreementError(true);
+    return false;
+  };
+
   // --- 发送验证码处理 ---
   const handleSendCode = async () => {
+    if (!requireAgreement()) return;
     if (phone.length !== 11) {
       setError(t.login_error_invalid_phone);
       return;
@@ -182,11 +192,7 @@ const LoginPage = () => {
     e.preventDefault();
     if (isLoginSuccess) return;
     setError('');
-    if (!hasAcceptedAgreement) {
-      setShowAgreementError(true);
-      return;
-    }
-    setShowAgreementError(false);
+    if (!requireAgreement()) return;
 
     try {
       // 1. 标记正在提交 (这会防止下方的自动跳转拦截逻辑生效)

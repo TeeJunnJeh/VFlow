@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap, KeyRound, Gift, Copy, Check } from 'lucide-react';
+﻿import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap, KeyRound, Gift, Copy, Check, FileText } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { authApi, type InviteSummary } from '../../services/auth';
@@ -107,10 +107,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   };
 
   const [isPreferencesExpanded, setIsPreferencesExpanded] = useState(false);
+  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
   const [prefsDraft, setPrefsDraft] = useState<WorkbenchPreferences>(() => buildPrefsDraft());
 
-  // Invite code block shown at the bottom of the preferences panel.
-  // Loaded lazily the first time the panel is expanded.
+  // Invite code is loaded lazily when the invite dialog opens.
   const [inviteSummary, setInviteSummary] = useState<InviteSummary | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState('');
@@ -118,7 +118,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
 
   useEffect(() => {
-    if (!isPreferencesExpanded) return;
+    if (!isInviteDialogOpen) return;
     let mounted = true;
     setInviteLoading(true);
     setInviteError('');
@@ -130,7 +130,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
       .catch((err: any) => { if (mounted) setInviteError(err?.message || t.profile_invite_load_failed || 'Failed to load invite summary'); })
       .finally(() => { if (mounted) setInviteLoading(false); });
     return () => { mounted = false; };
-  }, [isPreferencesExpanded, t.profile_invite_load_failed]);
+  }, [isInviteDialogOpen, t.profile_invite_load_failed]);
 
   const inviteShareLink = useMemo(() => {
     if (!inviteSummary) return '';
@@ -624,7 +624,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                <hr className="mt-6 mb-6 border-white/5" />
                
                {/* Footer Buttons */}
-               <div className={`grid grid-cols-1 gap-4 pb-12 ${isDebugModeEnabled ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <button
                     type="button"
                     onClick={togglePreferences}
@@ -666,7 +666,33 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                       </div>
                     </button>
                   )}
+
+                  <a href="/doc" className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/docs shadow-sm hover:shadow-orange-500/5">
+                      <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/docs:text-orange-500 transition-colors"><FileText className="w-6 h-6" /></div>
+                          <div className="text-left">
+                              <div className="text-base font-bold text-white">{t.profile_product_docs_title}</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_product_docs_desc}</div>
+                          </div>
+                      </div>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsInviteDialogOpen(true)}
+                    className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/invite shadow-sm hover:shadow-orange-500/5"
+                  >
+                      <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/invite:text-orange-500 transition-colors"><Gift className="w-6 h-6" /></div>
+                          <div className="text-left">
+                              <div className="text-base font-bold text-white">{t.profile_pref_invite_section_title || '邀请码'}</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_invite_card_desc}</div>
+                          </div>
+                      </div>
+                  </button>
+               </div>
                   
+               <div className="mt-8 space-y-5 pb-12">
                   <button onClick={logout} className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20">
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500"><LogOut className="w-6 h-6" /></div>
@@ -676,11 +702,38 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                           </div>
                       </div>
                   </button>
+
+                  <div className="flex items-center justify-center gap-2 text-base font-semibold text-zinc-500">
+                    <a href="/terms-of-service" className="hover:text-orange-500 transition-colors">{t.login_agreement_user}</a>
+                    <span className="text-zinc-700">{'\u00b7'}</span>
+                    <a href="/privacy-policy" className="hover:text-orange-500 transition-colors">{t.login_agreement_privacy}</a>
+                  </div>
                </div>
 
                {isPreferencesExpanded && (
-                 <div className="mt-8 pt-8 border-t border-white/5 animate-in slide-in-from-top-4 duration-500">
-                   <div className="space-y-10">
+                 <AppDialog
+                   isOpen={isPreferencesExpanded}
+                   title={t.profile_preferences_title || t.profile_preferences}
+                   onClose={() => setIsPreferencesExpanded(false)}
+                   widthClassName="max-w-4xl"
+                   footer={
+                     <>
+                       <button
+                         className="px-6 py-2.5 rounded-xl border border-zinc-200 bg-white text-zinc-900 text-sm font-bold shadow-sm hover:bg-zinc-50 hover:border-zinc-300 transition"
+                         onClick={() => setIsPreferencesExpanded(false)}
+                       >
+                         {t.profile_preferences_cancel}
+                       </button>
+                       <button
+                         className="px-8 py-2.5 rounded-xl border border-orange-500 bg-orange-500 text-white text-sm font-bold shadow-sm shadow-orange-500/20 hover:bg-orange-600 hover:border-orange-600 transition"
+                         onClick={handleSavePreferences}
+                       >
+                         {t.profile_preferences_save}
+                       </button>
+                     </>
+                   }
+                 >
+                   <div className="max-h-[62vh] space-y-10 overflow-y-auto pr-1">
 
 
                      {/* 商品图片生成 */}
@@ -855,10 +908,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                            </div>
                          </div>
 
-                         <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
-                           <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-                            {t.profile_advanced_settings}
-                           </div>
+                        <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-end">
                            <button
                              className="bg-red-500/10 text-red-300 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-500/20 hover:bg-red-500/15 hover:border-red-500/30 disabled:opacity-60 transition"
                              onClick={handleResetVideoEstimate}
@@ -870,101 +920,88 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                        </div>
                      </section>
 
-                     {/* 邀请码 */}
-                     <section className="space-y-4">
-                       <h3 className="text-sm font-bold text-zinc-200 flex items-center gap-2 uppercase tracking-wider">
-                         <Gift className="w-4 h-4 text-orange-500" /> {t.profile_pref_invite_section_title || '邀请码'}
-                       </h3>
-                       <div className="bg-white/2 border border-white/5 rounded-2xl p-6 space-y-4">
-                         {inviteLoading ? (
-                           <div className="py-4 text-center text-xs text-zinc-500">{t.profile_pref_invite_loading || 'Loading...'}</div>
-                         ) : inviteError ? (
-                           <div className="py-4 text-center text-xs text-red-400">{inviteError}</div>
-                         ) : inviteSummary ? (
-                           <>
-                             <div className="flex items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 p-3">
-                               <div className="w-10 h-10 rounded-lg bg-violet-500/25 flex items-center justify-center shrink-0">
-                                 <Gift className="w-5 h-5 text-violet-200" />
-                               </div>
-                               <div className="text-xs text-zinc-200 leading-relaxed space-y-1">
-                                 <div>
-                                   {t.invite_reward_progress
-                                     .replace('{invited}', String(inviteSummary.invited_count ?? 0))
-                                     .replace('{cap}', String(inviteSummary.cap ?? 10))
-                                     .replace('{earned}', String(inviteSummary.total_reward_earned ?? 0))}
-                                 </div>
-                                 <div className="text-[11px] text-violet-200/90">
-                                   {t.invite_reward_invitee_bonus_hint.replace(
-                                     '{amount}',
-                                     String(inviteSummary.invitee_reward ?? inviteSummary.reward_per_invite ?? 0),
-                                   )}
-                                 </div>
-                               </div>
-                             </div>
-
-                             <div className="space-y-1.5">
-                               <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                                 {t.invite_reward_code_label}
-                               </div>
-                               <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
-                                 <div className="flex-1 px-3 py-2.5 text-sm font-mono tracking-widest text-white truncate">
-                                   {inviteSummary.invite_code}
-                                 </div>
-                                 <button
-                                   type="button"
-                                   onClick={() => copyInvite(inviteSummary.invite_code, 'code')}
-                                   className="px-3 border-l border-white/10 text-xs font-bold text-violet-200 hover:bg-violet-500/15 transition flex items-center gap-1.5"
-                                 >
-                                   {inviteCodeCopied ? <Check size={14} /> : <Copy size={14} />}
-                                   {inviteCodeCopied ? t.invite_reward_copied : t.invite_reward_copy}
-                                 </button>
-                               </div>
-                             </div>
-
-                             <div className="space-y-1.5">
-                               <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                                 {t.invite_reward_link_label}
-                               </div>
-                               <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
-                                 <div className="flex-1 px-3 py-2.5 text-xs text-zinc-300 truncate">{inviteShareLink}</div>
-                                 <button
-                                   type="button"
-                                   onClick={() => copyInvite(inviteShareLink, 'link')}
-                                   className="px-3 border-l border-white/10 text-xs font-bold text-violet-200 hover:bg-violet-500/15 transition flex items-center gap-1.5"
-                                 >
-                                   {inviteLinkCopied ? <Check size={14} /> : <Copy size={14} />}
-                                   {inviteLinkCopied ? t.invite_reward_copied : t.invite_reward_copy}
-                                 </button>
-                               </div>
-                             </div>
-                           </>
-                         ) : (
-                           <div className="py-4 text-center text-xs text-zinc-500">{t.profile_pref_invite_empty || 'No invite info available'}</div>
-                         )}
-                       </div>
-                     </section>
-
-                     {/* Action Buttons */}
-                     <div className="flex justify-end gap-3 pt-6">
-                       <button
-                         className="px-6 py-2 rounded-xl bg-zinc-800 text-white text-sm font-bold hover:bg-zinc-700 transition"
-                         onClick={() => setIsPreferencesExpanded(false)}
-                       >
-                         {t.profile_preferences_cancel || '取消'}
-                       </button>
-                       <button
-                         className="px-8 py-2 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-600 shadow-[0_0_20px_rgba(249,115,22,0.2)] hover:shadow-[0_0_25px_rgba(249,115,22,0.3)] transition"
-                         onClick={handleSavePreferences}
-                       >
-                         {t.profile_preferences_save || '保存设置'}
-                       </button>
-                     </div>
-                   </div>
-                 </div>
+                  </div>
+                 </AppDialog>
                )}
             </div>
          </div>
       </div>
+
+       {isInviteDialogOpen && (
+         <AppDialog
+           isOpen={isInviteDialogOpen}
+          title={t.profile_pref_invite_section_title || '邀请码'}
+           onClose={() => setIsInviteDialogOpen(false)}
+         >
+           <div className="space-y-4">
+             {inviteLoading ? (
+               <div className="py-4 text-center text-xs text-zinc-500">{t.profile_pref_invite_loading || 'Loading...'}</div>
+             ) : inviteError ? (
+               <div className="py-4 text-center text-xs text-red-400">{inviteError}</div>
+             ) : inviteSummary ? (
+               <>
+                 <div className="flex items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 p-3">
+                   <div className="w-10 h-10 rounded-lg bg-violet-500/25 flex items-center justify-center shrink-0">
+                     <Gift className="profile-invite-light-deep-purple w-5 h-5 text-violet-200" />
+                   </div>
+                   <div className="text-xs text-zinc-200 leading-relaxed space-y-1">
+                     <div>
+                       {t.invite_reward_progress
+                         .replace('{invited}', String(inviteSummary.invited_count ?? 0))
+                         .replace('{cap}', String(inviteSummary.cap ?? 10))
+                         .replace('{earned}', String(inviteSummary.total_reward_earned ?? 0))}
+                     </div>
+                     <div className="profile-invite-light-deep-purple text-[11px] text-violet-200/90">
+                       {t.invite_reward_invitee_bonus_hint.replace(
+                         '{amount}',
+                         String(inviteSummary.invitee_reward ?? inviteSummary.reward_per_invite ?? 0),
+                       )}
+                     </div>
+                   </div>
+                 </div>
+
+                 <div className="space-y-1.5">
+                   <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                     {t.invite_reward_code_label}
+                   </div>
+                   <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
+                     <div className="flex-1 px-3 py-2.5 text-sm font-mono tracking-widest text-white truncate">
+                       {inviteSummary.invite_code}
+                     </div>
+                     <button
+                       type="button"
+                       onClick={() => copyInvite(inviteSummary.invite_code, 'code')}
+                       className="px-3 border-l border-white/10 text-xs font-bold text-violet-200 hover:bg-violet-500/15 transition flex items-center gap-1.5"
+                     >
+                       {inviteCodeCopied ? <Check size={14} /> : <Copy size={14} />}
+                       {inviteCodeCopied ? t.invite_reward_copied : t.invite_reward_copy}
+                     </button>
+                   </div>
+                 </div>
+
+                 <div className="space-y-1.5">
+                   <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                     {t.invite_reward_link_label}
+                   </div>
+                   <div className="flex items-stretch rounded-lg border border-white/10 bg-zinc-950 overflow-hidden">
+                     <div className="flex-1 px-3 py-2.5 text-xs text-zinc-300 truncate">{inviteShareLink}</div>
+                     <button
+                       type="button"
+                       onClick={() => copyInvite(inviteShareLink, 'link')}
+                       className="px-3 border-l border-white/10 text-xs font-bold text-violet-200 hover:bg-violet-500/15 transition flex items-center gap-1.5"
+                     >
+                       {inviteLinkCopied ? <Check size={14} /> : <Copy size={14} />}
+                       {inviteLinkCopied ? t.invite_reward_copied : t.invite_reward_copy}
+                     </button>
+                   </div>
+                 </div>
+               </>
+             ) : (
+               <div className="py-4 text-center text-xs text-zinc-500">{t.profile_pref_invite_empty || 'No invite info available'}</div>
+             )}
+           </div>
+         </AppDialog>
+       )}
 
        {isPasswordDialogOpen && (
          <AppDialog

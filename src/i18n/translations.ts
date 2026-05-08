@@ -1534,6 +1534,9 @@ export const translations = {
     profile_preferences_title: "Preferences",
     profile_preferences_cancel: "Cancel",
     profile_preferences_save: "Save",
+    profile_product_docs_title: "Product Docs",
+    profile_product_docs_desc: "View usage guide",
+    profile_invite_card_desc: "Invite friends, redeem rewards",
 
     profile_reset_video_estimate_btn: "Reset video time estimate",
     profile_reset_video_estimate_submitting: "Resetting...",
@@ -3835,6 +3838,9 @@ export const translations = {
     profile_preferences_title: "项目配置偏好",
     profile_preferences_cancel: "取消",
     profile_preferences_save: "保存",
+    profile_product_docs_title: "产品文档",
+    profile_product_docs_desc: "查看使用指南",
+    profile_invite_card_desc: "邀请好友，兑换奖励",
 
     profile_reset_video_estimate_btn: "重置视频耗时预估",
     profile_reset_video_estimate_submitting: "重置中...",
@@ -6046,6 +6052,9 @@ export const translations = {
     profile_preferences_title: "Keutamaan",
     profile_preferences_cancel: "Batal",
     profile_preferences_save: "Simpan",
+    profile_product_docs_title: "Dokumen Produk",
+    profile_product_docs_desc: "Lihat panduan penggunaan",
+    profile_invite_card_desc: "Jemput rakan, tebus ganjaran",
 
     profile_reset_video_estimate_btn: "Tetapkan semula anggaran masa video",
     profile_reset_video_estimate_submitting: "Menetapkan semula...",
@@ -8127,6 +8136,9 @@ export const translations = {
     profile_preferences_title: "Tùy chọn",
     profile_preferences_cancel: "Hủy",
     profile_preferences_save: "Lưu",
+    profile_product_docs_title: "Tài liệu sản phẩm",
+    profile_product_docs_desc: "Xem hướng dẫn sử dụng",
+    profile_invite_card_desc: "Mời bạn bè, đổi thưởng",
 
     profile_reset_video_estimate_btn: "Đặt lại ước tính thời gian video",
     profile_reset_video_estimate_submitting: "Đang đặt lại...",
@@ -10206,6 +10218,9 @@ export const translations = {
     profile_preferences_title: "환경설정",
     profile_preferences_cancel: "취소",
     profile_preferences_save: "저장",
+    profile_product_docs_title: "제품 문서",
+    profile_product_docs_desc: "사용 가이드 보기",
+    profile_invite_card_desc: "친구 초대, 보상 교환",
 
     profile_reset_video_estimate_btn: "비디오 시간 예측 초기화",
     profile_reset_video_estimate_submitting: "초기화 중...",

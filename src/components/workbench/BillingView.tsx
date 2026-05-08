@@ -26,6 +26,10 @@ export const BillingView: React.FC = () => {
   const [payOrder, setPayOrder] = useState<any>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Redeem code state
+  const [redeemCodeInput, setRedeemCodeInput] = useState('');
+  const [redeemLoading, setRedeemLoading] = useState(false);
+
   const openInfo = (title: string, message: string) => {
     setDialogTitle(title);
     setDialogMessage(message);
@@ -104,6 +108,25 @@ export const BillingView: React.FC = () => {
     }
   };
 
+  const handleRedeem = async () => {
+    const code = redeemCodeInput.trim();
+    if (!code) {
+      openInfo(t.billing_redeem_title || 'Redeem Code', t.billing_redeem_placeholder || 'Please enter a redeem code');
+      return;
+    }
+    try {
+      setRedeemLoading(true);
+      await billingApi.redeemCode(code);
+      setRedeemCodeInput('');
+      await loadData();
+      openInfo(t.billing_redeem_title || 'Redeem Code', t.billing_redeem_success || 'Redeem successful! Credits added.');
+    } catch (err: any) {
+      openInfo(t.billing_redeem_title || 'Redeem Code', err?.message || 'Redeem failed');
+    } finally {
+      setRedeemLoading(false);
+    }
+  };
+
   const balance = overview?.balance ?? 0;
   const planMeta = overview?.plan_meta || {};
   const rechargeAmounts = [0.1, 9, 29, 99, 199];
@@ -115,6 +138,7 @@ export const BillingView: React.FC = () => {
       GENERATION_COST: t.billing_tx_generation_cost || 'Generation cost',
       ASSET_COLLECT_COST: t.billing_tx_asset_collect_cost || 'Asset collect cost',
       REFUND: t.billing_tx_refund || 'Refund',
+      REDEEM: t.billing_tx_redeem || 'Redeem',
     };
 
     const normalizedType = String(tx?.type || '').trim().toUpperCase();
@@ -129,6 +153,7 @@ export const BillingView: React.FC = () => {
       '生成消耗': t.billing_tx_generation_cost || 'Generation cost',
       '素材收集消耗': t.billing_tx_asset_collect_cost || 'Asset collect cost',
       '失败退款': t.billing_tx_refund || 'Refund',
+      '兑换码兑换': t.billing_tx_redeem || 'Redeem',
     };
     if (rawMap[rawLabel]) return rawMap[rawLabel];
 
@@ -294,6 +319,32 @@ export const BillingView: React.FC = () => {
             {t.billing_recharge_hint ||
               'Select an amount to recharge via WeChat Pay.'}
           </p>
+        </section>
+
+        <section>
+          <h2 className="text-sm font-semibold text-zinc-300 mb-3">
+            {t.billing_redeem_title || 'Redeem Code'}
+          </h2>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={redeemCodeInput}
+              onChange={(e) => setRedeemCodeInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRedeem();
+              }}
+              placeholder={t.billing_redeem_placeholder || 'Enter redeem code'}
+              disabled={redeemLoading}
+              className="px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition disabled:opacity-50 w-64"
+            />
+            <button
+              disabled={redeemLoading}
+              onClick={handleRedeem}
+              className="px-4 py-2 rounded-xl bg-orange-600 text-sm text-white font-semibold hover:bg-orange-500 transition disabled:opacity-50"
+            >
+              {redeemLoading ? '...' : (t.billing_redeem_button || 'Redeem')}
+            </button>
+          </div>
         </section>
 
         <section>

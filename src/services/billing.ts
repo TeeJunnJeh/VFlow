@@ -36,4 +36,12 @@ export const billingApi = {
       return null;
     }
   },
+
+  redeemCode: async (code: string) => {
+    return apiRequest(`${API_BASE_URL}/redeem/`, {
+      method: 'POST',
+      body: { code },
+      fallbackMessage: 'Redeem failed',
+    });
+  },
 };

@@ -143,7 +143,7 @@ export const AICreatorView: React.FC = () => {
           model: String(params.model || 'kling'),
           duration: Number(params.duration || 5),
           aspect_ratio: String(params.aspect_ratio || '9:16'),
-          sound: String(params.sound || 'none'),
+          sound: String(params.sound || 'off'),
         };
         const res = await videoApi.generate(payload);
         if (res?.code === 0) {

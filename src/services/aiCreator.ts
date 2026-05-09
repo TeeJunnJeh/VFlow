@@ -42,4 +42,16 @@ export const aiCreatorApi = {
       action: data?.action || null,
     };
   },
+
+  generateImage: async (payload: {
+    prompt: string;
+    aspect_ratio?: string;
+    resolution?: string;
+  }) => {
+    return apiRequest('/api/projects/generate_image/', {
+      method: 'POST',
+      body: payload,
+      fallbackMessage: 'Image generation failed',
+    });
+  },
 };

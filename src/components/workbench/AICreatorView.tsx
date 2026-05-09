@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Wand2, Film, FileText, Image as ImageIcon, Shirt, Sparkles, Loader2, Play, ImagePlus, ScrollText } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Wand2, Film, FileText, Image as ImageIcon, Shirt, Sparkles, Loader2, ImagePlus, ScrollText, Upload, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { aiCreatorApi, type AiCreatorAction, type AiCreatorMessage } from '../../services/aiCreator';
 import { videoApi } from '../../services/video';
+import { assetsApi } from '../../services/assets';
 import { AppDialog } from '../common/AppDialog';
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
@@ -44,6 +45,12 @@ interface GenerationResult {
   error?: string;
 }
 
+interface UploadedImage {
+  id: string;
+  url: string;
+  file: File;
+}
+
 export const AICreatorView: React.FC = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -57,12 +64,15 @@ export const AICreatorView: React.FC = () => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
   const [results, setResults] = useState<GenerationResult[]>([]);
+  const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTitle, setDialogTitle] = useState('');
   const [dialogMessage, setDialogMessage] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -84,13 +94,51 @@ export const AICreatorView: React.FC = () => {
     return map[type] || type;
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploading(true);
+    const newImages: UploadedImage[] = [];
+
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) continue;
+      try {
+        const resp = await assetsApi.uploadTempAsset(file);
+        const url = String(resp?.data?.url || resp?.data?.path || resp?.url || '').trim();
+        if (url) {
+          newImages.push({ id: `img_${Date.now()}_${Math.random().toString(36).slice(2)}`, url, file });
+        }
+      } catch (err: any) {
+        console.error('Upload failed:', err);
+      }
+    }
+
+    if (newImages.length > 0) {
+      setUploadedImages((prev) => [...prev, ...newImages]);
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeImage = (id: string) => {
+    setUploadedImages((prev) => prev.filter((img) => img.id !== id));
+  };
+
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText || input).trim();
     if (!text || loading) return;
 
     if (!overrideText) setInput('');
 
-    const userMsg: AiCreatorMessage = { role: 'user', content: text };
+    // Build message with image references
+    let messageContent = text;
+    if (uploadedImages.length > 0) {
+      const imageDesc = uploadedImages.map((img, i) => `[参考图${i + 1}: ${img.url}]`).join('\n');
+      messageContent = `${text}\n\n${imageDesc}`;
+    }
+
+    const userMsg: AiCreatorMessage = { role: 'user', content: messageContent };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
@@ -134,17 +182,21 @@ export const AICreatorView: React.FC = () => {
     setGeneratingType(type);
 
     const resultId = `${type}_${Date.now()}`;
+    const imageUrls = uploadedImages.map((img) => img.url);
 
     try {
       if (type === 'generate_video') {
         addResult({ id: resultId, type, status: 'pending', taskId: undefined });
-        const payload = {
+        const payload: any = {
           prompt: String(params.prompt || ''),
           model: String(params.model || 'kling'),
           duration: Number(params.duration || 5),
           aspect_ratio: String(params.aspect_ratio || '9:16'),
           sound: String(params.sound || 'off'),
         };
+        if (imageUrls.length > 0) {
+          payload.image_path = imageUrls[0];
+        }
         const res = await videoApi.generate(payload);
         if (res?.code === 0) {
           const taskId = res?.data?.task_id;
@@ -176,31 +228,74 @@ export const AICreatorView: React.FC = () => {
         }
       } else if (type === 'generate_image') {
         addResult({ id: resultId, type, status: 'pending' });
-        const payload = {
-          prompt: String(params.prompt || ''),
-          aspect_ratio: String(params.aspect_ratio || '9:16'),
-          resolution: String(params.resolution || '2K'),
-        };
-        const res = await aiCreatorApi.generateImage(payload);
-        if (res?.code === 0) {
-          const imageUrl = res?.data?.image_url;
-          addResult({ id: resultId, type, status: 'success', imageUrl });
+        if (imageUrls.length > 0) {
+          // Use image fusion with uploaded references
+          const projectRes = await videoApi.createProject(user?.id || 0, { title: 'AI Creator 图片项目' });
+          const projectId = projectRes?.data?.project_id || projectRes?.data?.id;
+          if (!projectId) throw new Error('Failed to create project');
+          const payload = {
+            project_id: projectId,
+            image_paths: imageUrls,
+            prompt: String(params.prompt || ''),
+            aspect_ratio: (String(params.aspect_ratio || '9:16') as any),
+            resolution: (String(params.resolution || '2K') as any),
+          };
+          const res = await videoApi.generateFusionImage(payload);
+          if (res?.code === 0) {
+            const imageUrl = res?.data?.image_url;
+            addResult({ id: resultId, type, status: 'success', imageUrl });
+          } else {
+            throw new Error(res?.message || 'Image generation failed');
+          }
         } else {
-          throw new Error(res?.message || 'Image generation failed');
+          // Pure text-to-image
+          const payload = {
+            prompt: String(params.prompt || ''),
+            aspect_ratio: String(params.aspect_ratio || '9:16'),
+            resolution: String(params.resolution || '2K'),
+          };
+          const res = await aiCreatorApi.generateImage(payload);
+          if (res?.code === 0) {
+            const imageUrl = res?.data?.image_url;
+            addResult({ id: resultId, type, status: 'success', imageUrl });
+          } else {
+            throw new Error(res?.message || 'Image generation failed');
+          }
         }
       } else if (type === 'generate_first_frame') {
         addResult({ id: resultId, type, status: 'pending' });
-        // First frame needs reference image — try with empty or guide user
-        openInfo(
-          (t as any).ai_creator_title || 'AI Creator',
-          (t as any).ai_creator_first_frame_tip || 'First frame generation requires a reference product image. Please upload one in the Product Images → First Frame page.'
-        );
-        addResult({ id: resultId, type, status: 'failed', error: 'Reference image required' });
+        if (imageUrls.length > 0) {
+          const payload = {
+            reference_image_path: imageUrls[0],
+            aspect_ratio: String(params.aspect_ratio || '9:16'),
+            prompt_override: String(params.prompt || ''),
+          };
+          const res = await videoApi.generateFirstFrame(payload);
+          if (res?.code === 0) {
+            const firstFramePath = res?.data?.first_frame_path;
+            addResult({ id: resultId, type, status: 'success', imageUrl: firstFramePath });
+          } else {
+            throw new Error(res?.message || 'First frame generation failed');
+          }
+        } else {
+          openInfo(
+            (t as any).ai_creator_title || 'AI Creator',
+            (t as any).ai_creator_first_frame_tip || 'First frame generation requires a reference product image. Please upload one.'
+          );
+          addResult({ id: resultId, type, status: 'failed', error: 'Reference image required' });
+        }
       } else if (type === 'clothing_swap') {
-        openInfo(
-          (t as any).ai_creator_title || 'AI Creator',
-          (t as any).ai_creator_clothing_swap_tip || 'Please go to Product Images → Clothing Swap to upload your garment and model images.'
-        );
+        if (imageUrls.length >= 2) {
+          openInfo(
+            (t as any).ai_creator_title || 'AI Creator',
+            'Clothing swap images uploaded. Please go to Product Images → Clothing Swap to process.'
+          );
+        } else {
+          openInfo(
+            (t as any).ai_creator_title || 'AI Creator',
+            (t as any).ai_creator_clothing_swap_tip || 'Please upload both garment and model images, then go to Product Images → Clothing Swap.'
+          );
+        }
       } else {
         openInfo(
           (t as any).ai_creator_title || 'AI Creator',
@@ -233,7 +328,7 @@ export const AICreatorView: React.FC = () => {
       lastAssistantMessage.content.includes('image'));
 
   const renderResult = (result: GenerationResult) => {
-    if (result.type === 'generate_image' && result.imageUrl) {
+    if ((result.type === 'generate_image' || result.type === 'generate_first_frame') && result.imageUrl) {
       return (
         <div className="mt-3 rounded-2xl overflow-hidden border border-white/10 bg-zinc-900">
           <div className="px-4 py-2 bg-zinc-950/50 text-xs text-zinc-400 flex items-center gap-2">
@@ -418,6 +513,23 @@ export const AICreatorView: React.FC = () => {
 
       {/* Input area */}
       <footer className="shrink-0 px-10 py-4 border-t border-white/5 bg-zinc-950/50 backdrop-blur-sm">
+        {/* Uploaded image thumbnails */}
+        {uploadedImages.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
+            {uploadedImages.map((img) => (
+              <div key={img.id} className="relative shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-white/10">
+                <img src={img.url} alt="uploaded" className="w-full h-full object-cover" />
+                <button
+                  onClick={() => removeImage(img.id)}
+                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center gap-3">
           <input
             type="text"
@@ -427,6 +539,22 @@ export const AICreatorView: React.FC = () => {
             placeholder={(t as any).ai_creator_placeholder || 'Describe what you want to generate...'}
             disabled={loading}
             className="flex-1 px-4 py-3 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition disabled:opacity-50"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading || loading}
+            className="px-3 py-3 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition disabled:opacity-50"
+            title="Upload reference image"
+          >
+            {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleFileSelect}
+            className="hidden"
           />
           <button
             onClick={() => handleSend()}

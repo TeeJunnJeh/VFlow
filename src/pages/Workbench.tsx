@@ -702,7 +702,9 @@ const Workbench = () => {
 
           {activeView === 'billing' && <BillingView />}
 
-          {activeView === 'ai_creator' && <AICreatorView />}
+          <div className={activeView === 'ai_creator' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <AICreatorView />
+          </div>
 
           {activeView === 'profile' && (
             <ProfileView

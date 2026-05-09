@@ -118,7 +118,7 @@ function styleToModel(style?: FirstFrameParams['style']): string {
   return 'nano-banana-pro';
 }
 
-const FIRST_FRAME_MODELS: FirstFrameModel[] = ['nano-banana-pro', 'flux-2-pro', 'flux-2-flex', 'gpt-image-2', 'gpt-image-1.5'];
+const FIRST_FRAME_MODELS: FirstFrameModel[] = ['nano-banana-pro', 'flux-2-pro', 'flux-2-flex', 'gpt-image-1.5'];
 const NANO_BANANA_FIRST_FRAME_MODEL: FirstFrameModel = 'nano-banana-pro';
 
 function resolveFirstFrameModel(params: FirstFrameParams): FirstFrameModel {

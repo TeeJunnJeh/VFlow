@@ -43,7 +43,7 @@ export const GALLERY_RATIOS: AspectRatioConfig = {
 
 // `FirstFrameModel` 当前只列了 gpt-image-2 / gpt-image-1.5；如果以后扩到 gpt-image-1
 // 也算进 GPT 分支，就把它加进类型 union 后这里追加。
-const GPT_FIRST_FRAME_MODELS = new Set<FirstFrameModel>(['gpt-image-2', 'gpt-image-1.5']);
+const GPT_FIRST_FRAME_MODELS = new Set<FirstFrameModel>(['gpt-image-1.5']);
 
 /**
  * FirstFrame 的可选比例集随当前所选模型变化。

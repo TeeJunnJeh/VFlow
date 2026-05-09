@@ -74,6 +74,7 @@ interface GenerationResult {
   videoUrl?: string;
   taskId?: string | number;
   error?: string;
+  model?: string;
 }
 
 interface UploadedImage {
@@ -378,20 +379,11 @@ export const AICreatorView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results]);
 
-  // Load conversations on mount, and restore active conversation if any
+  // Load conversations on mount. Default to empty new chat instead of restoring
+  // the last active conversation to avoid polluting the chat area with stale
+  // generation results / pending video tasks.
   useEffect(() => {
-    const restore = async () => {
-      await loadConversations();
-      try {
-        const saved = window.localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          await loadConversation(saved);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    void restore();
+    void loadConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -529,19 +521,21 @@ export const AICreatorView: React.FC = () => {
         let restoredResults: GenerationResult[] = cached?.results ?? [];
         let restoredImages: UploadedImage[] = cached?.uploadedImages ?? [];
 
-        // 同步全局任务队列：将不在本地缓存中的视频生成任务补充进来
-        const existingTaskIds = new Set(restoredResults.map((r) => String(r.taskId)).filter(Boolean));
-        tasks.forEach((task) => {
-          if (task.type === 'video_generation' && !existingTaskIds.has(String(task.id))) {
-            restoredResults.push({
-              id: `generate_video_${task.createdAt}_${task.id}`,
-              type: 'generate_video',
-              status: task.status === 'processing' ? 'pending' : task.status,
-              taskId: task.id,
-              videoUrl: task.result?.video_url || task.result?.url,
-              error: task.status === 'failed' ? task.result?.error || 'Generation failed' : undefined,
-            });
+        // 将全局任务队列的最新状态同步到已恢复的 results 上（防止组件卸载期间任务完成导致状态不同步）
+        restoredResults = restoredResults.map((result) => {
+          if (result.type !== 'generate_video' || !result.taskId) return result;
+          const task = tasks.find((t) => String(t.id) === String(result.taskId));
+          if (!task) return result;
+          if (task.status === 'success' && (task.result?.video_url || task.result?.url)) {
+            return { ...result, status: 'success', videoUrl: task.result.video_url || task.result.url };
           }
+          if (task.status === 'failed') {
+            return { ...result, status: 'failed', error: task.result?.error || 'Generation failed' };
+          }
+          if (task.status === 'processing' || task.status === 'pending') {
+            return { ...result, status: 'pending' };
+          }
+          return result;
         });
 
         setResults(restoredResults);
@@ -843,7 +837,8 @@ export const AICreatorView: React.FC = () => {
           const res = await aiCreatorApi.generateImage(payload);
           if (res?.code === 0) {
             const imageUrl = res?.data?.image_url;
-            updateResult(resultId, { status: 'success', imageUrl });
+            const model = res?.data?.model;
+            updateResult(resultId, { status: 'success', imageUrl, model });
           } else {
             throw new Error(res?.message || 'Image generation failed');
           }
@@ -963,6 +958,11 @@ export const AICreatorView: React.FC = () => {
           <div className="px-5 py-3 bg-zinc-950/50 text-sm text-zinc-400 flex items-center gap-2">
             <ImageIcon className="w-4 h-4" />
             <span className="font-medium">{getActionLabel(result.type)}</span>
+            {result.model && (
+              <span className="ml-2 px-2 py-0.5 rounded-md bg-zinc-800 text-[10px] text-zinc-500 border border-white/5">
+                {result.model}
+              </span>
+            )}
           </div>
           <img src={result.imageUrl} alt="Generated" className="w-full max-h-[400px] object-contain bg-black" />
         </div>

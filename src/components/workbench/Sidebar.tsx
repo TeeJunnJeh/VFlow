@@ -18,6 +18,7 @@ import {
   Video,
   Wand2,
   Wrench,
+  MessageSquare,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
@@ -268,6 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
 
         <div className="flex flex-col gap-4 w-full px-2">
           <ProductImagesNav />
+          <InternalNav icon={MessageSquare} view="ai_creator" label={t.wb_nav_ai_creator || 'AI Creator'} />
           <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
           <CreativeLabNav />
           <InternalNav icon={activeView === 'assets' ? FolderOpen : Folder} view="assets" label={t.wb_nav_assets} />

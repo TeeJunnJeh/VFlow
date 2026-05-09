@@ -50,6 +50,7 @@ import { AgentView } from '../components/workbench/AgentView_v2';
 import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
+import { AICreatorView } from '../components/workbench/AICreatorView';
 import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
 import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
 import { Sidebar } from '../components/workbench/Sidebar';
@@ -76,6 +77,7 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   editor: 'VFLOW AI - 模板编辑',
   profile: 'VFLOW AI - 设置',
   billing: 'VFLOW AI - 计费',
+  ai_creator: 'VFLOW AI - AI 创作',
 };
 
 const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
@@ -109,6 +111,8 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'Update your profile, preferences, and security options. Manage account settings and integrations to keep your VFLOW AI workspace configured the way you want.',
   billing:
     'View your plan, balance, invoices, and usage. Manage payments and understand how credits are consumed for video and product image generation in one place.',
+  ai_creator:
+    'Chat with AI to generate anything — videos, scripts, images, and more. Describe what you want in natural language and create with one click.',
 };
 
 const isWorkbenchViewType = (value: string | null | undefined): value is ViewType => (
@@ -697,6 +701,8 @@ const Workbench = () => {
           {activeView === 'agent' && isDebugModeEnabled && <AgentView />}
 
           {activeView === 'billing' && <BillingView />}
+
+          {activeView === 'ai_creator' && <AICreatorView />}
 
           {activeView === 'profile' && (
             <ProfileView

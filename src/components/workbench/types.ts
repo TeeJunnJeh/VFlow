@@ -14,4 +14,5 @@ export type ViewType =
   | 'agent'
   | 'editor'
   | 'profile'
-  | 'billing';
+  | 'billing'
+  | 'ai_creator';

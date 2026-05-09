@@ -169,19 +169,18 @@ export const BillingView: React.FC = () => {
 
   const balance = overview?.balance ?? 0;
   const planMeta = overview?.plan_meta || {};
-  // 快捷充值档位：金额（元）+ 对应 V 点 + 卡片图片路径。
-  // V 点 = 金额 × 10（默认 CREDIT_EXCHANGE_RATE）。图片裁自设计稿，命名 tier_<V点>.png。
-  const RECHARGE_TIERS: { yuan: number; vPoints: number; image: string }[] = [
-    { yuan: 1, vPoints: 10, image: '/recharge-tiers/tier_10.png' },
-    { yuan: 6, vPoints: 60, image: '/recharge-tiers/tier_60.png' },
-    { yuan: 45, vPoints: 450, image: '/recharge-tiers/tier_450.png' },
-    { yuan: 68, vPoints: 680, image: '/recharge-tiers/tier_680.png' },
-    { yuan: 118, vPoints: 1180, image: '/recharge-tiers/tier_1180.png' },
-    { yuan: 198, vPoints: 1980, image: '/recharge-tiers/tier_1980.png' },
-    { yuan: 348, vPoints: 3480, image: '/recharge-tiers/tier_3480.png' },
-    { yuan: 648, vPoints: 6480, image: '/recharge-tiers/tier_6480.png' },
-    { yuan: 898, vPoints: 8980, image: '/recharge-tiers/tier_8980.png' },
-    { yuan: 1298, vPoints: 12980, image: '/recharge-tiers/tier_12980.png' },
+  // 快捷充值档位：金额（元）+ 对应 V 点。V 点 = 金额 × 10（默认 CREDIT_EXCHANGE_RATE）。
+  const RECHARGE_TIERS: { yuan: number; vPoints: number }[] = [
+    { yuan: 1, vPoints: 10 },
+    { yuan: 6, vPoints: 60 },
+    { yuan: 45, vPoints: 450 },
+    { yuan: 68, vPoints: 680 },
+    { yuan: 118, vPoints: 1180 },
+    { yuan: 198, vPoints: 1980 },
+    { yuan: 348, vPoints: 3480 },
+    { yuan: 648, vPoints: 6480 },
+    { yuan: 898, vPoints: 8980 },
+    { yuan: 1298, vPoints: 12980 },
   ];
   const CUSTOM_AMOUNT_MIN = 1;
   const CUSTOM_AMOUNT_MAX = 10000;
@@ -397,22 +396,14 @@ export const BillingView: React.FC = () => {
                 key={tier.yuan}
                 disabled={loading}
                 onClick={() => handleRecharge(tier.yuan)}
-                className="group flex flex-col items-stretch overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 transition hover:border-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="group flex flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-zinc-900 px-3 py-7 transition hover:border-orange-500 hover:bg-zinc-800/60 disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label={`充值 ¥${tier.yuan} 得 ${tier.vPoints} V 点`}
               >
-                <div className="aspect-square w-full overflow-hidden bg-black/30">
-                  <img
-                    src={tier.image}
-                    alt={`${tier.vPoints} V`}
-                    draggable={false}
-                    className="block h-full w-full object-cover transition group-hover:scale-[1.02]"
-                  />
+                <div className="flex items-baseline gap-2 leading-none">
+                  <span className="text-3xl font-black text-purple-400 group-hover:text-purple-300">V</span>
+                  <span className="text-2xl font-bold text-zinc-100">{tier.vPoints}</span>
                 </div>
-                <div className="flex items-center justify-center border-t border-white/10 bg-zinc-950 py-2">
-                  <span className="text-base font-bold text-zinc-100 group-hover:text-orange-400">
-                    ¥{tier.yuan}
-                  </span>
-                </div>
+                <span className="mt-1 text-xs text-zinc-500">¥{tier.yuan}</span>
               </button>
             ))}
           </div>
@@ -444,7 +435,7 @@ export const BillingView: React.FC = () => {
               type="button"
               disabled={loading}
               onClick={handleCustomRecharge}
-              className="px-4 py-2 rounded-xl bg-orange-500 text-sm font-bold text-black hover:bg-orange-400 transition disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-purple-500 text-sm font-bold text-white hover:bg-purple-400 transition disabled:opacity-50"
             >
               {((t as any).billing_custom_amount_submit as string) || '充值'}
             </button>
@@ -456,6 +447,11 @@ export const BillingView: React.FC = () => {
           <p className="text-xs text-zinc-500 mt-2">
             {t.billing_recharge_hint ||
               'Select an amount to recharge via WeChat Pay.'}
+          </p>
+
+          <p className="text-xs text-zinc-500 mt-2">
+            {((t as any).billing_recharge_notice as string) ||
+              '温馨提示：积分不可兑换会员，不可转赠，也不可提现；积分充值后有效期为 2 年，不支持退款或反向兑换为人民币。'}
           </p>
         </section>
 

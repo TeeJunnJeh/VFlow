@@ -812,6 +812,16 @@ html.theme-light button[class*="bg-orange-500"]:not([class*="bg-orange-500/"])[c
   background-color: #fb923c !important;
   color: #000000 !important;
 }
+/* Purple solid-color action buttons (bg-purple-500 + text-white) — same handling as orange. */
+html.theme-light button[class*="bg-purple-500"]:not([class*="bg-purple-500/"])[class*="text-white"] {
+  background-color: #a855f7 !important;
+  color: #ffffff !important;
+}
+html.theme-light button[class*="bg-purple-500"]:not([class*="bg-purple-500/"])[class*="text-white"]:hover,
+html.theme-light button[class*="bg-purple-500"]:not([class*="bg-purple-500/"])[class*="text-white"][class*="hover:bg-purple-400"]:hover {
+  background-color: #c084fc !important;
+  color: #ffffff !important;
+}
 .theme-light .wb-product-subnav-item {
   background-color: transparent !important;
   border-color: transparent !important;

@@ -1,8 +1,35 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Wand2, Film, FileText, Image as ImageIcon, Shirt, Sparkles, Loader2, ImagePlus, ScrollText, Upload, X, Pencil, Trash2 } from 'lucide-react';
+import {
+  Send,
+  Wand2,
+  Film,
+  FileText,
+  Image as ImageIcon,
+  Shirt,
+  Sparkles,
+  Loader2,
+  ImagePlus,
+  ScrollText,
+  Upload,
+  X,
+  Pencil,
+  Trash2,
+  Plus,
+  MessageSquare,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  Check,
+  Menu,
+} from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { aiCreatorApi, type AiCreatorAction, type AiCreatorMessage } from '../../services/aiCreator';
+import {
+  aiCreatorApi,
+  type AiCreatorAction,
+  type AiCreatorMessage,
+  type AiCreatorConversation,
+} from '../../services/aiCreator';
 import { videoApi } from '../../services/video';
 import { assetsApi } from '../../services/assets';
 import { AppDialog } from '../common/AppDialog';
@@ -51,17 +78,36 @@ interface UploadedImage {
   file: File;
 }
 
+const WELCOME_MESSAGE: AiCreatorMessage = {
+  role: 'assistant',
+  content:
+    "👋 Hi! I'm your AI Creator. Just tell me what you want to make — a video, a script, an image, or anything else — and I'll generate it for you with one click.",
+};
+
+const WELCOME_MESSAGE_ZH: AiCreatorMessage = {
+  role: 'assistant',
+  content:
+    "👋 你好！我是你的 AI 创作助手。告诉我你想制作什么——视频、脚本、图片，或其他任何内容——我会一键为你生成。",
+};
+
 export const AICreatorView: React.FC = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
-  const [messages, setMessages] = useState<AiCreatorMessage[]>([
-    {
-      role: 'assistant',
-      content:
-        (t as any).ai_creator_welcome ||
-        "👋 Hi! I'm your AI Creator. Just tell me what you want to make — a video, a script, an image, or anything else — and I'll generate it for you with one click.",
-    },
-  ]);
+  const isZh = (t as any).ai_creator_title === 'AI 创作助手';
+
+  const STORAGE_KEY = 'vflow_ai_creator_active_conversation';
+
+  const [conversations, setConversations] = useState<AiCreatorConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem(STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const [messages, setMessages] = useState<AiCreatorMessage[]>([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -73,6 +119,12 @@ export const AICreatorView: React.FC = () => {
   const [dialogMessage, setDialogMessage] = useState('');
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
+
+  // Sidebar editing states
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState('');
+  const [convoLoading, setConvoLoading] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -84,6 +136,132 @@ export const AICreatorView: React.FC = () => {
     scrollToBottom();
   }, [messages, results]);
 
+  // Load conversations on mount, and restore active conversation if any
+  useEffect(() => {
+    const restore = async () => {
+      await loadConversations();
+      try {
+        const saved = window.localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          await loadConversation(saved);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void restore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Persist active conversation id so it survives tab switch / refresh
+    try {
+      if (activeConversationId) {
+        window.localStorage.setItem(STORAGE_KEY, activeConversationId);
+      } else {
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [activeConversationId]);
+
+  // 当页面从后台切回前台时，自动刷新当前会话消息（多设备同步 / 防丢）
+  useEffect(() => {
+    const onVisible = () => {
+      if (!document.hidden && activeConversationId) {
+        void loadConversation(activeConversationId);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId]);
+
+  const loadConversations = async () => {
+    try {
+      const list = await aiCreatorApi.listConversations();
+      setConversations(list);
+    } catch (e) {
+      console.error('Failed to load conversations:', e);
+    }
+  };
+
+  const startNewChat = async () => {
+    setActiveConversationId(null);
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
+    setResults([]);
+    setUploadedImages([]);
+    setEditingIdx(null);
+    setEditText('');
+    // Optionally auto-create on first message
+  };
+
+  const loadConversation = async (id: string) => {
+    if (convoLoading) return;
+    setConvoLoading(true);
+    try {
+      const data = await aiCreatorApi.getMessages(id);
+      setActiveConversationId(data.id);
+      if (data.messages && data.messages.length > 0) {
+        setMessages(data.messages);
+      } else {
+        setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
+      }
+      setResults([]);
+      setUploadedImages([]);
+      setEditingIdx(null);
+      setEditText('');
+    } catch (e: any) {
+      openInfo('Error', e?.message || 'Failed to load conversation');
+    } finally {
+      setConvoLoading(false);
+    }
+  };
+
+  const deleteConversation = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(isZh ? '确定删除此对话？' : 'Delete this conversation?')) return;
+    try {
+      await aiCreatorApi.deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (activeConversationId === id) {
+        startNewChat();
+      }
+    } catch (e: any) {
+      openInfo('Error', e?.message || 'Failed to delete conversation');
+    }
+  };
+
+  const startRename = (conv: AiCreatorConversation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(conv.id);
+    setRenameText(conv.title);
+  };
+
+  const confirmRename = async (id: string) => {
+    const title = renameText.trim();
+    if (!title) {
+      setRenamingId(null);
+      return;
+    }
+    try {
+      await aiCreatorApi.updateConversation(id, title);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title } : c))
+      );
+    } catch (e: any) {
+      openInfo('Error', e?.message || 'Failed to rename');
+    } finally {
+      setRenamingId(null);
+    }
+  };
+
   const openInfo = (title: string, message: string) => {
     setDialogTitle(title);
     setDialogMessage(message);
@@ -91,7 +269,6 @@ export const AICreatorView: React.FC = () => {
   };
 
   const getActionLabel = (type: string) => {
-    const isZh = (t as any).ai_creator_title === 'AI 创作助手';
     const map = isZh ? ACTION_LABELS_ZH : ACTION_LABELS_EN;
     return map[type] || type;
   };
@@ -149,7 +326,24 @@ export const AICreatorView: React.FC = () => {
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role, content: m.content }));
 
-      const res = await aiCreatorApi.chat(text, history);
+      const res = await aiCreatorApi.chat(text, history, activeConversationId || undefined);
+
+      // Update active conversation if backend created/returned one
+      if (res.conversation_id && res.conversation_id !== activeConversationId) {
+        setActiveConversationId(res.conversation_id);
+        // 同步落盘，防止切页/刷新时还没触发 useEffect
+        try {
+          window.localStorage.setItem(STORAGE_KEY, res.conversation_id);
+        } catch {
+          // ignore
+        }
+        // Refresh conversation list to show the new one
+        loadConversations();
+      } else if (activeConversationId) {
+        // Refresh list to update "updated_at" ordering
+        loadConversations();
+      }
+
       const assistantMsg: AiCreatorMessage = {
         role: 'assistant',
         content: res.reply,
@@ -405,249 +599,363 @@ export const AICreatorView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      {/* Header */}
-      <header className="flex justify-between items-center px-10 py-6 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-10">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-            {(t as any).ai_creator_title || 'AI Creator'}
-          </h1>
-          <p className="text-zinc-500 text-xs mt-1">
-            {(t as any).ai_creator_subtitle || 'Describe anything and generate with one click'}
-          </p>
+    <div className="flex h-full animate-in fade-in slide-in-from-bottom-4 duration-300">
+      {/* Sidebar — Conversation list */}
+      <aside
+        className={`shrink-0 border-r border-white/5 bg-zinc-950/80 backdrop-blur-sm flex flex-col transition-all duration-300 ${
+          sidebarOpen ? 'w-64' : 'w-0 overflow-hidden opacity-0'
+        }`}
+      >
+        {/* Sidebar header */}
+        <div className="flex items-center justify-between px-3 py-3 border-b border-white/5">
+          <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+            {(t as any).ai_creator_history || 'History'}
+          </span>
+          <button
+            onClick={startNewChat}
+            className="p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:text-orange-400 hover:bg-zinc-700 transition"
+            title="New chat"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <div className="px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/40 text-xs text-orange-400 font-semibold flex items-center gap-1">
-          <Sparkles className="w-3 h-3" />
-          AI
-        </div>
-      </header>
 
-      {/* Quick action buttons */}
-      <div className="shrink-0 px-10 py-3 border-b border-white/5 flex items-center gap-2 overflow-x-auto">
-        <button
-          onClick={() => quickSend('我想生成一段视频')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
-        >
-          <Film className="w-3.5 h-3.5" />
-          {(t as any).ai_creator_quick_video || '生成视频'}
-        </button>
-        <button
-          onClick={() => quickSend('我想生成一张图片')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
-        >
-          <ImageIcon className="w-3.5 h-3.5" />
-          {(t as any).ai_creator_quick_image || '生成图片'}
-        </button>
-        <button
-          onClick={() => quickSend('我想生成一个脚本')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
-        >
-          <ScrollText className="w-3.5 h-3.5" />
-          {(t as any).ai_creator_quick_script || '生成脚本'}
-        </button>
-        <button
-          onClick={() => quickSend('我想生成首帧图')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
-        >
-          <ImagePlus className="w-3.5 h-3.5" />
-          {(t as any).ai_creator_quick_first_frame || '生成首帧图'}
-        </button>
-      </div>
+        {/* Conversation list */}
+        <div className="flex-1 overflow-y-auto py-2 space-y-0.5">
+          {conversations.map((conv) => (
+            <div
+              key={conv.id}
+              onClick={() => loadConversation(conv.id)}
+              className={`group mx-2 flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition ${
+                activeConversationId === conv.id
+                  ? 'bg-zinc-800 text-zinc-100'
+                  : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-60" />
+              {renamingId === conv.id ? (
+                <input
+                  autoFocus
+                  value={renameText}
+                  onChange={(e) => setRenameText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') confirmRename(conv.id);
+                    if (e.key === 'Escape') setRenamingId(null);
+                  }}
+                  onBlur={() => confirmRename(conv.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-1 min-w-0 bg-zinc-900 border border-white/10 rounded px-2 py-0.5 text-xs text-zinc-200 outline-none focus:border-orange-500/50"
+                />
+              ) : (
+                <span className="flex-1 min-w-0 text-xs truncate">{conv.title}</span>
+              )}
 
-      {/* Chat + Results area */}
-      <main className="flex-1 overflow-y-auto px-10 py-6 space-y-6">
-        {messages.map((msg, idx) => (
-          <div key={idx}>
-            <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed group relative ${
-                  msg.role === 'user'
-                    ? 'bg-orange-600 text-white'
-                    : 'bg-zinc-900 border border-white/10 text-zinc-200'
-                }`}
-              >
-                {editingIdx === idx ? (
-                  <div className="space-y-2">
-                    <textarea
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && e.metaKey) confirmEdit();
-                        if (e.key === 'Escape') cancelEdit();
-                      }}
-                      className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/50 outline-none resize-none"
-                      rows={3}
-                      autoFocus
-                    />
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={confirmEdit}
-                        className="px-3 py-1 rounded-lg bg-white/20 text-xs font-semibold hover:bg-white/30 transition"
-                      >
-                        {(t as any).ai_creator_save || 'Save & Regenerate'}
-                      </button>
-                      <button
-                        onClick={cancelEdit}
-                        className="px-3 py-1 rounded-lg bg-white/10 text-xs hover:bg-white/20 transition"
-                      >
-                        {(t as any).ai_creator_cancel || 'Cancel'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
-                )}
-
-                {/* Edit / Delete buttons on user messages */}
-                {msg.role === 'user' && editingIdx !== idx && (
-                  <div className="absolute -left-20 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => startEdit(idx)}
-                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-orange-400 hover:bg-zinc-700 transition"
-                      title="Edit"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => deleteFrom(idx)}
-                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-700 transition"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-
-                {/* Action card inside assistant message */}
-                {msg.role === 'assistant' && msg.action && msg.action.type !== 'chat' && (
-                  <div className="mt-3 pt-3 border-t border-white/10">
-                    <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2">
-                      {ACTION_ICONS[msg.action.type] || <Wand2 className="w-4 h-4" />}
-                      <span className="font-semibold text-zinc-300">{getActionLabel(msg.action.type)}</span>
-                    </div>
-                    {msg.action.params && Object.keys(msg.action.params).length > 0 && (
-                      <div className="text-[11px] text-zinc-500 mb-2 space-y-0.5">
-                        {Object.entries(msg.action.params).map(([k, v]) => (
-                          <div key={k}>
-                            <span className="text-zinc-400">{k}:</span> {String(v)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => executeAction(msg.action!)}
-                      disabled={generatingType !== null}
-                      className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-600 text-xs text-white font-semibold hover:bg-orange-500 transition disabled:opacity-50"
-                    >
-                      {generatingType === msg.action.type ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Wand2 className="w-3.5 h-3.5" />
-                      )}
-                      {(t as any).ai_creator_generate || 'Generate'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Routing quick-reply buttons */}
-            {msg.role === 'assistant' &&
-              idx === messages.length - 1 &&
-              showRoutingButtons && (
-                <div className="flex gap-2 mt-2 ml-1">
+              {renamingId !== conv.id && (
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                   <button
-                    onClick={() => quickSend('我想生成视频')}
-                    className="px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
+                    onClick={(e) => startRename(conv, e)}
+                    className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200"
                   >
-                    🎬 {(t as any).ai_creator_quick_video || '生成视频'}
+                    <Edit3 className="w-3 h-3" />
                   </button>
                   <button
-                    onClick={() => quickSend('我想生成图片')}
-                    className="px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
+                    onClick={(e) => deleteConversation(conv.id, e)}
+                    className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-red-400"
                   >
-                    🖼️ {(t as any).ai_creator_quick_image || '生成图片'}
+                    <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
               )}
-          </div>
-        ))}
+            </div>
+          ))}
+          {conversations.length === 0 && (
+            <div className="px-4 py-6 text-xs text-zinc-600 text-center">
+              {(t as any).ai_creator_no_history || 'No conversations yet'}
+            </div>
+          )}
+        </div>
+      </aside>
 
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-zinc-900 border border-white/10 rounded-2xl px-5 py-3 text-sm text-zinc-400 flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
-              {(t as any).ai_creator_thinking || 'Thinking...'}
+      {/* Main chat area */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* Header */}
+        <header className="flex justify-between items-center px-6 py-4 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-10">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen((s) => !s)}
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
+              title="Toggle sidebar"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-zinc-100">
+                {(t as any).ai_creator_title || 'AI Creator'}
+              </h1>
+              <p className="text-zinc-500 text-xs mt-0.5">
+                {(t as any).ai_creator_subtitle || 'Describe anything and generate with one click'}
+              </p>
             </div>
           </div>
-        )}
-
-        {/* Render generation results */}
-        {results.map((result) => (
-          <div key={result.id} className="flex justify-start">
-            <div className="max-w-[80%] w-full">
-              {renderResult(result)}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={startNewChat}
+              className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {(t as any).ai_creator_new_chat || 'New Chat'}
+            </button>
+            <div className="px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/40 text-xs text-orange-400 font-semibold flex items-center gap-1">
+              <Sparkles className="w-3 h-3" />
+              AI
             </div>
           </div>
-        ))}
+        </header>
 
-        <div ref={bottomRef} />
-      </main>
-
-      {/* Input area */}
-      <footer className="shrink-0 px-10 py-4 border-t border-white/5 bg-zinc-950/50 backdrop-blur-sm">
-        {/* Uploaded image thumbnails */}
-        {uploadedImages.length > 0 && (
-          <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
-            {uploadedImages.map((img) => (
-              <div key={img.id} className="relative shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-white/10">
-                <img src={img.url} alt="uploaded" className="w-full h-full object-cover" />
-                <button
-                  onClick={() => removeImage(img.id)}
-                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center gap-3">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={(t as any).ai_creator_placeholder || 'Describe what you want to generate...'}
-            disabled={loading}
-            className="flex-1 px-4 py-3 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition disabled:opacity-50"
-          />
+        {/* Quick action buttons */}
+        <div className="shrink-0 px-6 py-3 border-b border-white/5 flex items-center gap-2 overflow-x-auto">
           <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || loading}
-            className="px-3 py-3 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition disabled:opacity-50"
-            title="Upload reference image"
+            onClick={() => quickSend('我想生成一段视频')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
           >
-            {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+            <Film className="w-3.5 h-3.5" />
+            {(t as any).ai_creator_quick_video || '生成视频'}
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handleFileSelect}
-            className="hidden"
-          />
           <button
-            onClick={() => handleSend()}
-            disabled={loading || !input.trim()}
-            className="px-4 py-3 rounded-xl bg-orange-600 text-white hover:bg-orange-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => quickSend('我想生成一张图片')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
           >
-            <Send className="w-5 h-5" />
+            <ImageIcon className="w-3.5 h-3.5" />
+            {(t as any).ai_creator_quick_image || '生成图片'}
+          </button>
+          <button
+            onClick={() => quickSend('我想生成一个脚本')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
+          >
+            <ScrollText className="w-3.5 h-3.5" />
+            {(t as any).ai_creator_quick_script || '生成脚本'}
+          </button>
+          <button
+            onClick={() => quickSend('我想生成首帧图')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
+          >
+            <ImagePlus className="w-3.5 h-3.5" />
+            {(t as any).ai_creator_quick_first_frame || '生成首帧图'}
           </button>
         </div>
-      </footer>
+
+        {/* Chat + Results area */}
+        <main className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+          {convoLoading && (
+            <div className="flex justify-center py-10">
+              <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            </div>
+          )}
+
+          {!convoLoading &&
+            messages.map((msg, idx) => (
+              <div key={idx}>
+                <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed group relative ${
+                      msg.role === 'user'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-zinc-900 border border-white/10 text-zinc-200'
+                    }`}
+                  >
+                    {editingIdx === idx ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.metaKey) confirmEdit();
+                            if (e.key === 'Escape') cancelEdit();
+                          }}
+                          className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/50 outline-none resize-none"
+                          rows={3}
+                          autoFocus
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={confirmEdit}
+                            className="px-3 py-1 rounded-lg bg-white/20 text-xs font-semibold hover:bg-white/30 transition"
+                          >
+                            {(t as any).ai_creator_save || 'Save & Regenerate'}
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="px-3 py-1 rounded-lg bg-white/10 text-xs hover:bg-white/20 transition"
+                          >
+                            {(t as any).ai_creator_cancel || 'Cancel'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                    )}
+
+                    {/* Edit / Delete buttons on user messages */}
+                    {msg.role === 'user' && editingIdx !== idx && (
+                      <div className="absolute -left-20 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => startEdit(idx)}
+                          className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-orange-400 hover:bg-zinc-700 transition"
+                          title="Edit"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteFrom(idx)}
+                          className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-700 transition"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Action card inside assistant message */}
+                    {msg.role === 'assistant' && msg.action && msg.action.type !== 'chat' && (
+                      <div className="mt-3 pt-3 border-t border-white/10">
+                        <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2">
+                          {ACTION_ICONS[msg.action.type] || <Wand2 className="w-4 h-4" />}
+                          <span className="font-semibold text-zinc-300">{getActionLabel(msg.action.type)}</span>
+                        </div>
+                        {msg.action.params && Object.keys(msg.action.params).length > 0 && (
+                          <div className="text-[11px] text-zinc-500 mb-2 space-y-0.5">
+                            {Object.entries(msg.action.params).map(([k, v]) => (
+                              <div key={k}>
+                                <span className="text-zinc-400">{k}:</span> {String(v)}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => executeAction(msg.action!)}
+                          disabled={generatingType !== null}
+                          className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-600 text-xs text-white font-semibold hover:bg-orange-500 transition disabled:opacity-50"
+                        >
+                          {generatingType === msg.action.type ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Wand2 className="w-3.5 h-3.5" />
+                          )}
+                          {(t as any).ai_creator_generate || 'Generate'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Routing quick-reply buttons */}
+                {msg.role === 'assistant' &&
+                  idx === messages.length - 1 &&
+                  showRoutingButtons && (
+                    <div className="flex gap-2 mt-2 ml-1">
+                      <button
+                        onClick={() => quickSend('我想生成视频')}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
+                      >
+                        🎬 {(t as any).ai_creator_quick_video || '生成视频'}
+                      </button>
+                      <button
+                        onClick={() => quickSend('我想生成图片')}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
+                      >
+                        🖼️ {(t as any).ai_creator_quick_image || '生成图片'}
+                      </button>
+                    </div>
+                  )}
+              </div>
+            ))}
+
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-zinc-900 border border-white/10 rounded-2xl px-5 py-3 text-sm text-zinc-400 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                {(t as any).ai_creator_thinking || 'Thinking...'}
+              </div>
+            </div>
+          )}
+
+          {/* Render generation results */}
+          {results.map((result) => (
+            <div key={result.id} className="flex justify-start">
+              <div className="max-w-[80%] w-full">
+                {renderResult(result)}
+              </div>
+            </div>
+          ))}
+
+          <div ref={bottomRef} />
+        </main>
+
+        {/* Input area — Gemini-style */}
+        <footer className="shrink-0 px-6 py-4 border-t border-white/5 bg-zinc-950/50 backdrop-blur-sm">
+          <div className="max-w-4xl mx-auto">
+            {/* Uploaded image thumbnails */}
+            {uploadedImages.length > 0 && (
+              <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
+                {uploadedImages.map((img) => (
+                  <div key={img.id} className="relative shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-white/10">
+                    <img src={img.url} alt="uploaded" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeImage(img.id)}
+                      className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-end gap-2 rounded-2xl bg-zinc-900 border border-white/10 p-2 pr-3 focus-within:border-orange-500/50 transition">
+              {/* + upload button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || loading}
+                className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition disabled:opacity-50"
+                title="Add image"
+              >
+                {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+
+              {/* Text input */}
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={(t as any).ai_creator_placeholder || 'Describe what you want to generate...'}
+                disabled={loading}
+                className="flex-1 py-2.5 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none disabled:opacity-50 min-w-0"
+              />
+
+              {/* Send button */}
+              <button
+                onClick={() => handleSend()}
+                disabled={loading || (!input.trim() && uploadedImages.length === 0)}
+                className="shrink-0 w-9 h-9 rounded-full bg-orange-600 text-white flex items-center justify-center hover:bg-orange-500 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-600 mt-1.5 ml-1">
+              AI may produce inaccurate content. Upload images as reference material.
+            </p>
+          </div>
+        </footer>
+      </div>
 
       {/* Dialog */}
       {dialogOpen && (

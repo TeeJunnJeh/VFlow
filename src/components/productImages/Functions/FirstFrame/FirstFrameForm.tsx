@@ -33,10 +33,9 @@ const FALLBACK_PARAMS: FirstFrameParams = {
 };
 
 const NANO_BANANA_FIRST_FRAME_MODEL: FirstFrameModel = 'nano-banana-pro';
-const GPT_FIRST_FRAME_MODELS: FirstFrameModel[] = ['gpt-image-2', 'gpt-image-1.5'];
+const GPT_FIRST_FRAME_MODELS: FirstFrameModel[] = ['gpt-image-1.5'];
 const VISIBLE_FIRST_FRAME_MODELS: FirstFrameModel[] = [
   NANO_BANANA_FIRST_FRAME_MODEL,
-  'gpt-image-2',
   'gpt-image-1.5',
 ];
 
@@ -114,7 +113,6 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   const models = useMemo(
     () => [
       { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
-      { label: 'GPT Image 2', value: 'gpt-image-2' },
       { label: 'GPT Image 1.5', value: 'gpt-image-1.5' },
     ],
     []

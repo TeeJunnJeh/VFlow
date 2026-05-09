@@ -525,6 +525,7 @@ export const videoApi = {
   },
 
   generateProductGallery: async (payload: {
+    imageModel?: string;
     client_history_id?: string;
     skip_history?: boolean;
     prompt?: string;

@@ -52,6 +52,7 @@ interface DemoLibraryItem {
 }
 
 type GalleryHistorySettings = {
+  generationModel?: string;
   targetScene: string;
   style: string;
   aspectRatio?: string;
@@ -1102,6 +1103,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   const [galleryProductName, setGalleryProductName] = useState('');
   const [galleryCategory, setGalleryCategory] = useState('');
   const [gallerySellingPoints, setGallerySellingPoints] = useState<string[]>([]);
+  const [galleryGenerationModel, setGalleryGenerationModel] = useState<'nano-banana-pro' | 'gpt-image-1.5' | 'flux-2-pro'>('nano-banana-pro');
   const [galleryTargetScene, setGalleryTargetScene] = useState<'detail' | 'xiaohongshu' | 'douyin' | 'poster' | 'ads'>('detail');
   const [galleryStyle, setGalleryStyle] = useState<'ecom_clean' | 'lifestyle' | 'premium' | 'festival'>('ecom_clean');
   const [galleryModelCards, setGalleryModelCards] = useState<GalleryModelCard[]>([]);
@@ -3436,6 +3438,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       if (s.targetScene) setGalleryTargetScene(s.targetScene);
       if (s.style) setGalleryStyle(s.style);
       if (s.copyLanguage) setGalleryCopyLanguage(String(s.copyLanguage));
+      if (s.generationModel === 'nano-banana-pro') {
+        setGalleryGenerationModel(s.generationModel);
+      }
       if (s.productName) setGalleryProductName(s.productName);
       if (s.productCategory) setGalleryCategory(s.productCategory);
       setGallerySellingPoints(restoredSellingPoints);
@@ -4417,6 +4422,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const fallbackResolution = firstEnabled?.resolution || '1k';
 
     const settingsSnapshot: GalleryHistorySettings = {
+      generationModel: galleryGenerationModel,
       targetScene: galleryTargetScene,
       style: galleryStyle,
       aspectRatio: fallbackAspectRatio,
@@ -4594,6 +4600,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       })();
 
       const createResp = await videoApi.generateProductGallery({
+        imageModel: galleryGenerationModel,
         image_paths: imagePaths,
         aspect_ratio: fallbackAspectRatio,
         resolution: fallbackResolution,
@@ -5138,7 +5145,13 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
               ? String(activePreviewItem.createdAt)
               : '';
           const createdAtLabel = createdAtRaw ? formatGalleryPreviewDatetime(createdAtRaw) : '-';
-          const modelLabel = 'nano banana pro';
+          const modelLabel =
+              activeHistoryItem?.settings?.generationModel === 'gpt-image-1.5' ? 'GPT Image 1.5'
+              : activeHistoryItem?.settings?.generationModel === 'gpt-image-2' ? 'GPT Image 2'
+              : activeHistoryItem?.settings?.generationModel === 'flux-2-pro' ? 'Flux 2 Pro'
+              : activeHistoryItem?.settings?.generationModel === 'flux-2-flex' ? 'Flux 2 Flex'
+              : galleryGenerationModel === 'gpt-image-1.5' ? 'GPT Image 1.5'
+              : 'NanoBanana Pro';
           const productNameLabel =
             String(activeHistoryItem?.settings?.productName || '').trim() || String(galleryProductName || '').trim() || '-';
           const targetSceneValue = String(activeHistoryItem?.settings?.targetScene || galleryTargetScene || '').trim();
@@ -6571,6 +6584,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           setGalleryCategory={setGalleryCategory}
           gallerySellingPoints={gallerySellingPoints}
           setGallerySellingPoints={setGallerySellingPoints}
+          galleryGenerationModel={galleryGenerationModel}
+          setGalleryGenerationModel={setGalleryGenerationModel}
           hotStyleLoading={hotStyleLoading}
           hotStyleItems={hotStyleItems}
           hotStyleSelectedIndex={hotStyleSelectedIndex}

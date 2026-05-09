@@ -10375,13 +10375,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               {([
                                 { id: 'flux-2-pro', label: 'Flux 2 Pro' },
                                 { id: 'flux-2-flex', label: 'Flux 2 Flex' },
-                                { id: 'gpt-image-1.5', label: 'GPT Image 1.5' },
+                                { id: 'gpt-image-1.5', label: 'GPT Image 1.5', tooltip: '此模型生成等待时间略长' },
                               ] as const).map((m) => (
                                 <button
                                   key={m.id}
                                   type="button"
                                   onClick={() => setImageGenModel(m.id)}
                                   aria-pressed={imageGenModel === m.id}
+                                  title={'tooltip' in m ? m.tooltip : undefined}
                                   className={`relative z-10 flex items-center justify-center rounded-md border border-transparent px-3 py-2 text-center text-[10px] font-bold leading-none transition hover:z-20 ${imageGenModel === m.id ? 'text-orange-200' : 'text-zinc-300 hover:text-orange-300'}`}
                                 >
                                   {m.label}
@@ -11239,6 +11240,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           )}
         </div>
         <div className="flex items-center gap-3">
+          <a
+            href="/terms-of-service"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200 transition text-[11px] font-bold no-underline"
+          >
+            {t.login_agreement_user || '服务条款'}
+          </a>
+          <a
+            href="/privacy-policy"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200 transition text-[11px] font-bold no-underline"
+          >
+            {t.login_agreement_privacy || '隐私协议'}
+          </a>
+          <a
+            href="/doc"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200 transition text-[11px] font-bold no-underline"
+          >
+            {t.profile_product_docs_title || '产品文档'}
+          </a>
           <div className="relative">
             <button
               ref={taskQueueButtonRef}

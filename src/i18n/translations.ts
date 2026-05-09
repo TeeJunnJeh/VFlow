@@ -2554,7 +2554,7 @@ export const translations = {
     tab_email: "邮箱登录",
     tab_phone: "手机登录",
 
-    wb_nav_workbench: "工作台",
+    wb_nav_workbench: "视频生成",
     wb_nav_assets: "素材库",
     wb_nav_agent: "助手",
     wb_nav_templates: "模板配置",

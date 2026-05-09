@@ -20,6 +20,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/examples': {
+        target: backendProxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
       '/accounts': {
         target: backendProxyTarget,
         changeOrigin: true,

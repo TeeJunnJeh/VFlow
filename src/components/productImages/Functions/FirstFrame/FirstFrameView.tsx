@@ -95,6 +95,7 @@ const FIRST_FRAME_DEFAULT_RIGHT_RATIO = 1;
 const FIRST_FRAME_DEFAULT_TOTAL_RATIO =
   FIRST_FRAME_DEFAULT_LEFT_RATIO + FIRST_FRAME_DEFAULT_MIDDLE_RATIO + FIRST_FRAME_DEFAULT_RIGHT_RATIO;
 const FIRST_FRAME_USER_EXAMPLE_LIMIT = 20;
+const FIRST_FRAME_EXAMPLE_BASE_URL = '/examples/product-images/first-frame';
 
 const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
   {
@@ -104,14 +105,14 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
     promptKey: 'ff_example_person_selling_prompt',
     title: '人物带货/种草',
     subtitle: '具有生活感的人物带货短视频开场',
-    previewUrl: '/first-frame-examples/person_selling/result1.png',
+    previewUrl: `${FIRST_FRAME_EXAMPLE_BASE_URL}/person_selling/result1.png`,
     inputImageUrls: [
-      '/first-frame-examples/person_selling/input.webp',
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/person_selling/input.webp`,
     ],
     resultImageUrls: [
-      '/first-frame-examples/person_selling/result1.png',
-      '/first-frame-examples/person_selling/result2.jpg',
-      '/first-frame-examples/person_selling/result3.png',
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/person_selling/result1.png`,
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/person_selling/result2.jpg`,
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/person_selling/result3.png`,
     ],
     params: {
       openingScene: 'person_selling',
@@ -128,13 +129,13 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
     promptKey: 'ff_example_product_showcase_prompt',
     title: '纯商品展示',
     subtitle: '突出商品质感的展示开场',
-    previewUrl: '/first-frame-examples/product_showcase/result1.jpg',
+    previewUrl: `${FIRST_FRAME_EXAMPLE_BASE_URL}/product_showcase/result1.jpg`,
     inputImageUrls: [
-      '/first-frame-examples/product_showcase/input.jpg',
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/product_showcase/input.jpg`,
     ],
     resultImageUrls: [
-      '/first-frame-examples/product_showcase/result1.jpg',
-      '/first-frame-examples/product_showcase/result2.jpg'
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/product_showcase/result1.jpg`,
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/product_showcase/result2.jpg`
     ],
     params: {
       openingScene: 'product_showcase',
@@ -151,14 +152,14 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
     promptKey: 'ff_example_usage_demo_prompt',
     title: '使用场景演示',
     subtitle: '展示商品真实使用状态',
-    previewUrl: '/first-frame-examples/usage_demo/result1.jpg',
+    previewUrl: `${FIRST_FRAME_EXAMPLE_BASE_URL}/usage_demo/result1.jpg`,
     inputImageUrls: [
-      '/first-frame-examples/usage_demo/input_product.jpg',
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/usage_demo/input_product.jpg`,
     ],
     resultImageUrls: [
-      '/first-frame-examples/usage_demo/result1.jpg',
-      '/first-frame-examples/usage_demo/result2.jpg',
-      '/first-frame-examples/usage_demo/result3.jpg',
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/usage_demo/result1.jpg`,
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/usage_demo/result2.jpg`,
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/usage_demo/result3.jpg`,
     ],
     params: {
       openingScene: 'usage_demo',
@@ -175,14 +176,14 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
     promptKey: 'ff_example_brand_ad_prompt',
     title: '品牌广告大片',
     subtitle: '打造高级感品牌广告开场',
-    previewUrl: '/first-frame-examples/brand_ad/result1.jpg',
+    previewUrl: `${FIRST_FRAME_EXAMPLE_BASE_URL}/brand_ad/result1.jpg`,
     inputImageUrls: [
-      '/first-frame-examples/brand_ad/input_model.png',
-      '/first-frame-examples/brand_ad/input_product.jpg',
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/brand_ad/input_model.png`,
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/brand_ad/input_product.jpg`,
     ],
     resultImageUrls: [
-      '/first-frame-examples/brand_ad/result1.jpg',
-      '/first-frame-examples/brand_ad/result2.jpg'
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/brand_ad/result1.jpg`,
+      `${FIRST_FRAME_EXAMPLE_BASE_URL}/brand_ad/result2.jpg`
     ],
     params: {
       openingScene: 'brand_ad',

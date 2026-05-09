@@ -21,9 +21,13 @@ import {
   Edit3,
   Check,
   Menu,
+  CheckCircle,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { useTasks } from '../../context/TaskContext';
 import {
   aiCreatorApi,
   type AiCreatorAction,
@@ -68,7 +72,7 @@ interface GenerationResult {
   content?: string;
   imageUrl?: string;
   videoUrl?: string;
-  taskId?: number;
+  taskId?: string | number;
   error?: string;
 }
 
@@ -90,9 +94,16 @@ const WELCOME_MESSAGE_ZH: AiCreatorMessage = {
     "👋 你好！我是你的 AI 创作助手。告诉我你想制作什么——视频、脚本、图片，或其他任何内容——我会一键为你生成。",
 };
 
+type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
+
+const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
+const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
+const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
+
 export const AICreatorView: React.FC = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { tasks, addTask } = useTasks();
   const isZh = (t as any).ai_creator_title === 'AI 创作助手';
 
   const STORAGE_KEY = 'vflow_ai_creator_active_conversation';
@@ -125,8 +136,222 @@ export const AICreatorView: React.FC = () => {
   const [renameText, setRenameText] = useState('');
   const [convoLoading, setConvoLoading] = useState(false);
 
+  // Action confirmation dialog
+  const [confirmAction, setConfirmAction] = useState<AiCreatorAction | null>(null);
+  const [confirmParams, setConfirmParams] = useState<Record<string, unknown>>({});
+
+  // Track which result ids are linked to global tasks so we don't duplicate updates
+  const linkedTaskIdsRef = useRef<Set<string | number>>(new Set());
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 按会话缓存临时状态（生成结果、上传图片），切回时恢复（持久化到 localStorage）
+  const resultsRef = useRef<GenerationResult[]>([]);
+  const uploadedImagesRef = useRef<UploadedImage[]>([]);
+  const activeConversationIdRef = useRef<string | null>(activeConversationId);
+
+  useEffect(() => { resultsRef.current = results; }, [results]);
+  useEffect(() => { uploadedImagesRef.current = uploadedImages; }, [uploadedImages]);
+  useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
+
+  const getSessionStorageKey = (conversationId: string) => `vflow_ai_creator_session_${user?.id || 'anon'}_${conversationId}`;
+
+  const saveSessionState = (conversationId: string, state: { results: GenerationResult[]; uploadedImages: UploadedImage[] }) => {
+    try {
+      localStorage.setItem(
+        getSessionStorageKey(conversationId),
+        JSON.stringify({
+          results: state.results,
+          uploadedImages: state.uploadedImages.map((img) => ({ id: img.id, url: img.url })),
+        })
+      );
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const loadSessionState = (conversationId: string): { results: GenerationResult[]; uploadedImages: UploadedImage[] } | null => {
+    try {
+      const raw = localStorage.getItem(getSessionStorageKey(conversationId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const results: GenerationResult[] = Array.isArray(parsed.results) ? parsed.results : [];
+      const uploadedImages: UploadedImage[] = (Array.isArray(parsed.uploadedImages) ? parsed.uploadedImages : []).map(
+        (img: any) => ({
+          id: img.id || `img_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          url: img.url,
+          file: null as any,
+        })
+      );
+      return { results, uploadedImages };
+    } catch {
+      return null;
+    }
+  };
+
+  // === Wait Progress Simulation (Workbench-style loading) ===
+  const [waitProgress, setWaitProgress] = useState(0);
+  const [waitProgressPhase, setWaitProgressPhase] = useState<WaitProgressPhase>('idle');
+  const [waitingVideoFailed, setWaitingVideoFailed] = useState(false);
+
+  const waitProgressTimerRef = useRef<number | null>(null);
+  const waitProgressStartedAtRef = useRef<number | null>(null);
+  const waitProgressValueRef = useRef(0);
+  const waitProgressPhaseRef = useRef<WaitProgressPhase>('idle');
+  const waitProgressHoldValueRef = useRef<number | null>(null);
+  const waitProgressDebugPrintedRef = useRef(false);
+  const waitProgressSimDurationMsRef = useRef<number>(WAIT_PROGRESS_SIM_DURATION_MS);
+  const waitProgressTrackedTaskIdRef = useRef<string | number | null>(null);
+  const waitProgressRafRef = useRef<number | null>(null);
+
+  const clearWaitProgressTimers = () => {
+    if (waitProgressTimerRef.current) {
+      window.clearTimeout(waitProgressTimerRef.current);
+      waitProgressTimerRef.current = null;
+    }
+    if (waitProgressRafRef.current) {
+      window.cancelAnimationFrame(waitProgressRafRef.current);
+      waitProgressRafRef.current = null;
+    }
+  };
+
+  const setWaitProgressWithRef = (value: number) => {
+    const clamped = Math.max(0, Math.min(100, value));
+    waitProgressValueRef.current = clamped;
+    setWaitProgress(clamped);
+  };
+
+  const setWaitProgressPhaseWithRef = (phase: WaitProgressPhase) => {
+    waitProgressPhaseRef.current = phase;
+    setWaitProgressPhase(phase);
+  };
+
+  const tickWaitSimulation = () => {
+    const phase = waitProgressPhaseRef.current;
+    if (phase === 'idle' || phase === 'finishing' || phase === 'done') return;
+
+    const startedAt = waitProgressStartedAtRef.current;
+    if (!startedAt) return;
+
+    const elapsedMs = Date.now() - startedAt;
+    const simDurationMs = waitProgressSimDurationMsRef.current || WAIT_PROGRESS_SIM_DURATION_MS;
+
+    if (!waitProgressDebugPrintedRef.current) {
+      const estSec = Math.round(simDurationMs / 1000);
+      const ratioRaw = simDurationMs > 0 ? elapsedMs / simDurationMs : 0;
+      console.log('[AICreatorWaitDebug]', {
+        taskId: waitProgressTrackedTaskIdRef.current,
+        estimatedSeconds: estSec,
+        simDurationMs,
+        elapsedMs,
+        ratio: ratioRaw,
+        percentApprox: Math.round(ratioRaw * 100),
+      });
+      waitProgressDebugPrintedRef.current = true;
+    }
+
+    if (phase === 'holding') {
+      if (waitProgressHoldValueRef.current === null) {
+        waitProgressHoldValueRef.current = 96;
+      }
+      setWaitProgressWithRef(waitProgressHoldValueRef.current);
+      return;
+    }
+
+    const ratio = Math.max(0, Math.min(1, elapsedMs / simDurationMs));
+    const eased = 1 - Math.pow(1 - ratio, 3);
+    const next = eased * WAIT_PROGRESS_MAX_BEFORE_HOLD;
+
+    if (ratio >= 1) {
+      if (waitProgressHoldValueRef.current === null) {
+        waitProgressHoldValueRef.current = 96;
+      }
+      setWaitProgressPhaseWithRef('holding');
+      setWaitProgressWithRef(waitProgressHoldValueRef.current);
+      return;
+    }
+
+    setWaitProgressPhaseWithRef('simulating');
+    setWaitProgressWithRef(next);
+  };
+
+  const scheduleWaitSimulationTick = () => {
+    if (waitProgressTimerRef.current) {
+      window.clearTimeout(waitProgressTimerRef.current);
+      waitProgressTimerRef.current = null;
+    }
+
+    const delay = waitProgressPhaseRef.current === 'holding'
+      ? 1200 + Math.random() * 500
+      : 320 + Math.random() * 900;
+
+    waitProgressTimerRef.current = window.setTimeout(() => {
+      tickWaitSimulation();
+      if (waitProgressPhaseRef.current === 'simulating' || waitProgressPhaseRef.current === 'holding') {
+        scheduleWaitSimulationTick();
+      }
+    }, delay);
+  };
+
+  const startWaitProgressSimulation = (taskId: string | number, estimatedSeconds?: number | null) => {
+    clearWaitProgressTimers();
+    waitProgressTrackedTaskIdRef.current = taskId;
+    waitProgressStartedAtRef.current = Date.now();
+    waitProgressHoldValueRef.current = null;
+    waitProgressDebugPrintedRef.current = false;
+
+    const est = Number(estimatedSeconds);
+    const durationMs = Number.isFinite(est) && est > 0 ? Math.round(est * 1000) : 120_000;
+    waitProgressSimDurationMsRef.current = Math.max(30_000, Math.min(900_000, durationMs));
+
+    setWaitingVideoFailed(false);
+    setWaitProgressWithRef(0);
+    setWaitProgressPhaseWithRef('simulating');
+    tickWaitSimulation();
+    scheduleWaitSimulationTick();
+  };
+
+  const finishWaitProgressSimulation = () => {
+    if (waitProgressPhaseRef.current === 'finishing' || waitProgressPhaseRef.current === 'done') return;
+
+    clearWaitProgressTimers();
+    const from = Math.max(0, Math.min(100, waitProgressValueRef.current));
+
+    if (from >= 100) {
+      setWaitProgressWithRef(100);
+      setWaitProgressPhaseWithRef('done');
+      return;
+    }
+
+    setWaitProgressPhaseWithRef('finishing');
+    const startedAt = performance.now();
+    const durationMs = 480;
+
+    const animate = (now: number) => {
+      const ratio = Math.min(1, (now - startedAt) / durationMs);
+      const eased = 1 - Math.pow(1 - ratio, 3);
+      setWaitProgressWithRef(from + (100 - from) * eased);
+
+      if (ratio < 1) {
+        waitProgressRafRef.current = window.requestAnimationFrame(animate);
+      } else {
+        setWaitProgressWithRef(100);
+        setWaitProgressPhaseWithRef('done');
+      }
+    };
+
+    waitProgressRafRef.current = window.requestAnimationFrame(animate);
+  };
+
+  const resetWaitProgressSimulation = () => {
+    clearWaitProgressTimers();
+    waitProgressTrackedTaskIdRef.current = null;
+    waitProgressStartedAtRef.current = null;
+    waitProgressHoldValueRef.current = null;
+    setWaitProgressWithRef(0);
+    setWaitProgressPhaseWithRef('idle');
+  };
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -135,6 +360,23 @@ export const AICreatorView: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, results]);
+
+  // 自动保存当前会话的生成结果和上传图片
+  useEffect(() => {
+    if (activeConversationId) {
+      saveSessionState(activeConversationId, { results, uploadedImages });
+    }
+  }, [results, uploadedImages, activeConversationId]);
+
+  // 当恢复结果中有进行中的视频任务时，重启进度条模拟
+  useEffect(() => {
+    if (results.length === 0) return;
+    const pendingVideo = results.find((r) => r.type === 'generate_video' && r.status === 'pending');
+    if (pendingVideo?.taskId && waitProgressPhaseRef.current === 'idle') {
+      startWaitProgressSimulation(pendingVideo.taskId, 120);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results]);
 
   // Load conversations on mount, and restore active conversation if any
   useEffect(() => {
@@ -167,16 +409,75 @@ export const AICreatorView: React.FC = () => {
   }, [activeConversationId]);
 
   // 当页面从后台切回前台时，自动刷新当前会话消息（多设备同步 / 防丢）
+  // 只刷新消息，不恢复缓存，避免覆盖当前正在编辑的状态
   useEffect(() => {
     const onVisible = () => {
       if (!document.hidden && activeConversationId) {
-        void loadConversation(activeConversationId);
+        void loadConversation(activeConversationId, { skipStateRestore: true });
       }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId]);
+
+  // 监听全局任务队列，当 AI Creator 生成的视频任务完成时更新结果卡片
+  useEffect(() => {
+    if (tasks.length === 0) return;
+
+    // 追踪的 wait-progress 任务完成时结束模拟
+    const trackedTaskId = waitProgressTrackedTaskIdRef.current;
+    if (trackedTaskId) {
+      const trackedTask = tasks.find((t) => String(t.id) === String(trackedTaskId));
+      if (!trackedTask) {
+        resetWaitProgressSimulation();
+      } else if (trackedTask.status === 'success' || trackedTask.status === 'failed') {
+        finishWaitProgressSimulation();
+      }
+    }
+
+    setResults((prev) =>
+      prev.map((result) => {
+        if (result.type !== 'generate_video' || !result.taskId) return result;
+        const task = tasks.find((t) => String(t.id) === String(result.taskId));
+        if (!task) return result;
+
+        // 任务完成且有视频 URL
+        if (task.status === 'success' && (task.result?.video_url || task.result?.url)) {
+          return {
+            ...result,
+            status: 'success',
+            videoUrl: task.result.video_url || task.result.url,
+          };
+        }
+        // 任务失败
+        if (task.status === 'failed') {
+          return {
+            ...result,
+            status: 'failed',
+            error: task.result?.error || 'Generation failed',
+          };
+        }
+        // 仍在处理中
+        if (task.status === 'processing' || task.status === 'pending') {
+          return { ...result, status: 'pending' };
+        }
+        return result;
+      })
+    );
+  }, [tasks]);
+
+  // 组件卸载时清理 wait-progress 定时器并保存当前会话状态
+  useEffect(() => {
+    return () => {
+      clearWaitProgressTimers();
+      const convoId = activeConversationIdRef.current;
+      if (convoId) {
+        saveSessionState(convoId, { results: resultsRef.current, uploadedImages: uploadedImagesRef.current });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadConversations = async () => {
     try {
@@ -188,6 +489,9 @@ export const AICreatorView: React.FC = () => {
   };
 
   const startNewChat = async () => {
+    if (activeConversationId) {
+      saveSessionState(activeConversationId, { results: [...results], uploadedImages: [...uploadedImages] });
+    }
     setActiveConversationId(null);
     try {
       window.localStorage.removeItem(STORAGE_KEY);
@@ -202,8 +506,14 @@ export const AICreatorView: React.FC = () => {
     // Optionally auto-create on first message
   };
 
-  const loadConversation = async (id: string) => {
+  const loadConversation = async (id: string, options?: { skipStateRestore?: boolean }) => {
     if (convoLoading) return;
+
+    // 切走前先把当前会话的临时状态缓存下来
+    if (activeConversationId) {
+      saveSessionState(activeConversationId, { results: [...results], uploadedImages: [...uploadedImages] });
+    }
+
     setConvoLoading(true);
     try {
       const data = await aiCreatorApi.getMessages(id);
@@ -213,8 +523,31 @@ export const AICreatorView: React.FC = () => {
       } else {
         setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
       }
-      setResults([]);
-      setUploadedImages([]);
+
+      if (!options?.skipStateRestore) {
+        const cached = loadSessionState(data.id);
+        let restoredResults: GenerationResult[] = cached?.results ?? [];
+        let restoredImages: UploadedImage[] = cached?.uploadedImages ?? [];
+
+        // 同步全局任务队列：将不在本地缓存中的视频生成任务补充进来
+        const existingTaskIds = new Set(restoredResults.map((r) => String(r.taskId)).filter(Boolean));
+        tasks.forEach((task) => {
+          if (task.type === 'video_generation' && !existingTaskIds.has(String(task.id))) {
+            restoredResults.push({
+              id: `generate_video_${task.createdAt}_${task.id}`,
+              type: 'generate_video',
+              status: task.status === 'processing' ? 'pending' : task.status,
+              taskId: task.id,
+              videoUrl: task.result?.video_url || task.result?.url,
+              error: task.status === 'failed' ? task.result?.error || 'Generation failed' : undefined,
+            });
+          }
+        });
+
+        setResults(restoredResults);
+        setUploadedImages(restoredImages);
+      }
+
       setEditingIdx(null);
       setEditText('');
     } catch (e: any) {
@@ -371,10 +704,19 @@ export const AICreatorView: React.FC = () => {
     setResults((prev) => [...prev, result]);
   };
 
-  const executeAction = async (action: AiCreatorAction) => {
+  const updateResult = (id: string, updates: Partial<GenerationResult>) => {
+    setResults((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+  };
+
+  const executeAction = (action: AiCreatorAction) => {
     if (generatingType) return;
+    // Show confirmation dialog before executing
+    setConfirmAction(action);
+    setConfirmParams(action.params || {});
+  };
+
+  const runGeneration = async (action: AiCreatorAction, params: Record<string, unknown>) => {
     const type = action.type;
-    const params = action.params || {};
     setGeneratingType(type);
 
     const resultId = `${type}_${Date.now()}`;
@@ -396,7 +738,25 @@ export const AICreatorView: React.FC = () => {
         const res = await videoApi.generate(payload);
         if (res?.code === 0) {
           const taskId = res?.data?.task_id;
-          addResult({ id: resultId, type, status: 'success', taskId, content: `Task #${taskId} queued` });
+          const projectId = res?.data?.project_id;
+          updateResult(resultId, { taskId, content: `Task #${taskId} queued` });
+
+          // 将视频任务加入全局任务队列，实时追踪进度并在完成后显示视频
+          if (taskId && !linkedTaskIdsRef.current.has(taskId)) {
+            linkedTaskIdsRef.current.add(taskId);
+            addTask({
+              id: taskId,
+              projectId: projectId || undefined,
+              type: 'video_generation',
+              status: 'processing',
+              name: String(params.prompt || '').slice(0, 60) || (isZh ? 'AI Creator 视频' : 'AI Creator Video'),
+              thumbnail: imageUrls[0] || undefined,
+              createdAt: Date.now(),
+            });
+            // 启动工作台风格的等待进度模拟
+            startWaitProgressSimulation(taskId, 120);
+          }
+
           openInfo(
             (t as any).ai_creator_title || 'AI Creator',
             (t as any).ai_creator_video_queued || 'Video generation started! Check the task queue for progress.'
@@ -407,18 +767,48 @@ export const AICreatorView: React.FC = () => {
       } else if (type === 'generate_script') {
         addResult({ id: resultId, type, status: 'pending' });
         if (!user?.id) throw new Error('User not authenticated');
+        const promptText = String(params.product_name || params.prompt || '');
+        const descText = String(params.product_description || params.prompt || '');
+        const duration = Number(params.duration || 30);
         const payload = {
-          product_name: String(params.product_name || params.prompt || ''),
-          product_description: String(params.product_description || params.prompt || ''),
-          duration: Number(params.duration || 30),
-          style: String(params.style || 'casual'),
-          language: String(params.language || 'zh'),
+          product_category: promptText.slice(0, 100),
+          visual_style: String(params.style || 'casual'),
+          aspect_ratio: '9:16',
+          user_language: String(params.language || 'zh'),
+          script_content: {
+            duration,
+            shot_number: Math.max(3, Math.min(20, Math.round(duration / 5))),
+            input: promptText,
+            custom: descText,
+          },
         };
         const res = await videoApi.generateScript(user.id, payload);
         if (res?.code === 0) {
           const scripts = res?.data?.script_contents || [];
-          const text = scripts.map((s: any) => s?.content || s?.script || String(s)).join('\n\n---\n\n');
-          addResult({ id: resultId, type, status: 'success', content: text || 'Script generated successfully' });
+          const text = scripts.map((s: any) => {
+            if (!s || typeof s !== 'object') return String(s || '');
+            // 优先使用 video_master_script（完整脚本文本）
+            if (s.video_master_script) return String(s.video_master_script);
+            // 其次使用 creative_card_text
+            if (s.creative_card_text) return String(s.creative_card_text);
+            // 有 shots 时格式化为分镜文本
+            if (Array.isArray(s.shots) && s.shots.length > 0) {
+              return s.shots.map((shot: any, idx: number) => {
+                const lines = [`【镜头 ${idx + 1}】`];
+                if (shot.beat) lines.push(`节奏：${shot.beat}`);
+                if (shot.visual) lines.push(`画面：${shot.visual}`);
+                if (shot.voiceover) lines.push(`旁白：${shot.voiceover}`);
+                return lines.join('\n');
+              }).join('\n\n');
+            }
+            // 兜底：拼接其他文本字段
+            const parts: string[] = [];
+            if (s.material_usage_text) parts.push(String(s.material_usage_text));
+            if (s.continuity_anchor) parts.push(String(s.continuity_anchor));
+            if (s.script_structure) parts.push(String(s.script_structure));
+            return parts.join('\n\n') || JSON.stringify(s, null, 2);
+          }).join('\n\n---\n\n');
+          updateResult(resultId, { status: 'success', content: text || 'Script generated successfully' });
         } else {
           throw new Error(res?.message || 'Script generation failed');
         }
@@ -439,7 +829,7 @@ export const AICreatorView: React.FC = () => {
           const res = await videoApi.generateFusionImage(payload);
           if (res?.code === 0) {
             const imageUrl = res?.data?.image_url;
-            addResult({ id: resultId, type, status: 'success', imageUrl });
+            updateResult(resultId, { status: 'success', imageUrl });
           } else {
             throw new Error(res?.message || 'Image generation failed');
           }
@@ -453,7 +843,7 @@ export const AICreatorView: React.FC = () => {
           const res = await aiCreatorApi.generateImage(payload);
           if (res?.code === 0) {
             const imageUrl = res?.data?.image_url;
-            addResult({ id: resultId, type, status: 'success', imageUrl });
+            updateResult(resultId, { status: 'success', imageUrl });
           } else {
             throw new Error(res?.message || 'Image generation failed');
           }
@@ -469,7 +859,7 @@ export const AICreatorView: React.FC = () => {
           const res = await videoApi.generateFirstFrame(payload);
           if (res?.code === 0) {
             const firstFramePath = res?.data?.first_frame_path;
-            addResult({ id: resultId, type, status: 'success', imageUrl: firstFramePath });
+            updateResult(resultId, { status: 'success', imageUrl: firstFramePath });
           } else {
             throw new Error(res?.message || 'First frame generation failed');
           }
@@ -478,7 +868,7 @@ export const AICreatorView: React.FC = () => {
             (t as any).ai_creator_title || 'AI Creator',
             (t as any).ai_creator_first_frame_tip || 'First frame generation requires a reference product image. Please upload one.'
           );
-          addResult({ id: resultId, type, status: 'failed', error: 'Reference image required' });
+          updateResult(resultId, { status: 'failed', error: 'Reference image required' });
         }
       } else if (type === 'clothing_swap') {
         if (imageUrls.length >= 2) {
@@ -499,7 +889,7 @@ export const AICreatorView: React.FC = () => {
         );
       }
     } catch (err: any) {
-      addResult({ id: resultId, type, status: 'failed', error: err?.message || 'Generation failed' });
+      updateResult(resultId, { status: 'failed', error: err?.message || 'Generation failed' });
       openInfo(
         (t as any).ai_creator_title || 'AI Creator',
         err?.message || (t as any).ai_creator_error || 'Generation failed. Please try again.'
@@ -507,6 +897,18 @@ export const AICreatorView: React.FC = () => {
     } finally {
       setGeneratingType(null);
     }
+  };
+
+  const submitConfirmedAction = async () => {
+    if (!confirmAction) return;
+    setConfirmAction(null);
+    setConfirmParams({});
+    await runGeneration(confirmAction, confirmParams);
+  };
+
+  const executeActionDirectly = async (action: AiCreatorAction) => {
+    if (generatingType) return;
+    await runGeneration(action, action.params || {});
   };
 
   const quickSend = (text: string) => {
@@ -557,10 +959,10 @@ export const AICreatorView: React.FC = () => {
   const renderResult = (result: GenerationResult) => {
     if ((result.type === 'generate_image' || result.type === 'generate_first_frame') && result.imageUrl) {
       return (
-        <div className="mt-3 rounded-2xl overflow-hidden border border-white/10 bg-zinc-900">
-          <div className="px-4 py-2 bg-zinc-950/50 text-xs text-zinc-400 flex items-center gap-2">
-            <ImageIcon className="w-3.5 h-3.5" />
-            {getActionLabel(result.type)}
+        <div className="mt-4 rounded-2xl overflow-hidden border border-white/10 bg-zinc-900">
+          <div className="px-5 py-3 bg-zinc-950/50 text-sm text-zinc-400 flex items-center gap-2">
+            <ImageIcon className="w-4 h-4" />
+            <span className="font-medium">{getActionLabel(result.type)}</span>
           </div>
           <img src={result.imageUrl} alt="Generated" className="w-full max-h-[400px] object-contain bg-black" />
         </div>
@@ -568,28 +970,120 @@ export const AICreatorView: React.FC = () => {
     }
     if (result.type === 'generate_script' && result.content) {
       return (
-        <div className="mt-3 rounded-2xl border border-white/10 bg-zinc-900 overflow-hidden">
-          <div className="px-4 py-2 bg-zinc-950/50 text-xs text-zinc-400 flex items-center gap-2">
-            <ScrollText className="w-3.5 h-3.5" />
-            {getActionLabel(result.type)}
+        <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-900 overflow-hidden">
+          <div className="px-5 py-3 bg-zinc-950/50 text-sm text-zinc-400 flex items-center gap-2">
+            <ScrollText className="w-4 h-4" />
+            <span className="font-medium">{getActionLabel(result.type)}</span>
           </div>
-          <div className="p-4 text-sm text-zinc-200 whitespace-pre-wrap max-h-[400px] overflow-y-auto">{result.content}</div>
+          <div className="p-5 text-base text-zinc-200 whitespace-pre-wrap max-h-[400px] overflow-y-auto">{result.content}</div>
         </div>
       );
     }
     if (result.type === 'generate_video') {
+      const task = tasks.find((t) => String(t.id) === String(result.taskId));
+      const videoUrl = result.videoUrl || task?.result?.video_url || task?.result?.url;
+      const isProcessing = !videoUrl && result.status !== 'failed';
+
       return (
-        <div className="mt-3 rounded-2xl border border-white/10 bg-zinc-900 overflow-hidden">
-          <div className="px-4 py-2 bg-zinc-950/50 text-xs text-zinc-400 flex items-center gap-2">
-            <Film className="w-3.5 h-3.5" />
-            {getActionLabel(result.type)}
-            {result.status === 'pending' && <span className="text-orange-400 ml-2">{(t as any).ai_creator_generating || 'Generating...'}</span>}
-            {result.status === 'success' && <span className="text-emerald-400 ml-2">Queued #{result.taskId}</span>}
-            {result.status === 'failed' && <span className="text-red-400 ml-2">Failed</span>}
+        <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-900 overflow-hidden">
+          <div className="px-5 py-3 bg-zinc-950/50 text-sm text-zinc-400 flex items-center gap-2">
+            <Film className="w-4 h-4" />
+            <span className="font-medium">{getActionLabel(result.type)}</span>
+            {isProcessing && (
+              <span className="text-orange-400 ml-2 flex items-center gap-1">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {(t as any).ai_creator_generating || 'Generating...'}
+              </span>
+            )}
+            {result.status === 'success' && videoUrl && (
+              <span className="text-emerald-400 ml-2 flex items-center gap-1">
+                <CheckCircle className="w-4 h-4" />
+                {(t as any).ai_creator_done || 'Done'}
+              </span>
+            )}
+            {result.status === 'failed' && (
+              <span className="text-red-400 ml-2 flex items-center gap-1">
+                <X className="w-4 h-4" />
+                {(t as any).ai_creator_failed || 'Failed'}
+              </span>
+            )}
           </div>
-          {result.status === 'success' && (
-            <div className="p-4 text-sm text-zinc-400">
-              {(t as any).ai_creator_video_queued || 'Video generation started! You can check progress in the task queue.'}
+
+          {/* 进度条 + 等待动画 (Workbench 风格) */}
+          {isProcessing && (
+            <div className="relative h-56 w-full overflow-hidden bg-black">
+              {!waitingVideoFailed ? (
+                <video
+                  className="h-full w-full object-cover"
+                  src={WAITING_PREVIEW_VIDEO_SRC}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="auto"
+                  onError={() => setWaitingVideoFailed(true)}
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+                  <Film className="w-12 h-12 text-zinc-600" />
+                </div>
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+              <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-4 pb-4 text-center">
+                <p className="text-xs text-white/80 font-semibold drop-shadow">
+                  {waitProgressPhase === 'holding'
+                    ? (isZh ? '生成时间比预期稍长，正在进行最终渲染…' : 'Taking longer than expected, waiting for final render...')
+                    : (isZh ? '正在生成视频，请稍候…' : 'Generating video, please wait...')}
+                </p>
+                <div className="text-2xl font-black text-orange-200 tabular-nums drop-shadow">
+                  {Math.max(0, Math.min(100, Math.round(waitProgress)))}%
+                </div>
+                <div className="w-full max-w-[200px] h-1.5 bg-white/20 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-orange-500 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.max(0, Math.min(100, waitProgress))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 视频预览 + 操作按钮 */}
+          {videoUrl && (
+            <div className="p-5 space-y-4">
+              <video
+                src={videoUrl}
+                controls
+                className="w-full rounded-xl bg-black max-h-[400px]"
+              />
+              <div className="flex items-center gap-3">
+                <a
+                  href={videoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-800 text-sm text-zinc-300 hover:bg-zinc-700 transition"
+                >
+                  <Download className="w-4 h-4" />
+                  {(t as any).ai_creator_download || 'Download'}
+                </a>
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('vflow:navigate', { detail: { view: 'history' } }));
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-800 text-sm text-zinc-300 hover:bg-zinc-700 transition"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  {(t as any).ai_creator_view_history || 'View in History'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 失败状态 */}
+          {result.status === 'failed' && (
+            <div className="p-5 text-base text-red-400">
+              {result.error || (t as any).ai_creator_error || 'Generation failed'}
             </div>
           )}
         </div>
@@ -603,36 +1097,36 @@ export const AICreatorView: React.FC = () => {
       {/* Sidebar — Conversation list */}
       <aside
         className={`shrink-0 border-r border-white/5 bg-zinc-950/80 backdrop-blur-sm flex flex-col transition-all duration-300 ${
-          sidebarOpen ? 'w-64' : 'w-0 overflow-hidden opacity-0'
+          sidebarOpen ? 'w-72' : 'w-0 overflow-hidden opacity-0'
         }`}
       >
         {/* Sidebar header */}
-        <div className="flex items-center justify-between px-3 py-3 border-b border-white/5">
-          <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+          <span className="text-sm font-bold text-zinc-300 uppercase tracking-wider">
             {(t as any).ai_creator_history || 'History'}
           </span>
           <button
             onClick={startNewChat}
-            className="p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:text-orange-400 hover:bg-zinc-700 transition"
+            className="p-2 rounded-lg bg-zinc-800 text-zinc-300 hover:text-orange-400 hover:bg-zinc-700 transition"
             title="New chat"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
           </button>
         </div>
 
         {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto py-2 space-y-0.5">
+        <div className="flex-1 overflow-y-auto py-3 space-y-1">
           {conversations.map((conv) => (
             <div
               key={conv.id}
               onClick={() => loadConversation(conv.id)}
-              className={`group mx-2 flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition ${
+              className={`group mx-3 flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition ${
                 activeConversationId === conv.id
                   ? 'bg-zinc-800 text-zinc-100'
                   : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
               }`}
             >
-              <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-60" />
+              <MessageSquare className="w-4 h-4 shrink-0 opacity-60" />
               {renamingId === conv.id ? (
                 <input
                   autoFocus
@@ -644,32 +1138,32 @@ export const AICreatorView: React.FC = () => {
                   }}
                   onBlur={() => confirmRename(conv.id)}
                   onClick={(e) => e.stopPropagation()}
-                  className="flex-1 min-w-0 bg-zinc-900 border border-white/10 rounded px-2 py-0.5 text-xs text-zinc-200 outline-none focus:border-orange-500/50"
+                  className="flex-1 min-w-0 bg-zinc-900 border border-white/10 rounded-lg px-3 py-1 text-sm text-zinc-200 outline-none focus:border-orange-500/50"
                 />
               ) : (
-                <span className="flex-1 min-w-0 text-xs truncate">{conv.title}</span>
+                <span className="flex-1 min-w-0 text-sm font-medium truncate">{conv.title}</span>
               )}
 
               {renamingId !== conv.id && (
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                   <button
                     onClick={(e) => startRename(conv, e)}
-                    className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200"
+                    className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200"
                   >
-                    <Edit3 className="w-3 h-3" />
+                    <Edit3 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={(e) => deleteConversation(conv.id, e)}
-                    className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-red-400"
+                    className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-red-400"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
             </div>
           ))}
           {conversations.length === 0 && (
-            <div className="px-4 py-6 text-xs text-zinc-600 text-center">
+            <div className="px-4 py-8 text-sm text-zinc-600 text-center">
               {(t as any).ai_creator_no_history || 'No conversations yet'}
             </div>
           )}
@@ -679,76 +1173,76 @@ export const AICreatorView: React.FC = () => {
       {/* Main chat area */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
-        <header className="flex justify-between items-center px-6 py-4 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-10">
-          <div className="flex items-center gap-3">
+        <header className="flex justify-between items-center px-8 py-5 border-b border-white/5 shrink-0 bg-black/20 backdrop-blur-sm relative z-10">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen((s) => !s)}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
+              className="p-2 rounded-xl text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
               title="Toggle sidebar"
             >
-              <Menu className="w-4 h-4" />
+              <Menu className="w-5 h-5" />
             </button>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-zinc-100">
+              <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
                 {(t as any).ai_creator_title || 'AI Creator'}
               </h1>
-              <p className="text-zinc-500 text-xs mt-0.5">
+              <p className="text-zinc-500 text-sm mt-1">
                 {(t as any).ai_creator_subtitle || 'Describe anything and generate with one click'}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={startNewChat}
-              className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition flex items-center gap-1.5"
+              className="px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition flex items-center gap-2"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4" />
               {(t as any).ai_creator_new_chat || 'New Chat'}
             </button>
-            <div className="px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/40 text-xs text-orange-400 font-semibold flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
+            <div className="px-4 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/40 text-sm text-orange-400 font-bold flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4" />
               AI
             </div>
           </div>
         </header>
 
         {/* Quick action buttons */}
-        <div className="shrink-0 px-6 py-3 border-b border-white/5 flex items-center gap-2 overflow-x-auto">
+        <div className="shrink-0 px-8 py-4 border-b border-white/5 flex items-center gap-3 overflow-x-auto">
           <button
             onClick={() => quickSend('我想生成一段视频')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
           >
-            <Film className="w-3.5 h-3.5" />
+            <Film className="w-4 h-4" />
             {(t as any).ai_creator_quick_video || '生成视频'}
           </button>
           <button
             onClick={() => quickSend('我想生成一张图片')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
           >
-            <ImageIcon className="w-3.5 h-3.5" />
+            <ImageIcon className="w-4 h-4" />
             {(t as any).ai_creator_quick_image || '生成图片'}
           </button>
           <button
             onClick={() => quickSend('我想生成一个脚本')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
           >
-            <ScrollText className="w-3.5 h-3.5" />
+            <ScrollText className="w-4 h-4" />
             {(t as any).ai_creator_quick_script || '生成脚本'}
           </button>
           <button
             onClick={() => quickSend('我想生成首帧图')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition whitespace-nowrap"
           >
-            <ImagePlus className="w-3.5 h-3.5" />
+            <ImagePlus className="w-4 h-4" />
             {(t as any).ai_creator_quick_first_frame || '生成首帧图'}
           </button>
         </div>
 
         {/* Chat + Results area */}
-        <main className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        <main className="flex-1 overflow-y-auto px-8 py-8 space-y-8">
           {convoLoading && (
-            <div className="flex justify-center py-10">
-              <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
             </div>
           )}
 
@@ -757,7 +1251,7 @@ export const AICreatorView: React.FC = () => {
               <div key={idx}>
                 <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
-                    className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed group relative ${
+                    className={`max-w-[80%] rounded-2xl px-6 py-4 text-base leading-relaxed group relative ${
                       msg.role === 'user'
                         ? 'bg-orange-600 text-white'
                         : 'bg-zinc-900 border border-white/10 text-zinc-200'
@@ -772,20 +1266,20 @@ export const AICreatorView: React.FC = () => {
                             if (e.key === 'Enter' && e.metaKey) confirmEdit();
                             if (e.key === 'Escape') cancelEdit();
                           }}
-                          className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/50 outline-none resize-none"
+                          className="w-full bg-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/50 outline-none resize-none"
                           rows={3}
                           autoFocus
                         />
                         <div className="flex items-center gap-2">
                           <button
                             onClick={confirmEdit}
-                            className="px-3 py-1 rounded-lg bg-white/20 text-xs font-semibold hover:bg-white/30 transition"
+                            className="px-4 py-1.5 rounded-xl bg-white/20 text-sm font-semibold hover:bg-white/30 transition"
                           >
                             {(t as any).ai_creator_save || 'Save & Regenerate'}
                           </button>
                           <button
                             onClick={cancelEdit}
-                            className="px-3 py-1 rounded-lg bg-white/10 text-xs hover:bg-white/20 transition"
+                            className="px-4 py-1.5 rounded-xl bg-white/10 text-sm hover:bg-white/20 transition"
                           >
                             {(t as any).ai_creator_cancel || 'Cancel'}
                           </button>
@@ -797,33 +1291,33 @@ export const AICreatorView: React.FC = () => {
 
                     {/* Edit / Delete buttons on user messages */}
                     {msg.role === 'user' && editingIdx !== idx && (
-                      <div className="absolute -left-20 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="absolute -left-24 top-1/2 -translate-y-1/2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => startEdit(idx)}
-                          className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-orange-400 hover:bg-zinc-700 transition"
+                          className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-orange-400 hover:bg-zinc-700 transition"
                           title="Edit"
                         >
-                          <Pencil className="w-3.5 h-3.5" />
+                          <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => deleteFrom(idx)}
-                          className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-700 transition"
+                          className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-700 transition"
                           title="Delete"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     )}
 
                     {/* Action card inside assistant message */}
                     {msg.role === 'assistant' && msg.action && msg.action.type !== 'chat' && (
-                      <div className="mt-3 pt-3 border-t border-white/10">
-                        <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2">
-                          {ACTION_ICONS[msg.action.type] || <Wand2 className="w-4 h-4" />}
-                          <span className="font-semibold text-zinc-300">{getActionLabel(msg.action.type)}</span>
+                      <div className="mt-4 pt-4 border-t border-white/10">
+                        <div className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
+                          {ACTION_ICONS[msg.action.type] || <Wand2 className="w-5 h-5" />}
+                          <span className="font-bold text-zinc-300">{getActionLabel(msg.action.type)}</span>
                         </div>
                         {msg.action.params && Object.keys(msg.action.params).length > 0 && (
-                          <div className="text-[11px] text-zinc-500 mb-2 space-y-0.5">
+                          <div className="text-xs text-zinc-500 mb-3 space-y-1">
                             {Object.entries(msg.action.params).map(([k, v]) => (
                               <div key={k}>
                                 <span className="text-zinc-400">{k}:</span> {String(v)}
@@ -831,18 +1325,30 @@ export const AICreatorView: React.FC = () => {
                             ))}
                           </div>
                         )}
-                        <button
-                          onClick={() => executeAction(msg.action!)}
-                          disabled={generatingType !== null}
-                          className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-600 text-xs text-white font-semibold hover:bg-orange-500 transition disabled:opacity-50"
-                        >
-                          {generatingType === msg.action.type ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Wand2 className="w-3.5 h-3.5" />
-                          )}
-                          {(t as any).ai_creator_generate || 'Generate'}
-                        </button>
+                        <div className="mt-1 flex items-center gap-2">
+                          <button
+                            onClick={() => executeActionDirectly(msg.action!)}
+                            disabled={generatingType !== null}
+                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-600 text-sm text-white font-bold hover:bg-orange-500 transition disabled:opacity-50"
+                          >
+                            {generatingType === msg.action.type ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Wand2 className="w-4 h-4" />
+                            )}
+                            {generatingType === msg.action.type
+                              ? (isZh ? '正在生成…' : 'Generating…')
+                              : (isZh ? '立即生成' : 'Generate')}
+                          </button>
+                          <button
+                            onClick={() => executeAction(msg.action!)}
+                            disabled={generatingType !== null}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 text-sm text-zinc-300 font-medium hover:bg-zinc-700 transition disabled:opacity-50"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            {isZh ? '编辑参数' : 'Edit Parameters'}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -852,16 +1358,16 @@ export const AICreatorView: React.FC = () => {
                 {msg.role === 'assistant' &&
                   idx === messages.length - 1 &&
                   showRoutingButtons && (
-                    <div className="flex gap-2 mt-2 ml-1">
+                    <div className="flex gap-3 mt-3 ml-1">
                       <button
                         onClick={() => quickSend('我想生成视频')}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
+                        className="px-4 py-2 rounded-xl bg-zinc-800 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
                       >
                         🎬 {(t as any).ai_creator_quick_video || '生成视频'}
                       </button>
                       <button
                         onClick={() => quickSend('我想生成图片')}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-xs text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
+                        className="px-4 py-2 rounded-xl bg-zinc-800 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition"
                       >
                         🖼️ {(t as any).ai_creator_quick_image || '生成图片'}
                       </button>
@@ -872,8 +1378,8 @@ export const AICreatorView: React.FC = () => {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-zinc-900 border border-white/10 rounded-2xl px-5 py-3 text-sm text-zinc-400 flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+              <div className="bg-zinc-900 border border-white/10 rounded-2xl px-6 py-4 text-base text-zinc-400 flex items-center gap-3">
+                <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
                 {(t as any).ai_creator_thinking || 'Thinking...'}
               </div>
             </div>
@@ -892,31 +1398,31 @@ export const AICreatorView: React.FC = () => {
         </main>
 
         {/* Input area — Gemini-style */}
-        <footer className="shrink-0 px-6 py-4 border-t border-white/5 bg-zinc-950/50 backdrop-blur-sm">
+        <footer className="shrink-0 px-8 py-5 border-t border-white/5 bg-zinc-950/50 backdrop-blur-sm">
           <div className="max-w-4xl mx-auto">
             {/* Uploaded image thumbnails */}
             {uploadedImages.length > 0 && (
-              <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
+              <div className="flex items-center gap-3 mb-3 overflow-x-auto pb-1">
                 {uploadedImages.map((img) => (
-                  <div key={img.id} className="relative shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-white/10">
+                  <div key={img.id} className="relative shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-white/10">
                     <img src={img.url} alt="uploaded" className="w-full h-full object-cover" />
                     <button
                       onClick={() => removeImage(img.id)}
-                      className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
                     >
-                      <X className="w-3 h-3" />
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ))}
               </div>
             )}
 
-            <div className="flex items-end gap-2 rounded-2xl bg-zinc-900 border border-white/10 p-2 pr-3 focus-within:border-orange-500/50 transition">
+            <div className="flex items-end gap-3 rounded-2xl bg-zinc-900 border border-white/10 p-3 pr-4 focus-within:border-orange-500/50 transition">
               {/* + upload button */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading || loading}
-                className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition disabled:opacity-50"
+                className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition disabled:opacity-50"
                 title="Add image"
               >
                 {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
@@ -938,24 +1444,247 @@ export const AICreatorView: React.FC = () => {
                 onKeyDown={handleKeyDown}
                 placeholder={(t as any).ai_creator_placeholder || 'Describe what you want to generate...'}
                 disabled={loading}
-                className="flex-1 py-2.5 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none disabled:opacity-50 min-w-0"
+                className="flex-1 py-3 bg-transparent text-base text-zinc-100 placeholder-zinc-500 focus:outline-none disabled:opacity-50 min-w-0"
               />
 
               {/* Send button */}
               <button
                 onClick={() => handleSend()}
                 disabled={loading || (!input.trim() && uploadedImages.length === 0)}
-                className="shrink-0 w-9 h-9 rounded-full bg-orange-600 text-white flex items-center justify-center hover:bg-orange-500 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                className="shrink-0 w-10 h-10 rounded-full bg-orange-600 text-white flex items-center justify-center hover:bg-orange-500 transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-[10px] text-zinc-600 mt-1.5 ml-1">
+            <p className="text-xs text-zinc-600 mt-2 ml-1">
               AI may produce inaccurate content. Upload images as reference material.
             </p>
           </div>
         </footer>
       </div>
+
+      {/* Action Confirmation Dialog */}
+      {confirmAction && (
+        <AppDialog
+          isOpen={true}
+          title={isZh ? '确认生成参数' : 'Confirm Generation Parameters'}
+          onClose={() => { setConfirmAction(null); setConfirmParams({}); }}
+          footer={
+            <div className="flex items-center gap-2">
+              <button
+                className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                onClick={() => { setConfirmAction(null); setConfirmParams({}); }}
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-500"
+                onClick={() => void submitConfirmedAction()}
+              >
+                {isZh ? '确认生成' : 'Confirm & Generate'}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3 text-sm">
+            {confirmAction.type === 'generate_video' && (
+              <>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">{isZh ? '提示词' : 'Prompt'}</label>
+                  <textarea
+                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50 resize-none"
+                    rows={3}
+                    value={String(confirmParams.prompt || '')}
+                    onChange={(e) => setConfirmParams({ ...confirmParams, prompt: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '模型' : 'Model'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={String(confirmParams.model || 'kling')}
+                      onChange={(e) => {
+                        const newModel = e.target.value;
+                        let newDuration = Number(confirmParams.duration || 5);
+                        if (newModel.startsWith('sora')) {
+                          const soraOptions = [4, 8, 12];
+                          newDuration = soraOptions.reduce((prev, curr) =>
+                            Math.abs(curr - newDuration) < Math.abs(prev - newDuration) ? curr : prev
+                          );
+                        } else if (newModel.startsWith('seedance')) {
+                          newDuration = Math.max(4, Math.min(15, newDuration));
+                        } else {
+                          newDuration = newDuration <= 7 ? 5 : 10;
+                        }
+                        setConfirmParams({ ...confirmParams, model: newModel, duration: newDuration });
+                      }}
+                    >
+                      <option value="kling">Kling</option>
+                      <option value="sora2">Sora 2</option>
+                      <option value="sora2pro">Sora 2 Pro</option>
+                      <option value="seedance2.0">Seedance 2.0</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '时长（秒）' : 'Duration (seconds)'}</label>
+                    {String(confirmParams.model || 'kling').startsWith('sora') ? (
+                      <select
+                        className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                        value={Number(confirmParams.duration || 8)}
+                        onChange={(e) => setConfirmParams({ ...confirmParams, duration: Number(e.target.value) })}
+                      >
+                        {[4, 8, 12].map((d) => (
+                          <option key={d} value={d}>{d}s</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="number"
+                        min={String(confirmParams.model || 'kling').startsWith('seedance') ? 4 : 5}
+                        max={String(confirmParams.model || 'kling').startsWith('seedance') ? 15 : 10}
+                        step={String(confirmParams.model || 'kling').startsWith('seedance') ? 1 : 5}
+                        className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                        value={Number(confirmParams.duration || 5)}
+                        onChange={(e) => {
+                          const model = String(confirmParams.model || 'kling');
+                          const min = model.startsWith('seedance') ? 4 : 5;
+                          const max = model.startsWith('seedance') ? 15 : 10;
+                          setConfirmParams({ ...confirmParams, duration: Math.max(min, Math.min(max, Number(e.target.value) || min)) });
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '比例' : 'Aspect Ratio'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={String(confirmParams.aspect_ratio || '9:16')}
+                      onChange={(e) => setConfirmParams({ ...confirmParams, aspect_ratio: e.target.value })}
+                    >
+                      <option value="9:16">9:16</option>
+                      <option value="16:9">16:9</option>
+                      <option value="1:1">1:1</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '音效' : 'Sound'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={String(confirmParams.sound || 'off')}
+                      onChange={(e) => setConfirmParams({ ...confirmParams, sound: e.target.value })}
+                    >
+                      <option value="off">Off</option>
+                      <option value="on">On</option>
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+            {confirmAction.type === 'generate_image' && (
+              <>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">{isZh ? '提示词' : 'Prompt'}</label>
+                  <textarea
+                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50 resize-none"
+                    rows={3}
+                    value={String(confirmParams.prompt || '')}
+                    onChange={(e) => setConfirmParams({ ...confirmParams, prompt: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '比例' : 'Aspect Ratio'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={String(confirmParams.aspect_ratio || '9:16')}
+                      onChange={(e) => setConfirmParams({ ...confirmParams, aspect_ratio: e.target.value })}
+                    >
+                      <option value="9:16">9:16</option>
+                      <option value="16:9">16:9</option>
+                      <option value="1:1">1:1</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '分辨率' : 'Resolution'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={String(confirmParams.resolution || '2K')}
+                      onChange={(e) => setConfirmParams({ ...confirmParams, resolution: e.target.value })}
+                    >
+                      <option value="2K">2K</option>
+                      <option value="1K">1K</option>
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+            {confirmAction.type === 'generate_first_frame' && (
+              <>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">{isZh ? '提示词' : 'Prompt'}</label>
+                  <textarea
+                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50 resize-none"
+                    rows={3}
+                    value={String(confirmParams.prompt || '')}
+                    onChange={(e) => setConfirmParams({ ...confirmParams, prompt: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">{isZh ? '比例' : 'Aspect Ratio'}</label>
+                  <select
+                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                    value={String(confirmParams.aspect_ratio || '9:16')}
+                    onChange={(e) => setConfirmParams({ ...confirmParams, aspect_ratio: e.target.value })}
+                  >
+                    <option value="9:16">9:16</option>
+                    <option value="16:9">16:9</option>
+                    <option value="1:1">1:1</option>
+                  </select>
+                </div>
+              </>
+            )}
+            {confirmAction.type === 'generate_script' && (
+              <>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">{isZh ? '产品名称' : 'Product Name'}</label>
+                  <input
+                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                    value={String(confirmParams.product_name || confirmParams.prompt || '')}
+                    onChange={(e) => setConfirmParams({ ...confirmParams, product_name: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '时长' : 'Duration'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={Number(confirmParams.duration || 30)}
+                      onChange={(e) => setConfirmParams({ ...confirmParams, duration: Number(e.target.value) })}
+                    >
+                      <option value={15}>15s</option>
+                      <option value={30}>30s</option>
+                      <option value={60}>60s</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '风格' : 'Style'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={String(confirmParams.style || 'casual')}
+                      onChange={(e) => setConfirmParams({ ...confirmParams, style: e.target.value })}
+                    >
+                      <option value="casual">{isZh ? ' casual' : 'Casual'}</option>
+                      <option value="professional">{isZh ? ' professional' : 'Professional'}</option>
+                      <option value="humorous">{isZh ? ' humorous' : 'Humorous'}</option>
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </AppDialog>
+      )}
 
       {/* Dialog */}
       {dialogOpen && (

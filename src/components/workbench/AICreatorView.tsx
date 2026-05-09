@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Wand2, Film, FileText, Image as ImageIcon, Shirt, Sparkles, Loader2, ImagePlus, ScrollText, Upload, X } from 'lucide-react';
+import { Send, Wand2, Film, FileText, Image as ImageIcon, Shirt, Sparkles, Loader2, ImagePlus, ScrollText, Upload, X, Pencil, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { aiCreatorApi, type AiCreatorAction, type AiCreatorMessage } from '../../services/aiCreator';
@@ -71,6 +71,8 @@ export const AICreatorView: React.FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTitle, setDialogTitle] = useState('');
   const [dialogMessage, setDialogMessage] = useState('');
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editText, setEditText] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -317,6 +319,37 @@ export const AICreatorView: React.FC = () => {
     handleSend(text);
   };
 
+  const startEdit = (idx: number) => {
+    const msg = messages[idx];
+    if (msg.role !== 'user') return;
+    setEditingIdx(idx);
+    setEditText(msg.content);
+  };
+
+  const cancelEdit = () => {
+    setEditingIdx(null);
+    setEditText('');
+  };
+
+  const confirmEdit = async () => {
+    if (editingIdx === null || !editText.trim()) return;
+
+    // Truncate messages after editingIdx (remove original user msg + assistant reply + everything after)
+    const truncated = messages.slice(0, editingIdx);
+    setMessages(truncated);
+    setResults([]); // Also clear generation results after edit point
+    setEditingIdx(null);
+
+    // Re-send edited message
+    await handleSend(editText.trim());
+  };
+
+  const deleteFrom = (idx: number) => {
+    // Delete this message and everything after it
+    setMessages((prev) => prev.slice(0, idx));
+    setResults([]);
+  };
+
   // Detect if the last assistant message is asking for a choice (routing)
   const lastAssistantMessage = messages.filter((m) => m.role === 'assistant').pop();
   const showRoutingButtons =
@@ -427,13 +460,63 @@ export const AICreatorView: React.FC = () => {
           <div key={idx}>
             <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed ${
+                className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed group relative ${
                   msg.role === 'user'
                     ? 'bg-orange-600 text-white'
                     : 'bg-zinc-900 border border-white/10 text-zinc-200'
                 }`}
               >
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                {editingIdx === idx ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.metaKey) confirmEdit();
+                        if (e.key === 'Escape') cancelEdit();
+                      }}
+                      className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/50 outline-none resize-none"
+                      rows={3}
+                      autoFocus
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={confirmEdit}
+                        className="px-3 py-1 rounded-lg bg-white/20 text-xs font-semibold hover:bg-white/30 transition"
+                      >
+                        {(t as any).ai_creator_save || 'Save & Regenerate'}
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        className="px-3 py-1 rounded-lg bg-white/10 text-xs hover:bg-white/20 transition"
+                      >
+                        {(t as any).ai_creator_cancel || 'Cancel'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                )}
+
+                {/* Edit / Delete buttons on user messages */}
+                {msg.role === 'user' && editingIdx !== idx && (
+                  <div className="absolute -left-20 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => startEdit(idx)}
+                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-orange-400 hover:bg-zinc-700 transition"
+                      title="Edit"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteFrom(idx)}
+                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-700 transition"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 {/* Action card inside assistant message */}
                 {msg.role === 'assistant' && msg.action && msg.action.type !== 'chat' && (

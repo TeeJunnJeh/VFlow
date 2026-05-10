@@ -109,10 +109,10 @@ export const ImageInpaintDialog: React.FC<ImageInpaintDialogProps> = ({
     canvas.height = Math.max(1, Math.floor(height));
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('canvas context unavailable');
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#fff';
-    ctx.fillRect(
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(
       Math.max(0, Math.floor(rectPx.x)),
       Math.max(0, Math.floor(rectPx.y)),
       Math.max(1, Math.floor(rectPx.w)),

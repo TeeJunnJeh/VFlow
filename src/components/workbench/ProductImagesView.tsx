@@ -2810,11 +2810,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('canvas context unavailable');
 
-    ctx.fillStyle = '#000';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(
+    ctx.clearRect(
       Math.max(0, Math.floor(rectPx.x)),
       Math.max(0, Math.floor(rectPx.y)),
       Math.max(1, Math.floor(rectPx.w)),

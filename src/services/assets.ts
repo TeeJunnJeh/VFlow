@@ -282,6 +282,35 @@ export const assetsApi = {
     return await response.json();
   },
 
+  createAIModelAsset: async (payload: {
+    imageUrl: string;
+    modelKind: 'virtual' | 'real';
+    displayName?: string;
+    historyRecordId?: string;
+    historyAssetId?: string | number;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/ai-model-assets/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        image_url: payload.imageUrl,
+        model_kind: payload.modelKind,
+        display_name: payload.displayName || '',
+        history_record_id: payload.historyRecordId || '',
+        history_asset_id: payload.historyAssetId || '',
+      }),
+    });
+
+    if (!response.ok) throw await parseApiError(response, 'Failed to add model asset');
+    return await response.json();
+  },
+
   // 3. DELETE
   deleteAsset: async (assetId: string) => {
     const csrftoken = getCookie('csrftoken');
@@ -759,6 +788,11 @@ export interface SeedanceCharacter {
   image_url: string;
   image_thumb_url?: string;
   image_variant_url?: string;
+  similarity?: number;
+  similarity_percent?: number;
+  image_similarity?: number;
+  text_similarity?: number | null;
+  semantic_rank?: number;
 }
 
 export interface SeedanceCharacterListResponse {
@@ -784,7 +818,7 @@ export interface SeedanceCharacterOptionsResponse {
   };
 }
 
-export type SeedanceSearchMode = 'default' | 'fuzzy';
+export type SeedanceSearchMode = 'default' | 'fuzzy' | 'smart';
 
 export interface SeedanceCharacterFilters {
   search_mode?: SeedanceSearchMode;
@@ -801,6 +835,7 @@ export interface SeedanceCharacterFilters {
   skin_tone?: string;
   search_appearance?: string;
   search_scene?: string;
+  search_query?: string;
   ordering?: string;
   page?: number;
   page_size?: number;
@@ -823,6 +858,7 @@ export const seedanceApi = {
     if (filters?.skin_tone) params.set('skin_tone', filters.skin_tone);
     if (filters?.search_appearance) params.set('search_appearance', filters.search_appearance);
     if (filters?.search_scene) params.set('search_scene', filters.search_scene);
+    if (filters?.search_query) params.set('search_query', filters.search_query);
     if (filters?.ordering) params.set('ordering', filters.ordering);
     if (filters?.page) params.set('page', String(filters.page));
     if (filters?.page_size) params.set('page_size', String(filters.page_size));

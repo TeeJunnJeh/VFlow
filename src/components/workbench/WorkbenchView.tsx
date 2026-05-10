@@ -3278,6 +3278,30 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     []
   );
 
+  const getModelAssetSource = useCallback((asset: LibraryAsset | null | undefined): 'seedance' | 'user_uploaded' | 'ai_generated' | null => {
+    if (!asset || String(asset.type || '').toLowerCase() !== 'model') return null;
+    const meta = asset.meta_data && typeof asset.meta_data === 'object'
+      ? asset.meta_data as Record<string, unknown>
+      : {};
+    const seedanceAssetId = String(meta.seedance_asset_id || '').trim();
+    if (seedanceAssetId) return 'seedance';
+    const explicitSource = String(meta.model_source || meta.source || meta.origin || '').trim().toLowerCase();
+    const createdFrom = String(meta.created_from || '').trim().toLowerCase();
+    if (explicitSource === 'ai_generated' || createdFrom === 'ai_model_workspace') return 'ai_generated';
+    if (explicitSource === 'seedance') return 'seedance';
+    return 'user_uploaded';
+  }, []);
+
+  const isUserUploadedModelAsset = useCallback((asset: LibraryAsset | null | undefined) => (
+    getModelAssetSource(asset) !== null && getModelAssetSource(asset) !== 'seedance'
+  ), [getModelAssetSource]);
+
+  const getSeedanceUnavailableModelText = useCallback((asset: LibraryAsset | null | undefined) => (
+    getModelAssetSource(asset) === 'ai_generated'
+      ? '非seedream模型生成的人像不可用'
+      : (t.wb_seedance_replay_user_model_unavailable || '自行上传模特不可用')
+  ), [getModelAssetSource, t]);
+
   const filterAssetLibraryItems = useCallback((items: LibraryAsset[]): LibraryAsset[] => {
     const normalizedItems = Array.isArray(items) ? items : [];
 
@@ -3483,6 +3507,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 size_bytes: file.size,
                 duration_seconds: mediaMeta.duration,
                 format: file.type || null,
+                ...(assetLibraryTab === 'model' ? { model_source: 'user_uploaded', source: 'user_uploaded' } : {}),
               },
             };
             try {
@@ -3495,8 +3520,21 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             // eslint-disable-next-line no-await-in-loop
             const uploadResp = await assetsApi.uploadAsset(file, assetLibraryTab, assetLibraryCurrentFolderId);
             const rawUploaded = (uploadResp as any)?.data || uploadResp;
-            const uploadedId = rawUploaded?.id;
+            const uploadedId = rawUploaded?.id || rawUploaded?.asset_id || rawUploaded?.assets?.[0]?.id;
             if (uploadedId != null) successfulUploadedAssetIds.push(String(uploadedId));
+            if (assetLibraryTab === 'model' && uploadedId != null) {
+              // eslint-disable-next-line no-await-in-loop
+              const mediaMeta = await probeAssetLibraryMediaMeta(file);
+              // eslint-disable-next-line no-await-in-loop
+              await assetsApi.patchAssetMeta(String(uploadedId), {
+                model_source: 'user_uploaded',
+                source: 'user_uploaded',
+                ...(mediaMeta.width ? { width: mediaMeta.width } : {}),
+                ...(mediaMeta.height ? { height: mediaMeta.height } : {}),
+                size_bytes: file.size,
+                format: file.type || file.name.split('.').pop()?.toLowerCase() || null,
+              });
+            }
           }
           successCount += 1;
         } catch (err: any) {
@@ -3505,7 +3543,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       await reloadAssetLibraryItems();
-      const shouldAutoAddForSeedance = false;
+      const shouldAutoAddForSeedance = creationMode === 'replay' && selectedModel === 'seedance2.0' && assetLibraryTab !== 'model';
       if (shouldAutoAddForSeedance && assetLibraryPickMode === 'default' && successfulUploadedAssetIds.length > 0 && user) {
         setPendingSeedanceAutoAddPayload({
           ids: successfulUploadedAssetIds,
@@ -3915,13 +3953,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return true;
     }
 
-    if (isSeedanceReplayMode && seedanceReplayLibraryIntent) {
+    if (isSeedanceMode && seedanceReplayLibraryIntent) {
       const queuedAsset = buildSeedanceReplayQueuedAssetFromLibrary(asset);
       const candidate = buildSeedanceReplayLibraryCandidate(asset);
       if (!queuedAsset || !candidate) {
         openInfo(
           popupTitles.notice,
           t.wb_seedance_replay_notice_unsupported_library_asset || 'The selected asset is not supported as a Seedance reference asset.',
+        );
+        return false;
+      }
+      if (queuedAsset.materialType === 'model' && isUserUploadedModelAsset(asset)) {
+        openInfo(
+          popupTitles.notice,
+          getSeedanceUnavailableModelText(asset),
         );
         return false;
       }
@@ -4224,7 +4269,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     : assetLibraryTab === 'subject'
       ? subjectAssetLibraryTabs
       : (seedanceReplayLibraryIntent ? seedanceReplayAssetLibraryTabs : defaultAssetLibraryTabs);
-  const shouldHideAssetLibraryLocalUpload = assetLibraryTab === 'model';
+  const shouldHideAssetLibraryLocalUpload = false;
   const replayTemplateGenerateCount = useMemo(() => (
     REPLAY_SCRIPT_TEMPLATES.reduce((sum, template) => {
       const count = Number(replayTemplateCountsById[template.id] || 0);
@@ -4416,6 +4461,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
       if (replayQueued.mediaKind !== 'image' && replayQueued.mediaKind !== 'video') {
         openInfo(popupTitles.notice, t.wb_replay_error_audio_not_supported || 'Audio assets are not supported in viral recreate mode.');
+        return false;
+      }
+      if (replayQueued.materialType === 'model' && !replayQueued.seedanceAssetId) {
+        openInfo(popupTitles.notice, getSeedanceUnavailableModelText(libraryAsset));
         return false;
       }
       const validationMessage = validateSeedanceReplayParsedAsset(replayCandidate, t);
@@ -5808,6 +5857,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         };
         if (imgAsset.materialType === 'model') {
           const seedanceId = imgAsset.seedanceAssetId;
+          if (selectedModel === 'seedance2.0' && !seedanceId) {
+            throw new Error(t.wb_seedance_replay_user_model_unavailable || '自行上传模特不可用');
+          }
           if (seedanceId) {
             metaEntry.seedance_asset_id = seedanceId;
           }
@@ -8781,6 +8833,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         issues.push(t.wb_kling_validation_reference_max || 'Kling allows at most 7 total reference images.');
       }
     }
+    if (selectedModel === 'seedance2.0' && uploadDisplayAssets.some((asset) => asset.materialType === 'model' && !asset.seedanceAssetId)) {
+      issues.push(t.wb_seedance_replay_user_model_unavailable || '自行上传模特不可用');
+    }
     if (!hasActiveScriptConcept) {
       issues.push(t.wb_gen_req_issue_master_script_missing);
     }
@@ -9017,7 +9072,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     for (const modelAsset of modelAssets) {
       const seedanceAssetId = String(modelAsset.seedanceAssetId || '').trim();
       if (!seedanceAssetId) {
-        throw new Error(t.wb_replay_error_model_missing_seedance_id || '该虚拟模特缺少 Seedance 资产 ID，无法用于爆款复刻生成。');
+        throw new Error(t.wb_seedance_replay_user_model_unavailable || t.wb_replay_error_model_missing_seedance_id || '该虚拟模特缺少 Seedance 资产 ID，无法用于爆款复刻生成。');
       }
       const resolvedPath = modelAsset.uploadedPath || modelAsset.assetUrl || modelAsset.previewUrl || `asset://${seedanceAssetId}`;
       seedanceImagePaths.push(resolvedPath);
@@ -12390,6 +12445,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     </button>
                   ))}
                   {assetLibraryItems.map((asset) => {
+                    const isSeedanceVirtualModelImport = (
+                      isSeedanceMode
+                      && assetLibraryPickMode === 'default'
+                      && assetLibraryTab === 'model'
+                      && !!seedanceReplayLibraryIntent?.allowedTabs.includes('model')
+                    );
+                    const isUnavailableUserModel = isSeedanceVirtualModelImport && isUserUploadedModelAsset(asset);
+                    const unavailableUserModelText = getSeedanceUnavailableModelText(asset);
                     const alreadyAddedInSeedance = (
                       isSeedanceReplayMode
                       && assetLibraryPickMode === 'default'
@@ -12415,12 +12478,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                           setAssetLibraryHoverClickedAssetId((prev) => (prev === asset.id ? null : prev));
                         }}
                         onClick={() => {
+                          if (isUnavailableUserModel) return;
                           if (alreadyAddedInLibrary) return;
                           const ok = selectAssetFromLibraryPopup(asset);
                           if (ok) setAssetLibraryHoverClickedAssetId(asset.id);
                         }}
-                        className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${alreadyAddedInLibrary ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'}`}
-                        title={alreadyAddedInLibrary ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined}
+                        className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 ${isUnavailableUserModel ? 'cursor-not-allowed border-red-300/35 opacity-80' : 'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30'} ${alreadyAddedInLibrary ? 'border-emerald-400/70 ring-1 ring-emerald-400/35' : (isUnavailableUserModel ? '' : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5')}`}
+                        title={isUnavailableUserModel ? unavailableUserModelText : (alreadyAddedInLibrary ? (t.wb_seedance_replay_notice_duplicate_asset || 'This asset has already been added.') : undefined)}
                       >
                         <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
                           {isKlingOmniMode && hasSubjectOtherViews(asset) && (
@@ -12445,10 +12509,18 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               <span className="text-[10px] text-zinc-400">{t.assets_tab_scripts || 'Script'}</span>
                             </div>
                           ) : (
-                            <img src={asset.file_url} className="w-full h-full object-cover" alt={asset.name} />
+                            <img src={asset.file_url} className={`w-full h-full object-cover ${isUnavailableUserModel ? 'grayscale opacity-45' : ''}`} alt={asset.name} />
                           )}
 
-                          {!alreadyAddedInLibrary ? (
+                          {isUnavailableUserModel && (
+                            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/45 px-2 text-center">
+                              <span className="rounded-md border border-red-300/25 bg-red-950/70 px-2 py-1 text-[10px] font-bold leading-snug text-red-100">
+                                {unavailableUserModelText}
+                              </span>
+                            </div>
+                          )}
+
+                          {!alreadyAddedInLibrary && !isUnavailableUserModel ? (
                             <>
                               <div
                                 className={`pointer-events-none absolute inset-0 bg-black/45 transition-opacity duration-200 ${assetLibraryHoverAssetId === asset.id ? 'opacity-100' : 'opacity-0'}`}

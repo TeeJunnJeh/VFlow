@@ -208,6 +208,8 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         return t.hist_img_source_text_separation || '文本分离';
       case 'smart_repair':
         return t.hist_img_source_smart_repair || 'AI智能修复';
+      case 'ai_model':
+        return t.wb_nav_product_ai_model || 'AI模特';
       default:
         return source;
     }
@@ -223,6 +225,8 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
         return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20';
       case 'smart_repair':
         return 'bg-amber-500/15 text-amber-400 border border-amber-500/20';
+      case 'ai_model':
+        return 'bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/20';
       default:
         return 'bg-zinc-500/15 text-zinc-300 border border-zinc-500/20';
     }

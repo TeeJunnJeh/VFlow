@@ -119,11 +119,23 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     video.src = objectUrl;
   });
   const patchUploadedMediaMetadata = useCallback(async (uploadResp: any, file: File, assetType: AssetType) => {
-    if (assetType !== 'audio' && assetType !== 'motion') return;
+    if (assetType !== 'audio' && assetType !== 'motion' && assetType !== 'model') return;
     const assetId = String(uploadResp?.data?.id || uploadResp?.id || '').trim();
     if (!assetId) return;
     const format = getFileExtension(file.name);
     try {
+      if (assetType === 'model') {
+        const mediaMeta = await probeMediaMeta(file);
+        await assetsApi.patchAssetMeta(assetId, {
+          model_source: 'user_uploaded',
+          source: 'user_uploaded',
+          ...(mediaMeta.width ? { width: mediaMeta.width } : {}),
+          ...(mediaMeta.height ? { height: mediaMeta.height } : {}),
+          size_bytes: file.size,
+          ...(format ? { format } : {}),
+        });
+        return;
+      }
       if (assetType === 'audio') {
         const durationSeconds = await loadAudioDurationSeconds(file);
         if (!durationSeconds || durationSeconds <= 0) return;
@@ -197,7 +209,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (activeAssetTab === 'motion' && !isVideo) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     if (activeAssetTab === 'audio' && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     if (activeAssetTab === 'script' && !isDocument) return `${t.assets_upload_error_unsupported}: ${file.name}`;
-    if (activeAssetTab === 'model') return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    if (activeAssetTab === 'model' && !isImage) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     // Per-type size check
     if (isImage && file.size > IMAGE_MAX_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>30MB)`;
     if (isVideo && file.size > VIDEO_MAX_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>50MB)`;
@@ -208,7 +220,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   const activeTabAccept = useMemo(() => {
     switch (activeAssetTab) {
-      case 'product': return '.jpg,.jpeg,.png,.webp,image/*';
+      case 'product':
+      case 'model': return '.jpg,.jpeg,.png,.webp,image/*';
       case 'motion': return '.mp4,.mov,.mkv,.webm,.avi,video/*';
       case 'audio': return '.mp3,.wav,.flac,audio/*';
       case 'script': return '.txt,.md,.json,text/plain,application/json';
@@ -218,7 +231,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
   const activeTabFormatHint = useMemo(() => {
     switch (activeAssetTab) {
-      case 'product': return `${t.wb_upload_image}: ${imageFormats} (≤30MB)`;
+      case 'product':
+      case 'model': return `${t.wb_upload_image}: ${imageFormats} (≤30MB)`;
       case 'motion': return `${t.wb_upload_video}: ${videoFormats} (≤50MB)`;
       case 'audio': return `${t.wb_upload_audio}: ${audioFormats} (≤15MB)`;
       case 'script': return `${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)`;
@@ -823,8 +837,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       seedancePageRef.current = 1;
       seedanceErrorRef.current = false;
       setSeedanceError(null);
-      // fuzzy mode requires user input first; default mode auto-loads
-      if (seedanceSearchMode !== 'fuzzy') void loadSeedanceCharacters(fresh);
+      // Only condition mode auto-loads; fuzzy/smart modes wait for user input.
+      if (seedanceSearchMode === 'default') void loadSeedanceCharacters(fresh);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, activeAssetTab]);
@@ -1085,6 +1099,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               size_bytes: file.size,
               duration_seconds: mediaMeta.duration,
               format: file.type || null,
+              ...(activeAssetTab === 'model' ? { model_source: 'user_uploaded', source: 'user_uploaded' } : {}),
             },
           });
         }
@@ -2321,7 +2336,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                  {activeAssetTab !== 'subject' && activeAssetTab !== 'model' && (
                    <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
                  )}
-                 {activeAssetTab !== 'model' && activeAssetTab !== 'subject' && (
+                 {activeAssetTab !== 'subject' && (
                  <div className="relative group">
                    <button onClick={() => assetInputRef.current?.click()} className="bg-orange-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-orange-500 transition flex items-center gap-2 shadow-lg shadow-orange-500/20" disabled={isUploading}>
                       {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {t.assets_btn_upload}
@@ -3273,8 +3288,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
               <div ref={seedanceScrollRef} className="flex-1 overflow-y-auto custom-scroll">
               {/* Search Mode Tabs */}
               <div className="flex items-center gap-1 mb-3">
-                {(['fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
+                {(['smart', 'fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
                   const labels: Record<SeedanceSearchMode, string> = {
+                    smart: (t as any).assets_seedance_tab_smart || '智能搜索',
                     default: t.assets_seedance_tab_default || '条件查询',
                     fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
                   };
@@ -3308,7 +3324,46 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
               {/* Filters */}
               <div className="border-b border-white/5 mb-4">
-                {seedanceSearchMode === 'fuzzy' ? (
+                {seedanceSearchMode === 'smart' ? (
+                  <div className="pb-3 space-y-2">
+                    <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
+                      {(t as any).assets_seedance_smart_label || '智能描述'}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          value={seedanceFilters.search_query || ''}
+                          onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_query: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const f = { ...seedanceFilters, search_mode: 'smart' as const, page: 1 };
+                              setSeedanceFilters(f);
+                              setSeedanceCharacters([]);
+                              void loadSeedanceCharacters(f);
+                            }
+                          }}
+                          placeholder={(t as any).assets_seedance_smart_placeholder || '输入一段描述，如“穿西装的年轻商务女性”'}
+                          className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          const f = { ...seedanceFilters, search_mode: 'smart' as const, page: 1 };
+                          setSeedanceFilters(f);
+                          setSeedanceCharacters([]);
+                          void loadSeedanceCharacters(f);
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition"
+                      >
+                        {(t as any).assets_seedance_smart_search || '搜索'}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-600 leading-relaxed">
+                      {(t as any).assets_seedance_smart_hint || '基于图片和文字 embedding 的相似度排序。'}
+                    </p>
+                  </div>
+                ) : seedanceSearchMode === 'fuzzy' ? (
                   <div className="pb-3 space-y-3">
                     <div>
                       <label className="block text-[10px] text-zinc-400 mb-1 font-medium">{t.assets_seedance_fuzzy_appearance_label || '外貌特征'}</label>
@@ -3625,7 +3680,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           }
                         }}
                       >
-                        <div className="aspect-[3/4] bg-zinc-800 overflow-hidden">
+                        <div className="relative aspect-[3/4] bg-zinc-800 overflow-hidden">
                           <img
                             src={char.image_thumb_url || char.image_url}
                             alt={char.title}
@@ -3638,6 +3693,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
+                          {seedanceSearchMode === 'smart' && typeof char.similarity_percent === 'number' && (
+                            <div className="absolute top-1.5 right-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[9px] font-bold text-purple-200 border border-purple-400/30">
+                              {(t as any).assets_seedance_similarity || '相似度'} {Math.round(char.similarity_percent)}%
+                            </div>
+                          )}
                         </div>
                         <div className="p-1.5">
                           <div className="text-[10px] font-bold text-zinc-200 truncate">{char.title || `${char.country} ${char.gender}`}</div>
@@ -4280,8 +4340,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
               {/* Search Mode Tabs: 默认查询 | 模糊查询 */}
               <div className="flex items-center gap-1 px-6 pt-3 pb-0">
-                {(['fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
+                {(['smart', 'fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
                   const labels: Record<SeedanceSearchMode, string> = {
+                    smart: (t as any).assets_seedance_tab_smart || '智能搜索',
                     default: t.assets_seedance_tab_default || '条件查询',
                     fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
                   };
@@ -4296,7 +4357,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         if (mode === 'default') {
                           void loadSeedanceCharacters(fresh);
                         } else {
-                          // fuzzy tab: don't load until user enters search terms
+                          // fuzzy/smart tabs: don't load until user enters search terms
                           setSeedanceCharacters([]);
                           setSeedanceTotalCount(0);
                         }
@@ -4316,7 +4377,44 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
               {/* Filters */}
               <div className="border-b border-white/5">
-                {seedanceSearchMode === 'fuzzy' ? (
+                {seedanceSearchMode === 'smart' ? (
+                  <div className="px-6 py-3 space-y-2">
+                    <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
+                      {(t as any).assets_seedance_smart_label || '智能描述'}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          value={seedanceFilters.search_query || ''}
+                          onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_query: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const f = { ...seedanceFilters, search_mode: 'smart' as const, page: 1 };
+                              setSeedanceFilters(f);
+                              void loadSeedanceCharacters(f);
+                            }
+                          }}
+                          placeholder={(t as any).assets_seedance_smart_placeholder || '输入一段描述，如“穿西装的年轻商务女性”'}
+                          className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          const f = { ...seedanceFilters, search_mode: 'smart' as const, page: 1 };
+                          setSeedanceFilters(f);
+                          void loadSeedanceCharacters(f);
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition"
+                      >
+                        {(t as any).assets_seedance_smart_search || '搜索'}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-600 leading-relaxed">
+                      {(t as any).assets_seedance_smart_hint || '基于图片和文字 embedding 的相似度排序。'}
+                    </p>
+                  </div>
+                ) : seedanceSearchMode === 'fuzzy' ? (
                   /* ── Fuzzy mode: dual search boxes (appearance + scene) ── */
                   <div className="px-6 py-3 space-y-3">
                     {/* 外貌输入框 */}
@@ -4647,7 +4745,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           }
                         }}
                       >
-                        <div className="aspect-[3/4] bg-zinc-800 overflow-hidden">
+                        <div className="relative aspect-[3/4] bg-zinc-800 overflow-hidden">
                           <img
                             src={char.image_thumb_url || char.image_url}
                             alt={char.title}
@@ -4660,6 +4758,11 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
+                          {seedanceSearchMode === 'smart' && typeof char.similarity_percent === 'number' && (
+                            <div className="absolute top-1.5 right-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[9px] font-bold text-purple-200 border border-purple-400/30">
+                              {(t as any).assets_seedance_similarity || '相似度'} {Math.round(char.similarity_percent)}%
+                            </div>
+                          )}
                         </div>
                         <div className="p-1.5">
                           <div className="text-[10px] font-bold text-zinc-200 truncate">{char.title || `${char.country} ${char.gender}`}</div>

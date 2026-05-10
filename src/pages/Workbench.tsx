@@ -69,6 +69,7 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   product_images_smart_repair: 'VFLOW AI - 商品图 - 智能修复',
   product_images_gallery: 'VFLOW AI - 商品图 - 商品套图',
   product_images_text_separation: 'VFLOW AI - 商品图 - 文本分离',
+  product_images_ai_model: 'VFLOW AI - 商品图 - AI 模特',
   creative_lab_replay: 'VFLOW AI - 创意实验室 - 爆款复刻',
   creative_lab_script_extract: 'VFLOW AI - 创意实验室 - 脚本提取',
   templates: 'VFLOW AI - 模板',
@@ -95,10 +96,17 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'Create AI product photo sets with virtual models or local uploads. Define scenes, ratios, and styles, preview outputs, and export a consistent store gallery.',
   product_images_text_separation:
     'Extract clean text layers from product images for faster editing. Automatically separate captions, labels, and design elements while keeping backgrounds intact.',
+<<<<<<< HEAD
   creative_lab_replay:
     'Use Creative Lab viral replay to select reference videos, product images, and virtual models, then generate Seedance-ready product ads with safe fallback paths.',
   creative_lab_script_extract:
     'Extract Seedance-ready advertising scripts from reference videos, including reusable structure, shot rhythm, style tags, and selling point suggestions.',
+=======
+  product_images_ai_model:
+    'Generate AI model assets from natural-language requirements for product photos, using asynchronous 302AI image generation and result polling.',
+  replay_lab:
+    'Replay Lab helps you reuse and iterate on previous scripts and structures, quickly generating new variations while keeping the creative direction consistent.',
+>>>>>>> 0383849 (feat: 1. AI model 2. smart search on models)
   templates:
     'Browse templates for TikTok/Reels ads. Customize scenes, scripts, style, and branding to generate product videos faster and consistently across channels.',
   history:
@@ -591,11 +599,12 @@ const Workbench = () => {
     || activeView === 'product_images_first_frame'
     || activeView === 'product_images_smart_repair'
     || activeView === 'product_images_gallery'
-    || activeView === 'product_images_text_separation';
+    || activeView === 'product_images_text_separation'
+    || activeView === 'product_images_ai_model';
 
   return (
     <WorkbenchModelProvider>
-      <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
+      <div className="flex h-screen overflow-hidden bg-zinc-950/70 text-zinc-100 font-sans">
         {shouldShowSidebar && (
             <Sidebar
               activeView={activeView}

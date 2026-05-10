@@ -8,7 +8,8 @@ export type GenerationType =
   | 'product_gallery'
   | 'first_frame_image'
   | 'smart_repair'
-  | 'clothing_swap';
+  | 'clothing_swap'
+  | 'ai_model';
 
 export type GenerationStatus = 
   | 'queued'
@@ -265,6 +266,70 @@ export interface ClothingSwapVideoResult {
   veoAspectRatio?: '16:9' | '9:16';
   cropped?: boolean;
   sourceVideoUrl?: string;
+}
+
+// ==================== AI 模特相关类型 ====================
+
+export type AIModelAspectRatio = SmartRepairAspectRatio;
+
+export type AIModelOutputCount = 1 | 2 | 3 | 4;
+
+export type AIModelGender = 'female' | 'male' | 'neutral' | 'no_limit';
+
+export type AIModelStyle = 'commercial' | 'studio' | 'lifestyle' | 'fashion' | 'street';
+
+export type AIModelPollStatus = 'created' | 'processing' | 'succeeded' | 'failed';
+
+export interface AIModelParams {
+  prompt: string;
+  gender?: AIModelGender;
+  ageRange?: string;
+  style?: AIModelStyle;
+  outfit?: string;
+  background?: string;
+  negativePrompt?: string;
+  aspectRatio?: AIModelAspectRatio;
+  outputCount?: AIModelOutputCount;
+}
+
+export type AIRealPersonBodyFraming = 'full_body' | 'half_body' | 'upper_body';
+
+export interface AIRealPersonParams {
+  image: File;
+  prompt: string;
+  outfit?: string;
+  background?: string;
+  styling?: string;
+  bodyFraming?: AIRealPersonBodyFraming;
+  negativePrompt?: string;
+  aspectRatio?: AIModelAspectRatio;
+  outputCount?: AIModelOutputCount;
+}
+
+export interface AIModelSubmissionItem {
+  requestId: string;
+  status: AIModelPollStatus;
+  sortOrder: number;
+  role: string;
+}
+
+export interface AIModelSubmission {
+  requests: AIModelSubmissionItem[];
+  historyRecordId: string;
+  cost: number;
+  balance: number;
+  model: string;
+}
+
+export interface AIModelPollResult {
+  requestId: string;
+  status: AIModelPollStatus;
+  imageUrl: string;
+  outputs: string[];
+  error: string;
+  historyRecordId: string;
+  assetId: number;
+  sortOrder: number;
 }
 
 // ==================== 生成任务相关类型 ====================

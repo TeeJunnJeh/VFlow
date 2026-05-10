@@ -6,6 +6,7 @@ export { FirstFrameView } from './Functions/FirstFrame';
 export { SmartRepairView } from './Functions/SmartRepair';
 export { ImagesGalleryView } from './Functions/ImagesGallery';
 export { ClothingSwapView } from './Functions/ClothingSwap';
+export { AIModelView } from './Functions/AIModel';
 export type { ImagesGalleryViewProps } from './Functions/ImagesGallery';
 export * from './Common';
 export type { 
@@ -19,6 +20,9 @@ export type {
   FirstFrameWhitespace,
   ProductImageResult,
   SmartRepairParams,
+  AIModelParams,
+  AIRealPersonParams,
+  AIRealPersonBodyFraming,
   GenerationStatus,
   GenerationType,
 } from '../../types/productImages';

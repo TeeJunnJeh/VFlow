@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard, Folder } from 'lucide-react';
+import { Eye, Image as ImageIcon, Plus, Upload, X, Wand2, Minus, Sparkles, RotateCw, Download, FileDown, ChevronLeft, ChevronRight, LayoutGrid, ArrowLeft, PencilLine, Trash2, Zap, Check, Shirt, Wrench, Clapperboard, Folder, UserRound } from 'lucide-react';
 import type { ViewType } from './types';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
-import { ClothingSwapView, FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
+import { AIModelView, ClothingSwapView, FirstFrameView, ImagesGalleryView, SmartRepairView } from '../productImages';
 import { AppDialog } from '../common/AppDialog';
 import { ErrorModal } from './workflow/ErrorModal';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
@@ -1054,7 +1054,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     activeView === 'product_images_first_frame' ||
     activeView === 'product_images_smart_repair' ||
     activeView === 'product_images_gallery' ||
-    activeView === 'product_images_text_separation';
+    activeView === 'product_images_text_separation' ||
+    activeView === 'product_images_ai_model';
 
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
   const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
@@ -1085,6 +1086,12 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           icon: PencilLine,
           title: t.wb_nav_product_text_separation,
           subtitle: t.pg_main_text_separation_subtitle,
+        };
+      case 'product_images_ai_model':
+        return {
+          icon: UserRound,
+          title: t.wb_nav_product_ai_model,
+          subtitle: t.pg_main_ai_model_subtitle,
         };
       case 'product_images_first_frame':
       default:
@@ -6311,6 +6318,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
         <div className={panelClassName('product_images_smart_repair')}>
           <SmartRepairView embedded />
+        </div>
+
+        <div className={panelClassName('product_images_ai_model')}>
+          <AIModelView embedded />
         </div>
 
         <div className={panelClassName('product_images_text_separation')}>

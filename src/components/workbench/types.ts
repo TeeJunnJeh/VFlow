@@ -7,6 +7,7 @@ export type ViewType =
   | 'product_images_smart_repair'
   | 'product_images_gallery'
   | 'product_images_text_separation'
+  | 'product_images_ai_model'
   | 'creative_lab_replay'
   | 'creative_lab_script_extract'
   | 'templates'

@@ -15,6 +15,7 @@ import {
   SunMoon,
   Shirt,
   User as UserIcon,
+  UserRound,
   Video,
   Wand2,
   Wrench,
@@ -32,9 +33,9 @@ const PRODUCT_IMAGES_SECTION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const PRODUCT_IMAGES_LAST_VIEW_STORAGE_KEY = 'vflow_product_images_last_view';
 const CREATIVE_LAB_LAST_VIEW_STORAGE_KEY = 'vflow_creative_lab_last_view';
 const PRODUCT_GALLERY_GUIDE_TRIGGER_KEY = 'vflow_product_gallery_guide_trigger';
-const PRODUCT_IMAGES_SUBNAV_MIN_WIDTH = 192;
-const PRODUCT_IMAGES_SUBNAV_MAX_WIDTH = 320;
-const PRODUCT_IMAGES_SUBNAV_LABEL_PADDING = 104;
+const PRODUCT_IMAGES_SUBNAV_MIN_WIDTH = 176;
+const PRODUCT_IMAGES_SUBNAV_MAX_WIDTH = 190;
+const PRODUCT_IMAGES_SUBNAV_LABEL_PADDING = 50;
 
 interface SidebarProps {
   activeView: ViewType;
@@ -50,6 +51,7 @@ const PRODUCT_IMAGE_VIEWS: ViewType[] = [
   'product_images_smart_repair',
   'product_images_gallery',
   'product_images_text_separation',
+  'product_images_ai_model',
 ];
 
 const CREATIVE_LAB_VIEWS: ViewType[] = [
@@ -152,6 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     { view: 'product_images_smart_repair', label: t.wb_nav_product_smart_repair, icon: Wrench },
     { view: 'product_images_gallery', label: t.wb_nav_product_gallery, icon: LayoutGrid },
     { view: 'product_images_text_separation', label: t.wb_nav_product_text_separation, icon: PencilLine },
+    { view: 'product_images_ai_model', label: t.wb_nav_product_ai_model, icon: UserRound },
   ];
 
   const creativeLabOptions: Array<{ view: ViewType; label: string; icon: any }> = [
@@ -330,7 +333,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
 
       <div
         id="product-images-subnav"
-        className={`shrink-0 overflow-hidden bg-zinc-950/70 transition-[width,opacity,border-color] ${
+        className={`shrink-0 overflow-hidden bg-zinc-960/100 transition-[width,opacity,border-color] ${
           isProductImagesSectionOpen
             ? 'border-l border-white/5 opacity-100'
             : 'border-l border-transparent opacity-0'
@@ -379,7 +382,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                     }
                     setActiveView(opt.view);
                   }}
-                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm font-bold transition group ${
+                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-5 text-left text-sm font-bold transition group ${
                     selected
                       ? 'wb-product-subnav-item--active text-violet-300 bg-violet-500/10'
                       : 'wb-product-subnav-item--inactive text-zinc-500 hover:text-violet-300'

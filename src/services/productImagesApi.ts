@@ -1,6 +1,12 @@
 import { getCookie } from './apiClient';
 import { parseApiError } from './errors';
 import type {
+  AIModelParams,
+  AIModelPollResult,
+  AIModelPollStatus,
+  AIRealPersonParams,
+  AIModelSubmission,
+  AIModelSubmissionItem,
   FirstFrameParams,
   FirstFrameModel,
   FirstFrameOpeningScene,
@@ -134,6 +140,14 @@ function smartRepairStrengthToHint(strength?: SmartRepairParams['strength']): st
   if (strength === 'light') return 'Preserve structure and details, only minimal local fixes.';
   if (strength === 'strong') return 'Allow stronger correction while keeping product identity recognizable.';
   return 'Balance repair quality and content consistency.';
+}
+
+function aspectRatioToCanvasRatio(aspectRatio?: string): number {
+  const [wRaw, hRaw] = String(aspectRatio || '3:4').split(':');
+  const w = Number(wRaw);
+  const h = Number(hRaw);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || h <= 0) return 0.75;
+  return w / h;
 }
 
 async function uploadTempImage(file: File): Promise<string> {
@@ -766,6 +780,289 @@ export const productImagesApi = {
         };
       })
       .filter((it: SmartRepairPendingItem | null): it is SmartRepairPendingItem => it !== null);
+  },
+
+  /**
+   * 提交 AI 模特生成任务。请求结构对齐“AI 海报编辑 / 文本二次创作”：
+   * 前端只创建异步任务并拿 request_id，后续通过 result 接口轮询产物。
+   */
+  async submitAIModel(
+    params: AIModelParams,
+    options?: {
+      projectId?: string;
+      clientHistoryId?: string;
+    }
+  ): Promise<AIModelSubmission> {
+    const prompt = String(params.prompt || '').trim();
+    if (!prompt) {
+      throw new Error('Please describe the model you want to generate');
+    }
+
+    const aspectRatio = params.aspectRatio || '3:4';
+    const outputCount = params.outputCount || 1;
+    const payload: Record<string, unknown> = {
+      provider: '302ai',
+      generation_type: 'ai_model',
+      sample_title: 'AI Model',
+      global_prompt: prompt,
+      prompt,
+      elements: [],
+      canvas_aspect_ratio: aspectRatioToCanvasRatio(aspectRatio),
+      aspect_ratio: aspectRatio,
+      output_count: outputCount,
+      gender: params.gender || 'no_limit',
+      age_range: params.ageRange || '',
+      style: params.style || 'commercial',
+      outfit: params.outfit || '',
+      background: params.background || '',
+      negative_prompt: params.negativePrompt || '',
+    };
+
+    if (options?.projectId) payload.project_id = options.projectId;
+    if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
+
+    const endpoint = `${PROJECTS_API_BASE}/generate_ai_model`;
+    debugApiLog('request generate_ai_model', {
+      endpoint,
+      method: 'POST',
+      payload,
+    });
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const responseClone = response.clone();
+    let debugResponseBody: unknown = null;
+    try {
+      debugResponseBody = await responseClone.json();
+    } catch {
+      debugResponseBody = { nonJson: true };
+    }
+    debugApiLog('response generate_ai_model', {
+      endpoint,
+      status: response.status,
+      ok: response.ok,
+      body: debugResponseBody,
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to submit AI model generation task');
+    }
+
+    const data = await response.json();
+    const singleRequest = data?.data?.request_id ? [data.data] : [];
+    const rawRequests = Array.isArray(data?.data?.requests) ? data.data.requests : singleRequest;
+    const requests: AIModelSubmissionItem[] = rawRequests
+      .map((row: Record<string, unknown>, index: number): AIModelSubmissionItem | null => {
+        const requestId = String(row?.request_id || row?.requestId || '').trim();
+        if (!requestId) return null;
+        const rawStatus = String(row?.status || 'created').trim().toLowerCase() as AIModelPollStatus;
+        const status: AIModelPollStatus = (['created', 'processing', 'succeeded', 'failed'] as AIModelPollStatus[])
+          .includes(rawStatus)
+          ? rawStatus
+          : 'created';
+        return {
+          requestId,
+          status,
+          sortOrder: Number.isFinite(Number(row?.sort_order)) ? Number(row.sort_order) : index,
+          role: String(row?.role || 'ai_model'),
+        };
+      })
+      .filter((it: AIModelSubmissionItem | null): it is AIModelSubmissionItem => it !== null);
+
+    if (requests.length === 0) {
+      throw new Error('Submit succeeded but no request_ids were returned');
+    }
+
+    return {
+      requests,
+      historyRecordId: String(data?.data?.history_record_id || '').trim(),
+      cost: Number(data?.data?.cost ?? 0),
+      balance: Number(data?.data?.balance ?? 0),
+      model: String(data?.data?.model || '302ai').trim(),
+    };
+  },
+
+  async submitAIRealPerson(
+    params: AIRealPersonParams,
+    options?: {
+      projectId?: string;
+      clientHistoryId?: string;
+    }
+  ): Promise<AIModelSubmission> {
+    const prompt = String(params.prompt || '').trim();
+    if (!params.image) {
+      throw new Error('Please upload a real person image first');
+    }
+    if (!prompt) {
+      throw new Error('Please enter an edit brief first');
+    }
+
+    const imagePath = await uploadTempImage(params.image);
+    const aspectRatio = params.aspectRatio || '3:4';
+    const outputCount = params.outputCount || 1;
+    const payload: Record<string, unknown> = {
+      provider: '302ai',
+      generation_type: 'ai_real_person',
+      sample_title: 'Real Person Asset',
+      global_prompt: prompt,
+      prompt,
+      images: [imagePath],
+      canvas_aspect_ratio: aspectRatioToCanvasRatio(aspectRatio),
+      aspect_ratio: aspectRatio,
+      output_count: outputCount,
+      outfit: params.outfit || '',
+      background: params.background || '',
+      styling: params.styling || '',
+      body_framing: params.bodyFraming || 'full_body',
+      negative_prompt: params.negativePrompt || '',
+    };
+
+    if (options?.projectId) payload.project_id = options.projectId;
+    if (options?.clientHistoryId) payload.client_history_id = options.clientHistoryId;
+
+    const endpoint = `${PROJECTS_API_BASE}/generate_ai_real_person`;
+    debugApiLog('request generate_ai_real_person', {
+      endpoint,
+      method: 'POST',
+      payload: {
+        ...payload,
+        images: [`<uploaded-image path=${imagePath} mime=${params.image.type || 'image/*'} bytes=${params.image.size}>`],
+      },
+    });
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const responseClone = response.clone();
+    let debugResponseBody: unknown = null;
+    try {
+      debugResponseBody = await responseClone.json();
+    } catch {
+      debugResponseBody = { nonJson: true };
+    }
+    debugApiLog('response generate_ai_real_person', {
+      endpoint,
+      status: response.status,
+      ok: response.ok,
+      body: debugResponseBody,
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to submit real person generation task');
+    }
+
+    const data = await response.json();
+    const singleRequest = data?.data?.request_id ? [data.data] : [];
+    const rawRequests = Array.isArray(data?.data?.requests) ? data.data.requests : singleRequest;
+    const requests: AIModelSubmissionItem[] = rawRequests
+      .map((row: Record<string, unknown>, index: number): AIModelSubmissionItem | null => {
+        const requestId = String(row?.request_id || row?.requestId || '').trim();
+        if (!requestId) return null;
+        const rawStatus = String(row?.status || 'created').trim().toLowerCase() as AIModelPollStatus;
+        const status: AIModelPollStatus = (['created', 'processing', 'succeeded', 'failed'] as AIModelPollStatus[])
+          .includes(rawStatus)
+          ? rawStatus
+          : 'created';
+        return {
+          requestId,
+          status,
+          sortOrder: Number.isFinite(Number(row?.sort_order)) ? Number(row.sort_order) : index,
+          role: String(row?.role || 'real_person'),
+        };
+      })
+      .filter((it: AIModelSubmissionItem | null): it is AIModelSubmissionItem => it !== null);
+
+    if (requests.length === 0) {
+      throw new Error('Submit succeeded but no request_ids were returned');
+    }
+
+    return {
+      requests,
+      historyRecordId: String(data?.data?.history_record_id || '').trim(),
+      cost: Number(data?.data?.cost ?? 0),
+      balance: Number(data?.data?.balance ?? 0),
+      model: String(data?.data?.model || '302ai').trim(),
+    };
+  },
+
+  async getAIModelResult(requestId: string): Promise<AIModelPollResult> {
+    const safeId = String(requestId || '').trim();
+    if (!safeId) {
+      throw new Error('requestId is required');
+    }
+    const endpoint = `${PROJECTS_API_BASE}/generate_ai_model_result?request_id=${encodeURIComponent(safeId)}`;
+    debugApiLog('request generate_ai_model_result', {
+      endpoint,
+      method: 'GET',
+      requestId: safeId,
+    });
+
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken') || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    const responseClone = response.clone();
+    let debugResponseBody: unknown = null;
+    try {
+      debugResponseBody = await responseClone.json();
+    } catch {
+      debugResponseBody = { nonJson: true };
+    }
+    debugApiLog('response generate_ai_model_result', {
+      endpoint,
+      status: response.status,
+      ok: response.ok,
+      body: debugResponseBody,
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Failed to query AI model generation status');
+    }
+
+    const data = await response.json();
+    const inner = data?.data || {};
+    const rawStatus = String(inner?.status || 'created').trim().toLowerCase() as AIModelPollStatus;
+    const status: AIModelPollStatus = (['created', 'processing', 'succeeded', 'failed'] as AIModelPollStatus[])
+      .includes(rawStatus)
+      ? rawStatus
+      : 'created';
+    const outputs = Array.isArray(inner?.outputs)
+      ? inner.outputs
+          .map((it: unknown) => toDisplayUrl(String(it || '').trim()))
+          .filter(Boolean)
+      : [];
+    const rawImageUrl = String(inner?.image_url || inner?.model_image_url || '').trim();
+
+    return {
+      requestId: String(inner?.request_id || safeId),
+      status,
+      imageUrl: rawImageUrl ? toDisplayUrl(rawImageUrl) : '',
+      outputs,
+      error: String(inner?.error || ''),
+      historyRecordId: String(inner?.history_record_id || ''),
+      assetId: Number(inner?.asset_id ?? 0),
+      sortOrder: Number(inner?.sort_order ?? 0),
+    };
   },
 
   async generateClothingSwap(

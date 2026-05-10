@@ -283,7 +283,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
             type="button"
             onClick={handleCycleTheme}
             className="w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative border-white/5 bg-zinc-900/50 hover:border-white/20"
-            title={themeButtonLabel}
           >
             <div className="text-zinc-500 group-hover:text-zinc-300 transition-colors">
               <SunMoon className="w-5 h-5" />

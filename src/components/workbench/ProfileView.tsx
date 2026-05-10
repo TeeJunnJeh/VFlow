@@ -667,7 +667,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                     </button>
                   )}
 
-                  <a href="/doc" className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/docs shadow-sm hover:shadow-orange-500/5">
+                  <a href="/doc" target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/docs shadow-sm hover:shadow-orange-500/5">
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/docs:text-orange-500 transition-colors"><FileText className="w-6 h-6" /></div>
                           <div className="text-left">
@@ -704,9 +704,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                   </button>
 
                   <div className="flex items-center justify-center gap-2 text-base font-semibold text-zinc-500">
-                    <a href="/terms-of-service" className="hover:text-orange-500 transition-colors">{t.login_agreement_user}</a>
+                    <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 transition-colors">{t.login_agreement_user}</a>
                     <span className="text-zinc-700">{'\u00b7'}</span>
-                    <a href="/privacy-policy" className="hover:text-orange-500 transition-colors">{t.login_agreement_privacy}</a>
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 transition-colors">{t.login_agreement_privacy}</a>
                   </div>
                </div>
 

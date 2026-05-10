@@ -96,17 +96,12 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'Create AI product photo sets with virtual models or local uploads. Define scenes, ratios, and styles, preview outputs, and export a consistent store gallery.',
   product_images_text_separation:
     'Extract clean text layers from product images for faster editing. Automatically separate captions, labels, and design elements while keeping backgrounds intact.',
-<<<<<<< HEAD
   creative_lab_replay:
     'Use Creative Lab viral replay to select reference videos, product images, and virtual models, then generate Seedance-ready product ads with safe fallback paths.',
   creative_lab_script_extract:
     'Extract Seedance-ready advertising scripts from reference videos, including reusable structure, shot rhythm, style tags, and selling point suggestions.',
-=======
   product_images_ai_model:
     'Generate AI model assets from natural-language requirements for product photos, using asynchronous 302AI image generation and result polling.',
-  replay_lab:
-    'Replay Lab helps you reuse and iterate on previous scripts and structures, quickly generating new variations while keeping the creative direction consistent.',
->>>>>>> 0383849 (feat: 1. AI model 2. smart search on models)
   templates:
     'Browse templates for TikTok/Reels ads. Customize scenes, scripts, style, and branding to generate product videos faster and consistently across channels.',
   history:

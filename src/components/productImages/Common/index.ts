@@ -27,3 +27,5 @@ export {
   type ModelSelectorValue,
   type ModelSelectorOption,
 } from './ModelSelectorChips';
+export { LoadingCard, type LoadingCardProps, type LoadingCardTheme } from './LoadingCard';
+export { ImageDetailDialog, type ImageDetailDialogProps, type ImageDetailInfoRow } from './ImageDetailDialog';

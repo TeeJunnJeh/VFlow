@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronLeft, Eye, HelpCircle, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import Masonry from 'react-masonry-css';
 import { DropdownSelect } from '../../../common/DropdownSelect';
-import { AspectRatioPicker, GALLERY_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
+import { AspectRatioPicker, GALLERY_RATIOS, LoadingCard as GalleryLoadingCard, ModelSelectorChips, ratioDescriptorsForLanguage } from '../../Common';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
@@ -442,143 +442,6 @@ const buildGalleryBoardExampleSlots = (count: number, ratioId: string): GalleryB
   return createBoardExampleGridSlots(3, 3);
 };
 
-const hexToRgba = (hex: string, alpha: number) => {
-  const cleaned = String(hex || '').trim().replace('#', '');
-  const normalized = cleaned.length === 3 ? cleaned.split('').map((char) => char + char).join('') : cleaned;
-  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
-    return `rgba(255,255,255,${alpha})`;
-  }
-  const value = parseInt(normalized, 16);
-  const r = (value >> 16) & 255;
-  const g = (value >> 8) & 255;
-  const b = value & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-};
-
-const hashGallerySeed = (value: string) => {
-  let hash = 0;
-  const raw = String(value || '');
-  for (let index = 0; index < raw.length; index += 1) {
-    hash = (hash * 31 + raw.charCodeAt(index)) >>> 0;
-  }
-  return hash;
-};
-
-const GalleryLoadingCard: React.FC<{
-  theme: LoadingTheme;
-  seed: string;
-  label: string;
-  backgroundImageSrc?: string;
-}> = ({ theme, seed, label, backgroundImageSrc }) => {
-  const hash = hashGallerySeed(seed);
-  const durationBase = 5.4 + (hash % 5) * 0.7;
-
-  const blobs = [
-    {
-      size: `${98 + (hash % 8)}%`,
-      top: '-16%',
-      left: `${-12 + (hash % 5)}%`,
-      duration: `${durationBase}s`,
-      delay: `-${(hash % 4) * 0.6}s`,
-      gradient: `radial-gradient(circle, ${hexToRgba(theme.primary, 0.92)} 0%, transparent 78%)`,
-    },
-    {
-      size: `${88 + ((hash >> 2) % 8)}%`,
-      bottom: '-6%',
-      right: `${-7 + ((hash >> 4) % 5)}%`,
-      duration: `${durationBase + 1.25}s`,
-      delay: `-${((hash >> 1) % 5) * 0.45}s`,
-      direction: 'reverse' as const,
-      gradient: `radial-gradient(circle, ${hexToRgba(theme.secondary, 0.9)} 0%, transparent 78%)`,
-    },
-    {
-      size: `${106 + ((hash >> 6) % 8)}%`,
-      top: `${18 + ((hash >> 7) % 6)}%`,
-      right: '-15%',
-      duration: `${durationBase + 2.1}s`,
-      delay: `-${((hash >> 2) % 4) * 0.55}s`,
-      gradient: `radial-gradient(circle, ${hexToRgba(theme.accent, 0.9)} 0%, transparent 78%)`,
-    },
-    {
-      size: `${82 + ((hash >> 8) % 6)}%`,
-      bottom: '13%',
-      left: `${4 + ((hash >> 10) % 6)}%`,
-      duration: `${durationBase + 0.6}s`,
-      delay: `-${((hash >> 4) % 4) * 0.35}s`,
-      gradient: `radial-gradient(circle, ${hexToRgba(theme.quaternary || theme.accent, 0.9)} 0%, transparent 78%)`,
-    },
-  ];
-
-  return (
-    <div
-      className="absolute inset-0 overflow-hidden"
-      style={{
-        background: `linear-gradient(180deg, ${hexToRgba(theme.primary, 0.08)} 0%, ${hexToRgba(theme.surface, 0.98)} 18%, rgba(255,255,255,0.98) 100%)`,
-      }}
-    >
-      {backgroundImageSrc ? (
-        <div
-          className="absolute inset-[-10%] opacity-[0.09] blur-[1200px]"
-          style={{
-            backgroundImage: `url("${backgroundImageSrc}")`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            filter: 'saturate(0.7) contrast(0.26) brightness(1.14)',
-          }}
-        />
-      ) : null}
-
-      <style>{`
-        @keyframes gallery-card-blob-shift {
-          0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
-          33% { transform: translate3d(15%, 20%, 0) rotate(120deg) scale(1.2); }
-          66% { transform: translate3d(-15%, 15%, 0) rotate(240deg) scale(0.85); }
-          100% { transform: translate3d(0, 0, 0) rotate(360deg) scale(1); }
-        }
-      `}</style>
-
-      <div className={`absolute inset-0 blur-[45px] [transform:scale(1.3)] ${theme.mode === 'mono' ? 'saturate-[0.96]' : 'saturate-[1.02]'}`}>
-        {blobs.map((blob, index) => (
-          <div
-            key={`${seed}-${index}`}
-            className="absolute rounded-full"
-            style={{
-              width: blob.size,
-              height: blob.size,
-              top: (blob as any).top,
-              left: (blob as any).left,
-              right: (blob as any).right,
-              bottom: (blob as any).bottom,
-              background: (blob as any).gradient,
-              animationName: 'gallery-card-blob-shift',
-              animationDuration: (blob as any).duration,
-              animationDelay: (blob as any).delay,
-              animationTimingFunction: 'linear',
-              animationIterationCount: 'infinite',
-              animationDirection: (blob as any).direction || 'normal',
-            }}
-          />
-        ))}
-      </div>
-
-      <div className="absolute inset-x-5 bottom-5">
-        <div className="rounded-2xl border border-black/5 bg-white/45 px-4 py-3 backdrop-blur-md shadow-[0_10px_30px_rgba(255,255,255,0.18)]">
-          <div className="flex items-center gap-2">
-            <span
-              className="inline-flex h-2.5 w-2.5 rounded-full animate-pulse"
-              style={{
-                backgroundColor: theme.accent,
-                boxShadow: `0 0 18px ${hexToRgba(theme.accent, 0.5)}`,
-              }}
-            />
-            <div className="text-xs font-bold text-zinc-900/85">{label}</div>
-          </div>
-          <div className="mt-1 text-[11px] text-zinc-700/60">Rendering preview...</div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const { language } = useLanguage();
@@ -1891,82 +1754,13 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
 
             <div className="mt-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-6 flex-1">
-              <div className="space-y-3">
-                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
-                  {props.t.pg_main_model || (language === 'zh' ? '生成模型' : 'Model')}
-                </div>
+              <ModelSelectorChips
+                value={props.galleryGenerationModel}
+                onChange={(next) => props.setGalleryGenerationModel(next)}
+                label={props.t.pg_main_model || (language === 'zh' ? '生成模型' : 'Model')}
+                orientation="vertical"
+              />
 
-                <div className="flex flex-col gap-3">
-                  {([
-                    { id: 'nano-banana-pro' as const, title: 'NanoBanana Pro', iconSrc: '/product-gallery-examples/nanobanana.svg', hint: '' },
-                    { id: 'flux-2-pro' as const, title: 'Flux 2 Pro', iconSrc: '/product-gallery-examples/flux.svg', hint: '' },
-                    { id: 'gpt-image-1.5' as const, title: 'GPT image 1.5', iconSrc: '/product-gallery-examples/gpt.svg', hint: '此模型生成等待时间略长' },
-                  ]).map((opt) => {
-                    const active = props.galleryGenerationModel === opt.id;
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => props.setGalleryGenerationModel(opt.id)}
-                        className={[
-                          'w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
-                          'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-                          active
-                            ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-                            : 'border-white/10 bg-black/20 hover:bg-white/5',
-                        ].join(' ')}
-                        aria-pressed={active}
-                      >
-                        <img src={opt.iconSrc} alt="" className="w-5 h-5 shrink-0" />
-
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate flex items-center gap-1.5">
-                            {opt.title}
-                            {opt.hint ? (
-                              <span className="relative shrink-0">
-                                <HelpCircle
-                                  className="w-3.5 h-3.5 text-zinc-500 hover:text-zinc-300 cursor-help"
-                                  onMouseEnter={(e:any) => {
-                                    const tip = e.currentTarget.nextElementSibling as HTMLElement | null;
-                                    if (!tip) return;
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    tip.style.left = `${rect.left + rect.width / 2}px`;
-                                    tip.style.top = `${rect.top}px`;
-                                    tip.style.display = 'block';
-                                  }}
-                                  onMouseLeave={(e:any) => {
-                                    const tip = e.currentTarget.nextElementSibling as HTMLElement | null;
-                                    if (tip) tip.style.display = 'none';
-                                  }}
-                                />
-                                <span
-                                  className="fixed -translate-x-1/2 -translate-y-full -mt-2 w-72 px-3 py-2 rounded-lg bg-zinc-800 border border-white/10 text-[11px] leading-relaxed text-zinc-200 shadow-xl text-center whitespace-normal break-words pointer-events-none"
-                                  style={{ display: 'none', zIndex: 9999 }}
-                                >
-
-                                  {opt.hint}
-                                </span>
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className="flex w-14 shrink-0 flex-col items-center">
-                          <div
-                            className={[
-                              'w-4 h-4 rounded-full border flex items-center justify-center',
-                              active ? 'border-orange-500 bg-orange-500' : 'border-white/25 bg-transparent',
-                            ].join(' ')}
-                            aria-hidden="true"
-                          >
-                            {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
               <div>
                 <div className="flex items-center justify-between gap-3">

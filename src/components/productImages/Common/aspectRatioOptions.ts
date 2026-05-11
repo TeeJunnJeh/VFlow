@@ -16,7 +16,7 @@
  *      `CLOTHING_SWAP_ASPECT_RATIO_CHOICES` / `generate_clothing_swap_video`
  */
 
-import type { FirstFrameModel } from '../../../types/productImages';
+import type { FirstFrameModel, SmartRepairModel } from '../../../types/productImages';
 
 export interface AspectRatioConfig {
   primary: string[];
@@ -94,4 +94,25 @@ const RATIO_DESCRIPTORS_EN: Record<string, string> = {
 
 export function ratioDescriptorsForLanguage(language: string): Record<string, string> {
   return language === 'zh' ? RATIO_DESCRIPTORS_ZH : RATIO_DESCRIPTORS_EN;
+}
+
+/**
+ * AI 智能修复在 3 个模型间的比例适配：
+ *  - gpt-image-1.5 → 上游只支持 3 个 (1:1 / 3:2 / 2:3)
+ *  - nano-banana-pro / flux-2-pro → 沿用 SMART_REPAIR_RATIOS 的 9 比例
+ */
+const GPT_SMART_REPAIR_MODELS = new Set<SmartRepairModel>(['gpt-image-1.5']);
+
+export function smartRepairRatiosForModel(model?: SmartRepairModel): AspectRatioConfig {
+  if (model && GPT_SMART_REPAIR_MODELS.has(model)) {
+    return { primary: ['1:1', '3:2', '2:3'], more: [] };
+  }
+  return SMART_REPAIR_RATIOS;
+}
+
+/** 切换模型时若当前 aspectRatio 不在新模型支持集，落到 primary[0]。 */
+export function normalizeSmartRepairAspectRatio(curr: string, model?: SmartRepairModel): string {
+  const cfg = smartRepairRatiosForModel(model);
+  const allowed = new Set<string>([...cfg.primary, ...cfg.more]);
+  return allowed.has(curr) ? curr : cfg.primary[0];
 }

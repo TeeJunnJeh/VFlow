@@ -1,7 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronsDown, Download, Sparkles, Loader2, Library, Minus, Plus, Settings, X, RotateCcw } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronsDown, Download, Eye, Image as ImageIcon, Sparkles, Loader2, Library, Minus, Plus, Settings, X, RotateCcw } from 'lucide-react';
+import Masonry from 'react-masonry-css';
 import { useLanguage } from '../../../../context/LanguageContext';
-import { AspectRatioPicker, ErrorDialog, type ErrorInfo, ImageUploader, SMART_REPAIR_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
+import {
+  AspectRatioPicker,
+  ErrorDialog,
+  type ErrorInfo,
+  ImageDetailDialog,
+  ImageUploader,
+  LoadingCard,
+  ModelSelectorChips,
+  type ModelSelectorValue,
+  ratioDescriptorsForLanguage,
+  smartRepairRatiosForModel,
+  normalizeSmartRepairAspectRatio,
+} from '../../Common';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { downloadBlob, productImagesApi, smartRepairUserPresetsApi } from '../../../../services/productImagesApi';
 import { billingApi } from '../../../../services/billing';
@@ -56,18 +69,17 @@ const SMART_REPAIR_PROMPT_SOFT_MAX = 1000;
 const SMART_REPAIR_OUTPUT_COUNT_MIN = 1;
 const SMART_REPAIR_OUTPUT_COUNT_MAX = 4;
 
-interface SmartRepairModelOption {
-  value: SmartRepairModel;
-  labelZh: string;
-  labelEn: string;
-}
+// 与 ModelSelectorChips 默认 3 选项保持一致：NanoBanana / Flux 2 Pro / GPT image 1.5
+const SUPPORTED_SMART_REPAIR_MODELS: SmartRepairModel[] = ['nano-banana-pro', 'flux-2-pro', 'gpt-image-1.5'];
 
-const SMART_REPAIR_MODEL_OPTIONS: SmartRepairModelOption[] = [
-  { value: 'flux-2-pro', labelZh: 'Flux 2 Pro · 通用推荐', labelEn: 'Flux 2 Pro · Recommended' },
-  { value: 'flux-2-max', labelZh: 'Flux 2 Max · 最高质量', labelEn: 'Flux 2 Max · Best quality' },
-  { value: 'flux-2-flex', labelZh: 'Flux 2 Flex · 快速', labelEn: 'Flux 2 Flex · Fast' },
-  { value: 'flux-2-dev', labelZh: 'Flux 2 Dev · 开发版', labelEn: 'Flux 2 Dev · Beta' },
-];
+// 旧 localStorage / 历史回放可能传入 'flux-2-max'/'flux-2-flex'/'flux-2-dev'，
+// 兜底到 'flux-2-pro' 避免空白页 / 上游 400
+const normalizeSmartRepairModel = (raw?: string | null): SmartRepairModel => {
+  const value = String(raw || '').trim();
+  return (SUPPORTED_SMART_REPAIR_MODELS as string[]).includes(value)
+    ? (value as SmartRepairModel)
+    : 'flux-2-pro';
+};
 
 const generateLocalId = () => `sr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -75,7 +87,7 @@ type SmartRepairImageSource =
   | { kind: 'upload'; file: File; previewUrl: string }
   | { kind: 'asset'; assetId: string; path: string; previewUrl: string; name: string };
 
-type SmartRepairPickerTarget = 'source' | 'reference' | 'model';
+type SmartRepairPickerTarget = 'source' | 'model';
 
 interface SmartRepairViewProps {
   onBack?: () => void;
@@ -691,7 +703,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const isZh = language === 'zh';
 
   const [sourceImageSource, setSourceImageSource] = useState<SmartRepairImageSource | null>(null);
-  const [referenceSource, setReferenceSource] = useState<SmartRepairImageSource | null>(null);
   const [modelSource, setModelSource] = useState<SmartRepairImageSource | null>(null);
   const [pickerTarget, setPickerTarget] = useState<SmartRepairPickerTarget | null>(null);
   const [error, setError] = useState<ErrorInfo | null>(null);
@@ -699,7 +710,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<SmartRepairParams['aspectRatio']>('1:1');
   const [strength, setStrength] = useState<SmartRepairParams['strength']>('medium');
-  const [outputCount, setOutputCount] = useState<SmartRepairParams['outputCount']>(1);
+  const [outputCount, setOutputCount] = useState<SmartRepairParams['outputCount']>(2);
   const [selectedModel, setSelectedModel] = useState<SmartRepairModel>('flux-2-pro');
   const [activeSubpage, setActiveSubpage] = useState<SmartRepairSubpage>('fashion_model');
   const [activeToolCode, setActiveToolCode] = useState<SmartRepairToolCode | null>(null);
@@ -714,14 +725,23 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   }>({ open: false });
   const [userPresetManagerOpen, setUserPresetManagerOpen] = useState<boolean>(false);
   const [historyItems, setHistoryItems] = useState<SmartRepairHistoryEntry[]>([]);
-  // loadingTheme/backgroundSrc kept for potential reuse but no longer drives a full-page overlay
-  const [, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
-  const [, setLoadingBackgroundSrc] = useState<string>('');
+  // 大图预览弹窗：preview tab 与 history tab 共用，history 模式额外有「重新修改」按钮
+  const [previewDialog, setPreviewDialog] = useState<
+    | { mode: 'task'; image: ProductImageResult; task: RepairTask }
+    | { mode: 'history'; image: ProductImageResult; item: SmartRepairHistoryEntry; index: number }
+    | null
+  >(null);
+  // loadingTheme/backgroundSrc 用于 LoadingCard 占位卡的色彩主题（提取自原图）
+  const [loadingTheme, setLoadingTheme] = useState<LoadingTheme>(getDefaultLoadingTheme());
+  const [loadingBackgroundSrc, setLoadingBackgroundSrc] = useState<string>('');
   const [smartRepairModelRate, setSmartRepairModelRate] = useState<number>(0);
   const [repairTasks, setRepairTasks] = useState<RepairTask[]>([]);
   const pollAbortRef = useRef<Set<string>>(new Set());
   const pollStartedRef = useRef<Set<string>>(new Set());
   const isSubmittingRef = useRef<boolean>(false);
+  // 与 isSubmittingRef 配对的可渲染态：仅用于驱动「立即生成 → 生成中…」按钮文案 + 禁用态，
+  // 真正的并发去重靠 ref（同步、不重复请求）。
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Two-column layout state: combined edit column + right preview/history column
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1047,12 +1067,11 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setRepairTasks((prev) => prev.filter((t) => t.localId !== localId));
   };
 
-  // Three image slots (source / reference / model) all use SmartRepairImageSource.
+  // Two image slots (source / model) both use SmartRepairImageSource.
   // For kind==='upload' we own the blob URL and revoke on replace/clear/unmount;
   // for kind==='asset' the server URL is owned by the asset library.
   const getSetter = useCallback((target: SmartRepairPickerTarget) => {
     if (target === 'source') return setSourceImageSource;
-    if (target === 'reference') return setReferenceSource;
     return setModelSource;
   }, []);
 
@@ -1079,7 +1098,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   useEffect(() => {
     return () => {
       if (sourceImageSource?.kind === 'upload') URL.revokeObjectURL(sourceImageSource.previewUrl);
-      if (referenceSource?.kind === 'upload') URL.revokeObjectURL(referenceSource.previewUrl);
       if (modelSource?.kind === 'upload') URL.revokeObjectURL(modelSource.previewUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1094,7 +1112,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
         assetId: asset.id,
         path: asset.file_url,
         previewUrl: asset.thumbnail || asset.file_url,
-        name: asset.name || (pickerTarget === 'model' ? 'Model' : pickerTarget === 'source' ? 'Source' : 'Reference'),
+        name: asset.name || (pickerTarget === 'model' ? 'Model' : 'Source'),
       };
       getSetter(pickerTarget)((prev) => {
         if (prev?.kind === 'upload') URL.revokeObjectURL(prev.previewUrl);
@@ -1194,11 +1212,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   );
 
   const sourcePreviewUrl = sourceImageSource?.previewUrl || '';
-  const referencePreviewUrl = referenceSource?.previewUrl || '';
   const modelPreviewUrl = modelSource?.previewUrl || '';
   useEffect(() => {
     let alive = true;
-    const sources = [sourcePreviewUrl, referencePreviewUrl, modelPreviewUrl]
+    const sources = [sourcePreviewUrl, modelPreviewUrl]
       .map((value) => String(value || '').trim())
       .filter(Boolean);
     if (sources.length === 0) {
@@ -1215,7 +1232,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     return () => {
       alive = false;
     };
-  }, [referencePreviewUrl, modelPreviewUrl, sourcePreviewUrl]);
+  }, [modelPreviewUrl, sourcePreviewUrl]);
 
   const handleGenerate = async () => {
     if (!requireAuth()) return;
@@ -1257,9 +1274,34 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       model: selectedModel,
     };
 
+    // 乐观更新：在 await 之前先把 N 张 PROCESSING 占位卡 push 进去，
+    // 用户立刻能看到反馈，不用等图片上传 + 后端建库（2~5s）完成。
+    // 提交成功后按索引回填真实的 request_id；失败则按 localId 清掉占位。
+    const submittedAt = Date.now();
+    const pendingLocalIds: string[] = [];
+    const pendingCards: RepairTask[] = [];
+    for (let i = 0; i < outputCount; i += 1) {
+      const localId = generateLocalId();
+      pendingLocalIds.push(localId);
+      pendingCards.push({
+        localId,
+        requestId: '',
+        historyRecordId: '',
+        status: 'processing',
+        outputs: [],
+        error: '',
+        settings: settingsSnapshot,
+        submittedAt,
+      });
+    }
+
     try {
       isSubmittingRef.current = true;
+      setIsSubmitting(true);
       setError(null);
+      // 同步插入占位卡，立刻可见
+      setRepairTasks((prev) => [...pendingCards, ...prev]);
+
       const submission = await productImagesApi.submitSmartRepair(
         sourceImageSource.kind === 'upload' ? sourceImageSource.file : null,
         {
@@ -1275,32 +1317,34 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           projectId,
           sourceImagePath: sourceImageSource.kind === 'asset' ? sourceImageSource.path : undefined,
           sourceAssetId: sourceImageSource.kind === 'asset' ? sourceImageSource.assetId : undefined,
-          referenceImage: referenceSource?.kind === 'upload' ? referenceSource.file : undefined,
-          referenceImagePath: referenceSource?.kind === 'asset' ? referenceSource.path : undefined,
-          referenceAssetId: referenceSource?.kind === 'asset' ? referenceSource.assetId : undefined,
           modelImage: modelSource?.kind === 'upload' ? modelSource.file : undefined,
           modelImagePath: modelSource?.kind === 'asset' ? modelSource.path : undefined,
           modelAssetId: modelSource?.kind === 'asset' ? modelSource.assetId : undefined,
         },
       );
 
-      const submittedAt = Date.now();
-      const newCards: RepairTask[] = submission.requests.map((req) => ({
-        localId: generateLocalId(),
-        requestId: req.requestId,
-        historyRecordId: submission.historyRecordId,
-        status: 'processing',
-        outputs: [],
-        error: '',
-        settings: settingsSnapshot,
-        submittedAt,
-      }));
+      // 提交成功：按索引把真实 request_id / historyRecordId 回填到对应占位卡
+      setRepairTasks((prev) =>
+        prev.map((task) => {
+          const idx = pendingLocalIds.indexOf(task.localId);
+          if (idx < 0) return task;
+          const req = submission.requests[idx];
+          if (!req) return task; // 上游回包不足 N 张（罕见），保留占位
+          return {
+            ...task,
+            requestId: req.requestId,
+            historyRecordId: submission.historyRecordId,
+          };
+        }),
+      );
 
-      setRepairTasks((prev) => [...newCards, ...prev]);
-      newCards.forEach((card) => {
-        void startPolling(card.requestId);
+      // 只对成功拿到 request_id 的占位卡启动轮询
+      submission.requests.forEach((req) => {
+        if (req?.requestId) void startPolling(req.requestId);
       });
     } catch (err) {
+      // 失败：移除刚加的占位卡（不留半生不死的灰卡）
+      setRepairTasks((prev) => prev.filter((task) => !pendingLocalIds.includes(task.localId)));
       const message = err instanceof Error ? err.message : t.ff_unknown_error;
       setError({
         code: 'SMART_REPAIR_FAILED',
@@ -1310,6 +1354,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       });
     } finally {
       isSubmittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -1354,7 +1399,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setOutputCount(task.settings.outputCount);
     setActiveSubpage(task.settings.subpage);
     setActiveToolCode(task.settings.toolCode);
-    if (task.settings.model) setSelectedModel(task.settings.model);
+    if (task.settings.model) setSelectedModel(normalizeSmartRepairModel(task.settings.model));
     setActivePresetIndex(-1);
     setActiveUserPresetIndex(-1);
     dismissCard(task.localId);
@@ -1395,13 +1440,15 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           </button>
         </div>
         {source?.kind === 'asset' ? (
+          // 预览矩形：aspect-square（1:1 方形，与 AI 首帧图素材预览一致）
           <div className="overflow-hidden rounded-lg border border-white/10 bg-black/25">
-            <img
-              src={source.previewUrl}
-              alt={source.name}
-              className="w-full object-cover"
-              style={{ maxHeight: '170px' }}
-            />
+            <div className="aspect-square w-full overflow-hidden bg-zinc-900">
+              <img
+                src={source.previewUrl}
+                alt={source.name}
+                className="block h-full w-full object-cover"
+              />
+            </div>
             <div className="flex items-center justify-between gap-2 p-2">
               <div className="min-w-0">
                 <div className="truncate text-[11px] font-semibold text-zinc-100">{source.name}</div>
@@ -1418,31 +1465,30 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           </div>
         ) : source?.kind === 'upload' ? (
           <div>
-            <img
-              src={source.previewUrl}
-              alt={target}
-              className="w-full rounded-lg border border-white/10 object-cover"
-              style={{ maxHeight: '170px' }}
-            />
+            <div className="aspect-square w-full overflow-hidden rounded-lg border border-white/10 bg-zinc-900">
+              <img
+                src={source.previewUrl}
+                alt={target}
+                className="block h-full w-full object-cover"
+              />
+            </div>
             <button
               onClick={() => clearImageSource(target)}
               className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
             >
               {target === 'source'
                 ? t.sr_change_image
-                : target === 'reference'
-                  ? t.sr_remove_reference
-                  : (zh ? '移除模特图' : 'Remove model')}
+                : (zh ? '移除模特图' : 'Remove model')}
             </button>
           </div>
         ) : (
+          // 空态上传矩形：默认尺寸（p-8 大方形），与 AI 首帧图上传区一致
           <ImageUploader
             maxFiles={1}
-            size="compact"
             onFilesSelected={(files) => setSourceFromFile(target, files[0] || null)}
             onError={(err) =>
               setError({
-                code: target === 'reference' ? 'REFERENCE_UPLOAD_ERROR' : 'MODEL_UPLOAD_ERROR',
+                code: target === 'source' ? 'SOURCE_UPLOAD_ERROR' : 'MODEL_UPLOAD_ERROR',
                 message: err,
                 severity: 'warning',
               })
@@ -1493,7 +1539,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           setActiveSubpage(item.key);
                           setActiveToolCode(null);
                           clearImageSource('source');
-                          clearImageSource('reference');
                           clearImageSource('model');
                           setPrompt('');
                           setActivePresetIndex(-1);
@@ -1631,13 +1676,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           target: 'source',
                           title: isZh ? '原图（必传）' : 'Source Image (Required)',
                           source: sourceImageSource,
-                          isZh,
-                        })}
-
-                        {renderImageSourceSlot({
-                          target: 'reference',
-                          title: t.sr_reference_optional,
-                          source: referenceSource,
                           isZh,
                         })}
 
@@ -1801,31 +1839,34 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
                     {/* Bottom: gen settings + actions, spans full combined column */}
                     <div className="mt-4 shrink-0 border-t border-white/10 pt-4">
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-                        <div className="text-sm font-semibold text-zinc-200 shrink-0">
+                      <div className="space-y-3">
+                        <div className="text-sm font-semibold text-zinc-200">
                           {isZh ? '生成设置' : 'Generation Settings'}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-zinc-500 shrink-0">{isZh ? '模型' : 'Model'}</span>
-                          <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value as SmartRepairModel)}
-                            className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-sm text-zinc-200 focus:border-orange-400/50"
-                          >
-                            {SMART_REPAIR_MODEL_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {isZh ? opt.labelZh : opt.labelEn}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+
+                        {/* 第一行：3 模型 chip 选择器 */}
+                        <ModelSelectorChips
+                          value={selectedModel as ModelSelectorValue}
+                          onChange={(next) => {
+                            const nextModel = next as SmartRepairModel;
+                            setSelectedModel(nextModel);
+                            // 切换模型时按新模型的支持集 fallback 比例
+                            setAspectRatio((prev) =>
+                              normalizeSmartRepairAspectRatio(String(prev || '1:1'), nextModel) as SmartRepairParams['aspectRatio']
+                            );
+                          }}
+                          orientation="horizontal"
+                        />
+
+                        {/* 第二行起：比例 / 强度 / 张数 */}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-zinc-500 shrink-0">{t.sr_aspect}</span>
                           <AspectRatioPicker
                             value={String(aspectRatio || '1:1')}
                             onChange={(next) => setAspectRatio(next as SmartRepairParams['aspectRatio'])}
-                            primary={SMART_REPAIR_RATIOS.primary}
-                            more={SMART_REPAIR_RATIOS.more}
+                            primary={smartRepairRatiosForModel(selectedModel).primary}
+                            more={smartRepairRatiosForModel(selectedModel).more}
                             labels={{
                               more: isZh ? '更多比例' : 'More ratios',
                               vertical: t.pi_gallery_ratio_group_vertical,
@@ -1894,13 +1935,13 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             </button>
                           </div>
                         </div>
+                        </div>
                       </div>
 
                       <div className="mt-3 flex items-center gap-3">
                         <button
                           onClick={() => {
                             clearImageSource('source');
-                            clearImageSource('reference');
                             clearImageSource('model');
                             if (activeTool) {
                               setPrompt(getInitialToolPrompt(activeTool));
@@ -1916,12 +1957,18 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         </button>
                         <button
                           onClick={handleGenerate}
-                          className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={!sourceImageSource}
+                          className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
+                          disabled={!sourceImageSource || isSubmitting}
                         >
-                          <Sparkles className="w-4 h-4" />
-                          {isZh ? '立即生成' : 'Generate Now'}
-                          {estimatedCost > 0 ? (
+                          {isSubmitting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-4 h-4" />
+                          )}
+                          {isSubmitting
+                            ? (isZh ? '生成中…' : 'Generating…')
+                            : (isZh ? '立即生成' : 'Generate Now')}
+                          {!isSubmitting && estimatedCost > 0 ? (
                             <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
                               {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
                             </span>
@@ -1945,7 +1992,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                     style={{ minWidth: `${SMART_REPAIR_RIGHT_MIN_WIDTH}px` }}
                   >
                     <div className="mb-5 flex shrink-0 items-center justify-between gap-3">
-                      <h2 className="text-lg font-semibold text-white">{isZh ? '结果预览' : 'Result Preview'}</h2>
+                      <h2 className="text-lg font-semibold text-white">{isZh ? '预览区' : 'Preview Area'}</h2>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -1956,7 +2003,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                               : 'border-white/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200'
                           }`}
                         >
-                          {isZh ? '预览' : 'Preview'}
+                          {isZh ? '预览区' : 'Preview Area'}
                           {repairTasks.length > 0 ? ` (${repairTasks.length})` : ''}
                         </button>
                         <button
@@ -1968,7 +2015,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                               : 'border-white/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200'
                           }`}
                         >
-                          {isZh ? '历史' : 'History'}
+                          {isZh ? '历史记录' : 'History'}
                         </button>
                       </div>
                     </div>
@@ -1980,93 +2027,135 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             {isZh ? '暂无任务，提交后任务会出现在这里' : 'No active tasks. Submit one to see it here.'}
                           </div>
                         ) : (
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {repairTasks.map((task) => (
-                              <div
-                                key={task.localId}
-                                className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition"
-                              >
-                                {task.status === 'processing' && (
-                                  <div className="aspect-video flex items-center justify-center bg-black/40">
-                                    <div className="flex flex-col items-center gap-2 text-zinc-300">
-                                      <Loader2 className="w-6 h-6 animate-spin text-orange-400" />
-                                      <div className="text-sm">{isZh ? '处理中…' : 'Processing…'}</div>
-                                      <div className="text-[11px] text-zinc-500">
-                                        {new Date(task.submittedAt).toLocaleTimeString()}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
-                                {task.status === 'succeeded' && task.outputs[0] && (
-                                  <img
-                                    src={task.outputs[0].imageUrl}
-                                    alt={`smart-repair-${task.localId}`}
-                                    className="w-full aspect-video object-cover"
-                                  />
-                                )}
-                                {task.status === 'failed' && (
-                                  <div className="aspect-video flex items-center justify-center bg-red-900/20 px-4">
-                                    <div className="text-center">
-                                      <div className="text-sm text-red-300 font-semibold mb-1">
-                                        {isZh ? '生成失败' : 'Generation failed'}
-                                      </div>
-                                      <div className="text-xs text-red-200/70 line-clamp-3">{task.error || (isZh ? '未知错误' : 'Unknown error')}</div>
-                                    </div>
-                                  </div>
-                                )}
+                          <Masonry
+                            breakpointCols={2}
+                            className="pg-masonry-grid"
+                            columnClassName="pg-masonry-grid-col"
+                          >
+                            {repairTasks.map((task) => {
+                              // 占位 / 失败时给定 aspectRatio 撑住卡片高度，避免瀑布流塌陷
+                              const placeholderAspect = (() => {
+                                const raw = String(task.settings?.aspectRatio || '').trim();
+                                const m = raw.match(/^(\d+)\s*[:\/]\s*(\d+)$/);
+                                return m ? `${m[1]} / ${m[2]}` : '1 / 1';
+                              })();
+                              const statusLabel = task.status === 'succeeded'
+                                ? (isZh ? '已完成' : 'Done')
+                                : task.status === 'failed'
+                                  ? (isZh ? '失败' : 'Failed')
+                                  : (isZh ? '生成中' : 'Generating');
+                              const badgeTone = task.status === 'succeeded'
+                                ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30'
+                                : task.status === 'failed'
+                                  ? 'bg-red-500/15 text-red-200 border-red-500/30'
+                                  : 'bg-orange-500/15 text-orange-200 border-orange-500/30';
+                              const rightLabel = String(task.settings?.toolCode || 'repair').slice(0, 16);
+                              const hasImage = task.status === 'succeeded' && task.outputs[0];
 
-                                <div className="p-3">
-                                  <div className="mb-2 line-clamp-2 text-[11px] text-zinc-500">
-                                    {task.settings.prompt}
+                              return (
+                                <div
+                                  key={task.localId}
+                                  className="group rounded-xl border border-white/10 bg-black/20 overflow-hidden shadow-sm transition-all duration-200 ease-out hover:-translate-y-1 hover:border-indigo-500 hover:ring-1 hover:ring-indigo-500/50 hover:shadow-xl"
+                                >
+                                  <div
+                                    className="relative w-full bg-black/30"
+                                    style={hasImage ? undefined : { aspectRatio: placeholderAspect }}
+                                  >
+                                    {hasImage ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewDialog({ mode: 'task', image: task.outputs[0], task })}
+                                        className="block w-full"
+                                        title={isZh ? '点击查看大图' : 'Click to preview'}
+                                      >
+                                        <img
+                                          src={task.outputs[0].imageUrl}
+                                          alt={`smart-repair-${task.localId}`}
+                                          className="block w-full h-auto"
+                                        />
+                                        <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
+                                          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
+                                            <Eye className="w-4 h-4" />
+                                            {isZh ? '预览' : 'Preview'}
+                                          </div>
+                                        </div>
+                                      </button>
+                                    ) : task.status !== 'failed' ? (
+                                      <LoadingCard
+                                        theme={loadingTheme}
+                                        seed={`${task.localId}-${task.requestId || 'pending'}`}
+                                        label={rightLabel}
+                                        backgroundImageSrc={loadingBackgroundSrc}
+                                      />
+                                    ) : (
+                                      <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-2">
+                                        <ImageIcon className="w-8 h-8 opacity-50" />
+                                        <div className="text-xs text-zinc-500 px-4 text-center line-clamp-3">
+                                          {task.error || (isZh ? '生成失败' : 'Generation failed')}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    <div className={`absolute top-2 left-2 px-2 py-1 rounded-lg text-[11px] font-bold border ${badgeTone}`}>{statusLabel}</div>
+                                    <div className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[11px] font-bold border border-white/10 bg-black/50 text-zinc-200">
+                                      {rightLabel}
+                                    </div>
                                   </div>
-                                  {task.status === 'processing' && (
-                                    <button
-                                      onClick={() => cancelTaskCard(task.localId)}
-                                      className="w-full px-3 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition inline-flex items-center justify-center gap-2"
-                                    >
-                                      <X className="w-4 h-4" />
-                                      {isZh ? '隐藏卡片（任务后台继续）' : 'Hide card (task keeps running)'}
-                                    </button>
-                                  )}
-                                  {task.status === 'succeeded' && task.outputs[0] && (
-                                    <div className="flex gap-2">
+
+                                  {/* SmartRepair 特有的底部按钮区：保留隐藏/重试/下载/dismiss */}
+                                  <div className="p-3">
+                                    <div className="mb-2 line-clamp-2 text-[11px] text-zinc-500">
+                                      {task.settings.prompt}
+                                    </div>
+                                    {task.status === 'processing' && (
                                       <button
-                                        onClick={() => handleDownload(task.outputs[0], 0)}
-                                        className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
-                                      >
-                                        <Download className="w-4 h-4" />
-                                        {t.sr_download}
-                                      </button>
-                                      <button
-                                        onClick={() => dismissCard(task.localId)}
-                                        className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
-                                        title={isZh ? '从任务卡列表隐藏（历史中保留）' : 'Hide from task list (still in history)'}
+                                        onClick={() => cancelTaskCard(task.localId)}
+                                        className="w-full px-3 py-2 text-sm bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition inline-flex items-center justify-center gap-2"
                                       >
                                         <X className="w-4 h-4" />
+                                        {isZh ? '隐藏卡片（任务后台继续）' : 'Hide card (task keeps running)'}
                                       </button>
-                                    </div>
-                                  )}
-                                  {task.status === 'failed' && (
-                                    <div className="flex gap-2">
-                                      <button
-                                        onClick={() => retryFailedCard(task)}
-                                        className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
-                                      >
-                                        <RotateCcw className="w-4 h-4" />
-                                        {isZh ? '重试' : 'Retry'}
-                                      </button>
-                                      <button
-                                        onClick={() => dismissCard(task.localId)}
-                                        className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  )}
+                                    )}
+                                    {task.status === 'succeeded' && task.outputs[0] && (
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => handleDownload(task.outputs[0], 0)}
+                                          className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
+                                        >
+                                          <Download className="w-4 h-4" />
+                                          {t.sr_download}
+                                        </button>
+                                        <button
+                                          onClick={() => dismissCard(task.localId)}
+                                          className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
+                                          title={isZh ? '从任务卡列表隐藏（历史中保留）' : 'Hide from task list (still in history)'}
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    )}
+                                    {task.status === 'failed' && (
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => retryFailedCard(task)}
+                                          className="flex-1 px-3 py-2 text-sm bg-orange-500 text-black font-semibold rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2"
+                                        >
+                                          <RotateCcw className="w-4 h-4" />
+                                          {isZh ? '重试' : 'Retry'}
+                                        </button>
+                                        <button
+                                          onClick={() => dismissCard(task.localId)}
+                                          className="px-3 py-2 text-sm bg-white/10 text-zinc-300 rounded-lg hover:bg-white/20 transition"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
+                              );
+                            })}
+                          </Masonry>
                         )
                       ) : (
                         historyItems.length === 0 ? (
@@ -2074,40 +2163,36 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             <p className="text-sm text-zinc-500">{t.sr_empty_history}</p>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {historyItems.slice(0, 12).map((item) => (
-                              <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition">
-                                <div className="aspect-video overflow-hidden bg-black/50">
-                                  <img
-                                    src={item.outputImages[0].imageUrl}
-                                    alt={`smart-repair-history-thumbnail`}
-                                    className="w-full h-full object-cover hover:scale-105 transition duration-300"
-                                  />
-                                </div>
-                                <div className="p-3">
-                                  <div className="flex items-center justify-between gap-2 mb-2">
-                                    <div className="text-xs text-zinc-400">{new Date(item.createdAt).toLocaleDateString()}</div>
-                                    <div className="text-xs bg-zinc-800/50 text-zinc-300 px-2 py-1 rounded">{item.outputImages.length} {t.sr_images_unit}</div>
+                          <div className="space-y-3">
+                            {historyItems
+                              .slice()
+                              .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                              .slice(0, 12)
+                              .map((item) => (
+                                <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
+                                  <div className="px-3 py-2 text-[11px] text-zinc-400 border-b border-white/10 bg-black/30 flex items-center justify-between">
+                                    <span>{new Date(item.createdAt).toLocaleString()}</span>
+                                    <span className="text-zinc-500">{item.outputImages.length} {t.sr_images_unit}</span>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => restoreHistoryItem(item)}
-                                      className="flex-1 px-3 py-2 text-xs bg-white/10 text-zinc-200 rounded-lg hover:bg-orange-500/20 hover:text-orange-200 transition"
-                                    >
-                                      {t.sr_view}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDownload(item.outputImages[0], 0)}
-                                      className="px-3 py-2 text-xs bg-orange-500/20 text-orange-200 rounded-lg hover:bg-orange-500/30 transition inline-flex items-center"
-                                    >
-                                      <Download className="w-3 h-3" />
-                                    </button>
+                                  <div className="p-3 grid grid-cols-4 gap-2">
+                                    {item.outputImages.slice(0, 4).map((img, idx) => (
+                                      <button
+                                        key={`${item.id}-${idx}`}
+                                        type="button"
+                                        onClick={() => setPreviewDialog({ mode: 'history', image: img, item, index: idx })}
+                                        className="aspect-square rounded-lg overflow-hidden bg-black/30 hover:ring-2 hover:ring-orange-400/50 transition"
+                                        title={isZh ? '点击查看大图 / 重新修改' : 'Preview / Edit again'}
+                                      >
+                                        <img
+                                          src={img.imageUrl}
+                                          alt={`history-${item.id}-${idx}`}
+                                          className="block w-full h-full object-cover"
+                                        />
+                                      </button>
+                                    ))}
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              ))}
                           </div>
                         )
                       )}
@@ -2126,6 +2211,53 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
               showRetry={true}
             />
           )}
+
+          {previewDialog ? (
+            <ImageDetailDialog
+              open={!!previewDialog}
+              imageUrl={previewDialog.image.imageUrl}
+              title={isZh ? '智能修复图片' : 'Smart Repair Image'}
+              imageAlt={isZh ? '智能修复结果' : 'Smart repair result'}
+              infoTitle={isZh ? '生成信息' : 'Generation Info'}
+              infoRows={
+                previewDialog.mode === 'task'
+                  ? [
+                      { label: isZh ? '生成时间' : 'Created at', value: new Date(previewDialog.task.submittedAt).toLocaleString() },
+                      { label: isZh ? '比例' : 'Aspect', value: String(previewDialog.task.settings?.aspectRatio || '-') },
+                      { label: isZh ? '模型' : 'Model', value: String(previewDialog.task.settings?.model || '-') },
+                      { label: isZh ? '强度' : 'Strength', value: String(previewDialog.task.settings?.strength || '-') },
+                    ]
+                  : [
+                      { label: isZh ? '生成时间' : 'Created at', value: new Date(previewDialog.item.createdAt).toLocaleString() },
+                      { label: isZh ? '比例' : 'Aspect', value: String(previewDialog.item.settings?.aspectRatio || '-') },
+                      { label: isZh ? '模型' : 'Model', value: String(previewDialog.item.settings?.model || '-') },
+                      { label: isZh ? '强度' : 'Strength', value: String(previewDialog.item.settings?.strength || '-') },
+                      { label: isZh ? '本组张数' : 'Group size', value: `${previewDialog.item.outputImages.length}` },
+                    ]
+              }
+              promptLabel={isZh ? '修复要求' : 'Repair prompt'}
+              promptValue={
+                previewDialog.mode === 'task'
+                  ? String(previewDialog.task.settings?.prompt || '')
+                  : String(previewDialog.item.settings?.prompt || '')
+              }
+              onClose={() => setPreviewDialog(null)}
+              onDownload={() => void handleDownload(previewDialog.image, 0)}
+              downloadLabel={t.sr_download || (isZh ? '下载' : 'Download')}
+              onInpaint={previewDialog.mode === 'history'
+                ? () => {
+                    restoreHistoryItem(previewDialog.item);
+                    setPreviewDialog(null);
+                  }
+                : undefined}
+              inpaintLabel={isZh ? '重新修改' : 'Edit again'}
+              zoomMode="toggle"
+              zoomLabel={isZh ? '放大查看' : 'Zoom'}
+              closeLabel={isZh ? '关闭' : 'Close'}
+              expandLabel={isZh ? '展开' : 'Expand'}
+              collapseLabel={isZh ? '收起' : 'Collapse'}
+            />
+          ) : null}
 
           <SmartRepairUserPresetDialog
             isOpen={userPresetDialogState.open}

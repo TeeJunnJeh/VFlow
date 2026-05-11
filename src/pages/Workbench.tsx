@@ -60,6 +60,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { WorkbenchModelProvider } from '../context/WorkbenchModelContext';
 import { normalizeThemeMode, type ThemeMode } from '../utils/theme';
 import { setMetaDescription } from '../utils/seo';
+import {
+  clearFirstFrameToVideoTransfer,
+  readFirstFrameToVideoTransfer,
+  type FirstFrameToVideoTransferPayload,
+} from '../components/productImages/Functions/FirstFrame/firstFrameToVideoTransfer';
 
 const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   workbench: 'VFLOW AI - 工作台',
@@ -521,6 +526,21 @@ const Workbench = () => {
   const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | null>(null);
   const [transferProjectName, setTransferProjectName] = useState<string | null>(null);
   const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.0' | null>(null);
+  const [firstFrameVideoTransfer, setFirstFrameVideoTransfer] = useState<FirstFrameToVideoTransferPayload | null>(null);
+
+  useEffect(() => {
+    if (activeView !== 'workbench') return;
+
+    try {
+      const payload = readFirstFrameToVideoTransfer();
+      if (!payload) return;
+      setFirstFrameVideoTransfer(payload);
+      setGeneratedVideoUrl(null);
+      clearFirstFrameToVideoTransfer();
+    } catch {
+      clearFirstFrameToVideoTransfer();
+    }
+  }, [activeView]);
 
   const handleTaskPreview = (url: string) => {
     setGeneratedVideoUrl(url);
@@ -643,6 +663,8 @@ const Workbench = () => {
               initialTransferProjectName={transferProjectName}
               initialTransferModel={transferModel}
               onTransferRoleHandled={() => { setTransferRole(null); setTransferProjectName(null); setTransferModel(null); }}
+              initialFirstFrameVideoTransfer={firstFrameVideoTransfer}
+              onFirstFrameVideoTransferHandled={() => setFirstFrameVideoTransfer(null)}
               templateList={templateList}
               selectedTemplate={selectedTemplate}
               onSelectTemplate={setSelectedTemplate}

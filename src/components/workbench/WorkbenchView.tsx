@@ -70,6 +70,7 @@ import {
   SeedanceReplayUploadPanel,
   type SeedanceReplayUploadAsset,
 } from './Seedance/SeedanceReplayUploadPanel';
+import type { FirstFrameToVideoTransferPayload } from '../productImages/Functions/FirstFrame/firstFrameToVideoTransfer';
 import {
   SEEDANCE_REPLAY_AUDIO_EXTS,
   buildSeedanceReplayValidationSummary,
@@ -1040,6 +1041,8 @@ interface WorkbenchViewProps {
   initialTransferProjectName?: string | null;
   initialTransferModel?: 'sora2' | 'sora2pro' | 'seedance2.0' | null;
   onTransferRoleHandled?: () => void;
+  initialFirstFrameVideoTransfer?: FirstFrameToVideoTransferPayload | null;
+  onFirstFrameVideoTransferHandled?: () => void;
   templateList: Template[];
   onSelectTemplate: (t: Template | null) => void;
   selectedTemplate: Template | null;
@@ -1063,6 +1066,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   initialTransferProjectName,
   initialTransferModel,
   onTransferRoleHandled,
+  initialFirstFrameVideoTransfer,
+  onFirstFrameVideoTransferHandled,
   templateList,
   onSelectTemplate,
   selectedTemplate,
@@ -5003,6 +5008,74 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     }
     return sorted;
   }, [canBeKlingSubject, sortKlingQueueAssets]);
+
+  useEffect(() => {
+    if (!initialFirstFrameVideoTransfer) return;
+
+    const rawUrl = String(initialFirstFrameVideoTransfer.imageUrl || '').trim();
+    if (!rawUrl) {
+      onFirstFrameVideoTransferHandled?.();
+      return;
+    }
+
+    const assetUrl = toDisplayUrl(rawUrl) || rawUrl;
+    const assetName = String(initialFirstFrameVideoTransfer.imageName || '').trim() || (t.wb_kling_generated_first_frame_name || 'AI First Frame');
+    const targetModel = initialFirstFrameVideoTransfer.targetModel;
+    const nextAsset: QueuedAsset = {
+      id: `first-frame-video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: assetName,
+      previewUrl: assetUrl,
+      fileObj: null,
+      assetUrl,
+      assetId: null,
+      source: 'product',
+      materialType: 'product',
+      isPrimaryFrame: true,
+      mediaKind: 'image',
+      uploadedPath: assetUrl,
+      validationMessages: [],
+      frameRole: targetModel === 'seedance2.0' ? '首帧' : null,
+    };
+
+    if (targetModel === 'kling') {
+      setSelectedModel('kling');
+      setKlingGenerateMode('first_frame');
+      setAssetQueue((prev) => normalizeQueueSourcesForKlingMode([
+        nextAsset,
+        ...prev.map((item) => (
+          item.mediaKind === 'image' && item.source === 'product'
+            ? { ...item, source: 'preference' as const, isPrimaryFrame: false }
+            : item
+        )),
+      ], 'first_frame'));
+      setSelectedAssetSource('product');
+    } else {
+      setSelectedModel('seedance2.0');
+      setAssetQueue((prev) => [
+        ...prev.map((item) => (item.frameRole === '首帧' ? { ...item, frameRole: null } : item)),
+        nextAsset,
+      ]);
+      setSelectedAssetSource('product');
+    }
+
+    setUploadedFile(assetUrl);
+    setSelectedAssetUrl(assetUrl);
+    setLastUploadedUrl(assetUrl);
+    setSelectedFileObj(null);
+    setFileName(assetName);
+    setCurrentMaterialType('product');
+    setSelectedQueueAssetId(nextAsset.id);
+    setGeneratedVideoUrl(null);
+    onFirstFrameVideoTransferHandled?.();
+  }, [
+    initialFirstFrameVideoTransfer,
+    normalizeQueueSourcesForKlingMode,
+    onFirstFrameVideoTransferHandled,
+    setGeneratedVideoUrl,
+    setSelectedModel,
+    t.wb_kling_generated_first_frame_name,
+    toDisplayUrl,
+  ]);
 
   const suggestKlingImageSourceForMode = useCallback((existing: QueuedAsset[]): QueuedAsset['source'] => {
     if (klingGenerateMode === 'subject') return 'subject';

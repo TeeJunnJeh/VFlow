@@ -888,6 +888,11 @@ html.theme-light .wb-seedance-replay-added-badge {
 .theme-light .ff-generate-cost {
   color: #9a3412 !important;
 }
+html.theme-light .ff-video-model-recommend-badge {
+  background-color: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(5, 150, 104, 0.494) !important;
+  color: #49bb9b !important;
+}
 .theme-light .glass-card, .theme-light .glass-panel {
   background: rgba(255,255,255,0.85) !important;
   border-color: rgba(15,23,42,0.06) !important;

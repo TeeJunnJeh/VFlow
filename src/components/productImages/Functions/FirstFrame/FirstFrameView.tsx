@@ -21,6 +21,10 @@ import { deleteImageHistoryItem, notifyImageHistoryUpdated, readImageHistoryByFe
 import { extractLoadingThemeFromSources, getDefaultLoadingTheme, type LoadingTheme } from '../../../../utils/loadingTheme';
 import { saveBlobWithPickerFallback } from '../../../../utils/browserDownload';
 import { useRequireAuth } from '../../../../utils/useRequireAuth';
+import {
+  writeFirstFrameToVideoTransfer,
+  type FirstFrameVideoTargetModel,
+} from './firstFrameToVideoTransfer';
 
 type Phase = 'upload' | 'form' | 'generating' | 'result' | 'error';
 type FirstFramePickerTab = 'image' | 'model';
@@ -66,7 +70,6 @@ interface FirstFrameViewProps {
   headerActionsContainer?: HTMLElement | null;
 }
 
-const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
 const FIRST_FRAME_EXAMPLES_COLLAPSED_KEY = 'vflow_first_frame_examples_collapsed_v1';
@@ -1224,16 +1227,26 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     }
   };
 
-  const applyToWorkbench = (image: ProductImageResult) => {
+  const applyToWorkbench = (image: ProductImageResult, targetModel: FirstFrameVideoTargetModel) => {
     const payload = {
+      source: 'first_frame_result_to_video' as const,
       imageUrl: image.imageUrl,
       imageName: t.ff_ai_first_frame_name,
+      targetModel,
       timestamp: new Date().toISOString(),
       firstFrameWorkspaceId: workspaceId,
       firstFrameWorkspaceOrder: workspaceOrder,
     };
 
-    window.localStorage.setItem(FIRST_FRAME_TRANSFER_KEY, JSON.stringify(payload));
+    writeFirstFrameToVideoTransfer({
+      source: payload.source,
+      imageUrl: payload.imageUrl,
+      imageName: payload.imageName,
+      targetModel: payload.targetModel,
+      timestamp: payload.timestamp,
+      workspaceId: payload.firstFrameWorkspaceId,
+      workspaceOrder: payload.firstFrameWorkspaceOrder,
+    });
     onApplyToWorkbench?.();
   };
 
@@ -1275,10 +1288,10 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     }
   };
 
-  const handleNextStep = (imageId: string) => {
+  const handleNextStep = (imageId: string, targetModel: FirstFrameVideoTargetModel) => {
     const image = results.find((r) => r.id === imageId);
     if (!image) return;
-    applyToWorkbench(image);
+    applyToWorkbench(image, targetModel);
   };
 
   const handleReplaceResultImage = async (imageId: string, imageUrl: string) => {

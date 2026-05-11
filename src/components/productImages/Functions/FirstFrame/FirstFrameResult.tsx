@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { AlertCircle, ArrowRight, Download, FolderPlus, RotateCcw } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertCircle, ArrowRight, Download, FolderPlus, RotateCcw, X } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { FirstFrameParams, ProductImageResult } from '../../../../types/productImages';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
 import { ImageDetailDialog } from '../../Common/ImageDetailDialog';
 import { ImageInpaintDialog, type ImageInpaintRunOptions } from '../../Common/ImageInpaintDialog';
 import { videoApi } from '../../../../services/video';
+import type { FirstFrameVideoTargetModel } from './firstFrameToVideoTransfer';
 
 interface FirstFrameResultProps {
   results: ProductImageResult[];
@@ -21,7 +22,7 @@ interface FirstFrameResultProps {
   onDownloadAll: (prefix: string) => Promise<void>;
   onSaveToAssets: (imageId: string) => Promise<boolean>;
   onReplaceImage?: (imageId: string, imageUrl: string) => Promise<void> | void;
-  onNextStep: (imageId: string) => void;
+  onNextStep: (imageId: string, targetModel: FirstFrameVideoTargetModel) => void;
 }
 
 const DEFAULT_LOADING_THEME: LoadingTheme = {
@@ -161,7 +162,7 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   onReplaceImage,
   onNextStep,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
@@ -171,6 +172,9 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [detailResolution, setDetailResolution] = useState<{ width: number; height: number } | null>(null);
   const [isInpaintOpen, setIsInpaintOpen] = useState(false);
+  const [targetVideoModel, setTargetVideoModel] = useState<FirstFrameVideoTargetModel>('kling');
+  const [isVideoModelChooserOpen, setIsVideoModelChooserOpen] = useState(false);
+  const videoModelChooserBottomRef = useRef<HTMLDivElement | null>(null);
 
   const isResultSucceeded = (item?: ProductImageResult | null) => (
     Boolean(item?.imageUrl) && item?.generationStatus !== 'failed'
@@ -202,6 +206,39 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
     setDetailResolution(null);
   }, [selectedImageId]);
 
+  useEffect(() => {
+    setIsVideoModelChooserOpen(false);
+    setTargetVideoModel('kling');
+  }, [selectionKey]);
+
+  useEffect(() => {
+    if (!isVideoModelChooserOpen) return;
+    let timeoutId: number | null = null;
+    const frame = window.requestAnimationFrame(() => {
+      timeoutId = window.setTimeout(() => {
+        videoModelChooserBottomRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'end',
+          inline: 'nearest',
+        });
+      }, 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [isVideoModelChooserOpen]);
+
+  const scrollVideoChooserBottomIntoView = () => {
+    window.requestAnimationFrame(() => {
+      videoModelChooserBottomRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+        inline: 'nearest',
+      });
+    });
+  };
+
   const selectedImage = results.find((r) => r.id === selectedImageId) || results.find((item) => isResultSucceeded(item)) || results[0] || null;
   const selectedIndex = selectedImage ? results.findIndex((item) => item.id === selectedImage.id) : -1;
   const parsedAspectRatio = parseAspectRatio(aspectRatio);
@@ -217,6 +254,13 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
     maxWidth: '100%',
     height: `${Math.round(previewHeight)}px`,
   };
+  const isZh = language === 'zh';
+  const modelSelectionLabel = t.ff_video_model_selection_label;
+  const recommendedLabel = t.ff_video_model_recommended;
+  const klingLabel = t.ff_video_model_kling;
+  const seedanceLabel = t.ff_video_model_seedance;
+  const modelNotice = t.ff_video_model_seedance_face_notice;
+  const confirmWorkbenchLabel = t.ff_confirm_enter_workbench;
 
   if (isLoading) return null;
 
@@ -423,6 +467,43 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
 
       {allResultsFinished && (
         <div className="space-y-4">
+          {isVideoModelChooserOpen && (
+            <div className="rounded-xl border border-white/10 bg-zinc-950/45 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">{modelSelectionLabel}</div>
+                <button
+                  type="button"
+                  onClick={() => setIsVideoModelChooserOpen(false)}
+                  className="rounded-md p-1 text-zinc-500 transition hover:bg-white/10 hover:text-zinc-200"
+                  aria-label={isZh ? '关闭' : 'Close'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setTargetVideoModel('kling')}
+                  aria-pressed={targetVideoModel === 'kling'}
+                  className={`flex min-h-[48px] items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm font-bold transition ${targetVideoModel === 'kling' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-500/40 hover:bg-white/5'}`}
+                >
+                  <span>{klingLabel}</span>
+                  <span className="ff-video-model-recommend-badge rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
+                    {recommendedLabel}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetVideoModel('seedance2.0')}
+                  aria-pressed={targetVideoModel === 'seedance2.0'}
+                  className={`flex min-h-[48px] items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm font-bold transition ${targetVideoModel === 'seedance2.0' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-500/40 hover:bg-white/5'}`}
+                >
+                  <span>{seedanceLabel}</span>
+                </button>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-zinc-400">{modelNotice}</p>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <button
               onClick={onRegenerate}
@@ -433,18 +514,24 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
             </button>
             <button
               onClick={() => {
+                if (!isVideoModelChooserOpen) {
+                  setIsVideoModelChooserOpen(true);
+                  scrollVideoChooserBottomIntoView();
+                  return;
+                }
                 const target = selectedImage && isResultSucceeded(selectedImage)
                   ? selectedImage
                   : results.find((item) => isResultSucceeded(item));
-                if (target) onNextStep(target.id);
+                if (target) onNextStep(target.id, targetVideoModel);
               }}
               disabled={!hasSucceededResults}
               className="flex items-center justify-center gap-2 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm font-bold text-orange-300 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <ArrowRight className="h-4 w-4" />
-              {t.ff_use_in_workbench_and_generate_video}
+              {isVideoModelChooserOpen ? confirmWorkbenchLabel : t.ff_use_in_workbench_and_generate_video}
             </button>
           </div>
+          <div ref={videoModelChooserBottomRef} aria-hidden="true" />
         </div>
       )}
 

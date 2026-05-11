@@ -1264,11 +1264,12 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       return;
     }
 
+    const requestedOutputCount = outputCount || 1;
     const settingsSnapshot: RepairTaskSettingsSnapshot = {
       prompt,
       aspectRatio,
       strength,
-      outputCount,
+      outputCount: requestedOutputCount,
       subpage: activeSubpage,
       toolCode: activeToolCode,
       model: selectedModel,
@@ -1280,7 +1281,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     const submittedAt = Date.now();
     const pendingLocalIds: string[] = [];
     const pendingCards: RepairTask[] = [];
-    for (let i = 0; i < outputCount; i += 1) {
+    for (let i = 0; i < requestedOutputCount; i += 1) {
       const localId = generateLocalId();
       pendingLocalIds.push(localId);
       pendingCards.push({
@@ -1308,7 +1309,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           prompt,
           aspectRatio,
           strength,
-          outputCount,
+          outputCount: requestedOutputCount,
           subpage: activeSubpage,
           toolCode: activeToolCode,
           model: selectedModel,
@@ -2281,7 +2282,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
             widthClassName="max-w-7xl"
             selectedIds={(() => {
               if (pickerTarget === 'source') return sourceImageSource?.kind === 'asset' ? [sourceImageSource.assetId] : [];
-              if (pickerTarget === 'reference') return referenceSource?.kind === 'asset' ? [referenceSource.assetId] : [];
               if (pickerTarget === 'model') return modelSource?.kind === 'asset' ? [modelSource.assetId] : [];
               return [];
             })()}

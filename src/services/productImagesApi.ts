@@ -752,10 +752,12 @@ export const productImagesApi = {
           return 1 as 1 | 2 | 3 | 4;
         })();
         const modelRaw = String(settings.model || '').trim();
-        const SUPPORTED_MODELS: ReadonlyArray<SmartRepairModel> = ['flux-2-pro', 'flux-2-max', 'flux-2-flex', 'flux-2-dev'];
+        const SUPPORTED_MODELS: ReadonlyArray<SmartRepairModel> = ['nano-banana-pro', 'flux-2-pro', 'gpt-image-1.5'];
         const modelNarrowed = (SUPPORTED_MODELS as ReadonlyArray<string>).includes(modelRaw)
           ? (modelRaw as SmartRepairModel)
-          : undefined;
+          : modelRaw
+            ? 'flux-2-pro'
+            : undefined;
         return {
           requestId,
           historyRecordId: String(row?.history_record_id || '').trim(),

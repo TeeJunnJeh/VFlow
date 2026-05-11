@@ -2,6 +2,7 @@ import React, { useCallback, useRef } from 'react';
 import { type NodeProps } from '@xyflow/react';
 import { ImageIcon, Upload, X } from 'lucide-react';
 import { NodeShell } from './NodeShell';
+import { RegenerateButton } from './RegenerateButton';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { ImageNodeData, CanvasNode } from '../canvasTypes';
@@ -33,8 +34,9 @@ export const ImageNode: React.FC<NodeProps<CanvasNode>> = ({ id, data: rawData, 
       status={data.status}
       color="blue"
       selected={selected}
-      hasTarget={false}
+      hasTarget={data.source === 'generated'}
       error={data.error}
+      headerActions={data.source === 'generated' ? <RegenerateButton nodeId={id} status={data.status} /> : undefined}
     >
       {data.imageUrl ? (
         <div className="relative group">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, ImageIcon, Video, Save, Trash2, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { FileText, ImageIcon, Video, Save, Trash2, ZoomIn, ZoomOut, Maximize, Wand2, Sparkles } from 'lucide-react';
 import { useReactFlow } from '@xyflow/react';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
@@ -13,9 +13,12 @@ function nextId() {
 interface CanvasToolbarProps {
   onSave: () => void;
   isSaving: boolean;
+  onMagicCompose?: () => void;
+  onToggleAgent?: () => void;
+  agentOpen?: boolean;
 }
 
-export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({ onSave, isSaving }) => {
+export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({ onSave, isSaving, onMagicCompose, onToggleAgent, agentOpen }) => {
   const addNode = useCanvasStore((s) => s.addNode);
   const clear = useCanvasStore((s) => s.clear);
   const isDirty = useCanvasStore((s) => s.isDirty);
@@ -75,6 +78,20 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({ onSave, isSaving }
 
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-xl px-2 py-1.5 shadow-xl">
+      {/* Magic Compose */}
+      {onMagicCompose && (
+        <div className="flex items-center gap-0.5 pr-2 border-r border-white/10">
+          <button
+            onClick={onMagicCompose}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-orange-500/15 to-pink-500/15 hover:from-orange-500/25 hover:to-pink-500/25 text-orange-300 transition-colors border border-orange-500/20"
+            title="Magic Compose"
+          >
+            <Wand2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Magic</span>
+          </button>
+        </div>
+      )}
+
       {/* Add nodes */}
       <div className="flex items-center gap-0.5 pr-2 border-r border-white/10">
         <ToolbarBtn icon={<FileText className="w-4 h-4" />} label={t.canvas_node_text} onClick={addTextNode} color="text-orange-400" />
@@ -98,6 +115,14 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({ onSave, isSaving }
           disabled={isSaving}
         />
         <ToolbarBtn icon={<Trash2 className="w-4 h-4" />} label={t.canvas_btn_clear} onClick={clear} color="text-red-400" />
+        {onToggleAgent && (
+          <ToolbarBtn
+            icon={<Sparkles className="w-4 h-4" />}
+            label="Agent"
+            onClick={onToggleAgent}
+            color={agentOpen ? 'text-orange-400' : 'text-zinc-400'}
+          />
+        )}
       </div>
     </div>
   );

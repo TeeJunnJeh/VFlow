@@ -2,14 +2,16 @@ import React, { useCallback } from 'react';
 import { type NodeProps } from '@xyflow/react';
 import { Video, Play, Loader2 } from 'lucide-react';
 import { NodeShell } from './NodeShell';
+import { RegenerateButton } from './RegenerateButton';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { VideoNodeData, CanvasNode } from '../canvasTypes';
+import { CanvasModelChips, type CanvasModelChipOption } from '../panels/CanvasModelChips';
 
-const MODEL_OPTIONS = [
-  { value: 'kling', label: 'Kling' },
-  { value: 'sora2', label: 'Sora 2' },
-  { value: 'sora2pro', label: 'Sora 2 Pro' },
+const MODEL_OPTIONS: CanvasModelChipOption[] = [
+  { value: 'kling', label: 'Kling', color: 'purple' },
+  { value: 'sora2', label: 'Sora 2', color: 'purple' },
+  { value: 'sora2pro', label: 'Sora 2 Pro', color: 'purple' },
 ];
 
 const DURATION_OPTIONS = [5, 10, 15];
@@ -36,8 +38,8 @@ export const VideoNode: React.FC<NodeProps<CanvasNode> & VideoNodeActions> = ({
   );
 
   const onModelChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      updateNodeData(id, { model: e.target.value });
+    (next: string) => {
+      updateNodeData(id, { model: next });
     },
     [id, updateNodeData]
   );
@@ -66,6 +68,7 @@ export const VideoNode: React.FC<NodeProps<CanvasNode> & VideoNodeActions> = ({
       color="purple"
       selected={selected}
       error={data.error}
+      headerActions={<RegenerateButton nodeId={id} status={data.status} />}
     >
       {/* Video preview */}
       {data.videoUrl ? (
@@ -91,23 +94,21 @@ export const VideoNode: React.FC<NodeProps<CanvasNode> & VideoNodeActions> = ({
         className="w-full px-2 py-1.5 text-xs bg-zinc-800 border border-white/10 rounded-md text-zinc-300 resize-none focus:outline-none focus:border-purple-500/50 mb-2"
       />
 
-      {/* Config row */}
+      {/* Model chip row */}
+      <CanvasModelChips
+        value={data.model}
+        onChange={onModelChange}
+        options={MODEL_OPTIONS}
+        size="xs"
+        className="mb-2"
+      />
+
+      {/* Duration + Ratio */}
       <div className="flex gap-1.5 mb-2">
-        <select
-          value={data.model}
-          onChange={onModelChange}
-          className="flex-1 px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
-        >
-          {MODEL_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
         <select
           value={data.duration}
           onChange={onDurationChange}
-          className="w-14 px-1 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
+          className="flex-1 px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
         >
           {DURATION_OPTIONS.map((d) => (
             <option key={d} value={d}>

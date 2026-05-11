@@ -63,8 +63,18 @@ export interface ScriptNodeData extends BaseNodeData {
   sourceImagePaths: string[];
 }
 
+// --- Video Analysis Node (Video → Storyboard reverse, LibTV-style) ---
+export interface VideoAnalysisNodeData extends BaseNodeData {
+  kind: 'video_analysis';
+  sourceVideoUrl: string | null;
+  sourceVideoPath: string | null;   // server-resolved /media/... path after upload
+  extractedScript: string;          // formatted text via formatReplayReverseScript
+  seedancePrompt: string;
+  styleTags: string[];
+}
+
 // --- Union ---
-export type CanvasNodeData = TextNodeData | ImageNodeData | VideoNodeData | ScriptNodeData;
+export type CanvasNodeData = TextNodeData | ImageNodeData | VideoNodeData | ScriptNodeData | VideoAnalysisNodeData;
 
 // --- Edge Data ---
 export interface CanvasEdgeData {

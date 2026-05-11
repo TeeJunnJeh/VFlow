@@ -19,6 +19,7 @@ interface NodeShellProps {
   hasSource?: boolean;
   hasTarget?: boolean;
   error?: string;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -31,6 +32,7 @@ export const NodeShell: React.FC<NodeShellProps> = ({
   hasSource = true,
   hasTarget = true,
   error,
+  headerActions,
   children,
 }) => {
   const { t } = useLanguage();
@@ -67,6 +69,7 @@ export const NodeShell: React.FC<NodeShellProps> = ({
       <div className={`flex items-center gap-2 px-3 py-2 bg-${color}-500/10 border-b border-white/5`}>
         <span className={`text-${color}-400`}>{icon}</span>
         <span className="text-sm font-medium text-zinc-200 flex-1 truncate">{title}</span>
+        {headerActions}
         {status !== 'idle' && (
           <div className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[status]}`} />

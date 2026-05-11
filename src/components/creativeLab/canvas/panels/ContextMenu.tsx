@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, ImageIcon, Video, Trash2, Copy, Film, ScrollText } from 'lucide-react';
+import { FileText, ImageIcon, Video, Trash2, Copy, Film, ScrollText, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 
 export interface ContextMenuPosition {
@@ -15,6 +15,7 @@ interface ContextMenuProps {
   onAddTextNode: () => void;
   onAddImageNode: () => void;
   onAddVideoNode: () => void;
+  onAddVideoAnalysisNode?: () => void;
   onDeleteNode?: () => void;
   onCopyNode?: () => void;
   onGenerateVideo?: () => void;
@@ -29,6 +30,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onAddTextNode,
   onAddImageNode,
   onAddVideoNode,
+  onAddVideoAnalysisNode,
   onDeleteNode,
   onCopyNode,
   onGenerateVideo,
@@ -67,6 +69,14 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
               label={t.canvas_menu_add_video}
               onClick={() => handleClick(onAddVideoNode)}
             />
+            {onAddVideoAnalysisNode && (
+              <MenuItem
+                icon={<Wand2 className="w-3.5 h-3.5" />}
+                label="Add Video Analysis"
+                onClick={() => handleClick(onAddVideoAnalysisNode)}
+                color="text-emerald-400"
+              />
+            )}
           </>
         )}
 

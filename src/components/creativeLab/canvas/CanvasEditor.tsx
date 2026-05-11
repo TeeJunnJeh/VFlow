@@ -18,17 +18,22 @@ import { TextNode } from './nodes/TextNode';
 import { ImageNode } from './nodes/ImageNode';
 import { VideoNode } from './nodes/VideoNode';
 import { ScriptNode } from './nodes/ScriptNode';
+import { VideoAnalysisNode } from './nodes/VideoAnalysisNode';
 import { DataEdge } from './edges/DataEdge';
 import { CanvasToolbar } from './panels/CanvasToolbar';
 import { SelectionActionBar } from './panels/SelectionActionBar';
 import { ContextMenu, type ContextMenuPosition } from './panels/ContextMenu';
+import { MagicComposeDialog } from './panels/MagicComposeDialog';
+import { AgentSidebar } from './panels/AgentSidebar';
+import type { CanvasAgentAction } from '../../../services/canvasAgent';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useAuth } from '../../../context/AuthContext';
 import { useTasks } from '../../../context/TaskContext';
 import { videoApi } from '../../../services/video';
 import { assetsApi } from '../../../services/assets';
+import { productImagesApi } from '../../../services/productImagesApi';
 import { generateScriptForCanvas } from './canvasScriptService';
-import type { CanvasSnapshot, CanvasNode, CanvasNodeData, ImageNodeData, VideoNodeData, TextNodeData, ScriptNodeData } from './canvasTypes';
+import type { CanvasSnapshot, CanvasNode, CanvasNodeData, ImageNodeData, VideoNodeData, TextNodeData, ScriptNodeData, VideoAnalysisNodeData } from './canvasTypes';
 
 // Register custom node/edge types
 const nodeTypes = {
@@ -36,6 +41,7 @@ const nodeTypes = {
   image: ImageNode,
   video: VideoNode,
   script: ScriptNode,
+  video_analysis: VideoAnalysisNode,
 };
 
 const edgeTypes = {
@@ -148,6 +154,12 @@ function CanvasEditorInner() {
     nodeId?: string;
     nodeKind?: string;
   } | null>(null);
+
+  // Magic Compose dialog
+  const [magicOpen, setMagicOpen] = useState(false);
+
+  // Agent Sidebar
+  const [agentOpen, setAgentOpen] = useState(false);
 
   // Load canvas state on mount
   useEffect(() => {
@@ -303,6 +315,14 @@ function CanvasEditorInner() {
       videoUrl: null, thumbnailUrl: null, taskId: null, projectId: null,
       prompt: '', model: 'kling', duration: 5, aspectRatio: '9:16',
     } as VideoNodeData);
+  }, [createNodeAtMenuPos]);
+
+  const handleContextAddVideoAnalysis = useCallback(() => {
+    createNodeAtMenuPos('video_analysis', {
+      kind: 'video_analysis', label: 'Video Analysis', status: 'idle',
+      sourceVideoUrl: null, sourceVideoPath: null,
+      extractedScript: '', seedancePrompt: '', styleTags: [],
+    } as VideoAnalysisNodeData);
   }, [createNodeAtMenuPos]);
 
   const handleContextDeleteNode = useCallback(() => {
@@ -616,6 +636,219 @@ function CanvasEditorInner() {
     [addNode, updateNodeData, user, language, addTask]
   );
 
+  // Batch generate image: collect upstream image refs + text prompts, call generateFirstFrame,
+  // create N PROCESSING ImageNode placeholders, poll each request_id, backfill on completion.
+  const handleBatchGenerateImage = useCallback(
+    async (
+      imageNodes: CanvasNode[],
+      textNodes: CanvasNode[],
+      prompt: string,
+      model: string,
+      aspectRatio: VideoNodeData['aspectRatio'],
+      outputCount: number
+    ) => {
+      if (imageNodes.length === 0) return;
+
+      // Anchor position: right of rightmost source
+      const allSourceNodes = [...imageNodes, ...textNodes];
+      let maxX = -Infinity;
+      let sumY = 0;
+      allSourceNodes.forEach((n) => {
+        if (n.position.x > maxX) maxX = n.position.x;
+        sumY += n.position.y;
+      });
+      const baseY = sumY / allSourceNodes.length;
+
+      // Combine prompts from upstream text nodes + user input
+      const textContext = textNodes
+        .map((n) => (n.data as TextNodeData).content?.trim() || '')
+        .filter(Boolean)
+        .join('\n');
+      const fullPrompt = [textContext, prompt].filter(Boolean).join('\n\n');
+
+      // Collect upstream image URLs as references
+      const referenceUrls: string[] = [];
+      imageNodes.forEach((n) => {
+        const d = n.data as ImageNodeData;
+        if (d.imageUrl) referenceUrls.push(d.imageUrl);
+      });
+      if (referenceUrls.length === 0) {
+        // Cannot generate without at least one reference image (generateFirstFrame requires it)
+        return;
+      }
+
+      // Convert blob/local URLs → uploadable Files via fetch
+      const refFiles: File[] = [];
+      try {
+        for (let i = 0; i < referenceUrls.length; i += 1) {
+          const url = referenceUrls[i];
+          const resp = await fetch(url);
+          const blob = await resp.blob();
+          const ext = (blob.type.split('/')[1] || 'jpg').replace('+xml', '');
+          refFiles.push(new File([blob], `canvas_ref_${Date.now()}_${i}.${ext}`, { type: blob.type }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch reference image for canvas image gen', err);
+        return;
+      }
+
+      // Create N PROCESSING ImageNode placeholders horizontally
+      const placeholderIds: string[] = [];
+      for (let i = 0; i < outputCount; i += 1) {
+        const newId = nextId();
+        placeholderIds.push(newId);
+        const imageData: ImageNodeData = {
+          kind: 'image',
+          label: 'Image',
+          status: 'running',
+          imageUrl: null,
+          assetId: null,
+          source: 'generated',
+        };
+        addNode({
+          id: newId,
+          type: 'image',
+          position: { x: maxX + 350, y: baseY - 60 + i * 220 },
+          data: imageData,
+        } as CanvasNode);
+        // Connect upstream sources to each placeholder
+        allSourceNodes.forEach((src) => {
+          useCanvasStore.getState().onConnect({
+            source: src.id,
+            target: newId,
+            sourceHandle: null,
+            targetHandle: null,
+          });
+        });
+      }
+
+      // Submit to backend
+      try {
+        const submission = await productImagesApi.generateFirstFrame(
+          refFiles,
+          {
+            prompt: fullPrompt,
+            model,
+            aspectRatio,
+            outputCount,
+          } as Parameters<typeof productImagesApi.generateFirstFrame>[1]
+        );
+
+        const requests = submission?.requests || [];
+
+        if (requests.length === 0) {
+          // No request_ids → mark all placeholders failed
+          placeholderIds.forEach((pid) =>
+            updateNodeData(pid, { status: 'failed', error: 'No requests created' } as Partial<ImageNodeData>)
+          );
+          return;
+        }
+
+        // Poll each request → backfill matching placeholder
+        const pollOne = async (requestId: string, nodeId: string) => {
+          const start = Date.now();
+          const TIMEOUT_MS = 5 * 60 * 1000;
+          while (Date.now() - start < TIMEOUT_MS) {
+            await new Promise((r) => setTimeout(r, 4000));
+            try {
+              const result = await productImagesApi.getFirstFrameResult(requestId);
+              const status = String(result.status || '').toUpperCase();
+              if (status === 'SUCCESS' || status === 'SUCCEEDED' || status === 'COMPLETED') {
+                updateNodeData(nodeId, {
+                  status: 'completed',
+                  imageUrl: result.imageUrl,
+                  assetId: result.metadata?.historyAssetId || null,
+                } as Partial<ImageNodeData>);
+                return;
+              }
+              if (status === 'FAILED' || status === 'ERROR') {
+                updateNodeData(nodeId, {
+                  status: 'failed',
+                  error: result.error || 'Image generation failed',
+                } as Partial<ImageNodeData>);
+                return;
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : 'Poll error';
+              updateNodeData(nodeId, { status: 'failed', error: msg } as Partial<ImageNodeData>);
+              return;
+            }
+          }
+          updateNodeData(nodeId, { status: 'failed', error: 'Timeout' } as Partial<ImageNodeData>);
+        };
+
+        requests.forEach((req, idx) => {
+          const nodeId = placeholderIds[idx];
+          if (!nodeId) return;
+          void pollOne(req.requestId, nodeId);
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Image generation failed';
+        placeholderIds.forEach((pid) =>
+          updateNodeData(pid, { status: 'failed', error: msg } as Partial<ImageNodeData>)
+        );
+      }
+    },
+    [addNode, updateNodeData]
+  );
+
+  // Per-node "regenerate" — listens for the `canvas:regenerate` CustomEvent dispatched
+  // from RegenerateButton. Routes to the right batch-gen handler based on node type,
+  // gathering upstream nodes via incoming edges so the regen runs with the same context.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ nodeId: string }>;
+      const targetId = ce.detail?.nodeId;
+      if (!targetId) return;
+      const state = useCanvasStore.getState();
+      const node = state.nodes.find((n) => n.id === targetId);
+      if (!node) return;
+
+      const upstreamIds = state.edges
+        .filter((edge) => edge.target === targetId)
+        .map((edge) => edge.source);
+      const upstreamNodes = state.nodes.filter((n) => upstreamIds.includes(n.id));
+      const imageNodes = upstreamNodes.filter((n) => (n.data as CanvasNodeData).kind === 'image');
+      const textNodes = upstreamNodes.filter((n) => (n.data as CanvasNodeData).kind === 'text');
+      const scriptNodes = upstreamNodes.filter((n) => (n.data as CanvasNodeData).kind === 'script');
+
+      if (node.type === 'video') {
+        const d = node.data as VideoNodeData;
+        handleBatchGenerate(
+          imageNodes,
+          scriptNodes,
+          textNodes,
+          d.prompt,
+          d.model,
+          d.duration,
+          d.aspectRatio,
+          false,
+          ''
+        );
+      } else if (node.type === 'image') {
+        const d = node.data as ImageNodeData;
+        // For regenerated image, use upstream image+text refs and current source's settings.
+        // Source ImageNode itself can serve as an additional reference.
+        const refs = imageNodes.length > 0 ? imageNodes : [node];
+        handleBatchGenerateImage(refs, textNodes, '', 'nano-banana-pro', '9:16', 1);
+      } else if (node.type === 'script') {
+        // Reuse the script handler with current node config — note: this re-runs generation
+        // with the same upstream nodes; output is a new ScriptNode at default position.
+        const d = node.data as ScriptNodeData;
+        handleGenerateScript(imageNodes, textNodes, {
+          category: d.productCategory || '',
+          style: d.visualStyle || 'realistic',
+          shotCount: d.shotCount || 5,
+          duration: d.totalDuration || 10,
+          aspectRatio: d.aspectRatio || '9:16',
+          notes: '',
+        });
+      }
+    };
+    window.addEventListener('canvas:regenerate', handler);
+    return () => window.removeEventListener('canvas:regenerate', handler);
+  }, [handleBatchGenerate, handleBatchGenerateImage, handleGenerateScript]);
+
   // Sync task status from TaskContext → VideoNode status
   useEffect(() => {
     nodes.forEach((node) => {
@@ -641,6 +874,127 @@ function CanvasEditorInner() {
     });
   }, [tasks, nodes, updateNodeData]);
 
+  // MagicCompose: drop a TextNode carrying the user prompt and trigger script generation
+  // against it. The existing handleGenerateScript path connects them and fans out shots.
+  // NOTE: must be declared BEFORE the `if (!isLoaded)` early return so React sees the
+  // same hook count on every render — otherwise it throws "Rendered more hooks than during
+  // the previous render".
+  const handleMagicCompose = useCallback(
+    async (config: {
+      prompt: string;
+      shotCount: number;
+      style: string;
+      duration: number;
+      aspectRatio: VideoNodeData['aspectRatio'];
+    }) => {
+      const textId = nextId();
+      const textNode: CanvasNode = {
+        id: textId,
+        type: 'text',
+        position: { x: 100, y: 100 },
+        data: {
+          kind: 'text',
+          label: 'Magic Prompt',
+          status: 'idle',
+          content: config.prompt,
+          role: 'prompt',
+        } as TextNodeData,
+      } as CanvasNode;
+      addNode(textNode);
+
+      // Hand off to the existing script gen path; it will create a ScriptNode connected
+      // from this text node and fill the shots asynchronously.
+      handleGenerateScript([], [textNode], {
+        category: '',
+        style: config.style,
+        shotCount: config.shotCount,
+        duration: config.duration,
+        aspectRatio: config.aspectRatio,
+        notes: '',
+      });
+    },
+    [addNode, handleGenerateScript]
+  );
+
+  // Apply an agent-driven action to the canvas. Mirrors the backend parser's
+  // CanvasAction schema. Only the explicitly supported ops are wired; unknown
+  // ops are silently ignored (assistant text bubble still renders).
+  const handleApplyAgentAction = useCallback(
+    (action: CanvasAgentAction) => {
+      const params = (action?.params || {}) as Record<string, unknown>;
+
+      if (action.op === 'magic_compose') {
+        const prompt = String(params.prompt || '').trim();
+        if (!prompt) return;
+        const shotCount = Number(params.shot_count) || 3;
+        const style = String(params.style || 'realistic');
+        const duration = Number(params.duration) || 10;
+        const aspectRatioRaw = String(params.aspect_ratio || '9:16');
+        const aspectRatio = (['9:16', '16:9', '1:1'].includes(aspectRatioRaw)
+          ? aspectRatioRaw
+          : '9:16') as VideoNodeData['aspectRatio'];
+
+        void handleMagicCompose({ prompt, shotCount, style, duration, aspectRatio });
+        return;
+      }
+
+      if (action.op === 'add_node') {
+        const kind = String(params.kind || '');
+        const id = nextId();
+        const pos = { x: 100, y: 100 };
+        if (kind === 'text') {
+          addNode({
+            id,
+            type: 'text',
+            position: pos,
+            data: {
+              kind: 'text',
+              label: 'Agent Note',
+              status: 'idle',
+              content: String(params.content || ''),
+              role: 'prompt',
+            } as TextNodeData,
+          } as CanvasNode);
+        } else if (kind === 'image') {
+          addNode({
+            id,
+            type: 'image',
+            position: pos,
+            data: {
+              kind: 'image',
+              label: 'Image',
+              status: 'idle',
+              imageUrl: null,
+              assetId: null,
+              source: 'upload',
+            } as ImageNodeData,
+          } as CanvasNode);
+        } else if (kind === 'video') {
+          addNode({
+            id,
+            type: 'video',
+            position: pos,
+            data: {
+              kind: 'video',
+              label: 'Video',
+              status: 'idle',
+              videoUrl: null,
+              thumbnailUrl: null,
+              taskId: null,
+              projectId: null,
+              prompt: '',
+              model: 'kling',
+              duration: 5,
+              aspectRatio: '9:16',
+            } as VideoNodeData,
+          } as CanvasNode);
+        }
+      }
+      // 'echo' and unknown ops: no canvas mutation needed
+    },
+    [addNode, handleMagicCompose]
+  );
+
   if (!isLoaded) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-zinc-950 text-zinc-500 font-mono text-sm">
@@ -651,7 +1005,23 @@ function CanvasEditorInner() {
 
   return (
     <div className="w-full h-full relative" onKeyDown={onKeyDown} tabIndex={0}>
-      <CanvasToolbar onSave={handleSave} isSaving={isSaving} />
+      <CanvasToolbar
+        onSave={handleSave}
+        isSaving={isSaving}
+        onMagicCompose={() => setMagicOpen(true)}
+        onToggleAgent={() => setAgentOpen((v) => !v)}
+        agentOpen={agentOpen}
+      />
+      <MagicComposeDialog
+        open={magicOpen}
+        onClose={() => setMagicOpen(false)}
+        onCompose={handleMagicCompose}
+      />
+      <AgentSidebar
+        open={agentOpen}
+        onClose={() => setAgentOpen(false)}
+        onApplyAction={handleApplyAgentAction}
+      />
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -689,7 +1059,11 @@ function CanvasEditorInner() {
       </ReactFlow>
 
       {/* Selection action bar */}
-      <SelectionActionBar onBatchGenerate={handleBatchGenerate} onGenerateScript={handleGenerateScript} />
+      <SelectionActionBar
+        onBatchGenerate={handleBatchGenerate}
+        onGenerateScript={handleGenerateScript}
+        onBatchGenerateImage={handleBatchGenerateImage}
+      />
 
       {/* Context menu */}
       {contextMenu && (
@@ -701,6 +1075,7 @@ function CanvasEditorInner() {
           onAddTextNode={handleContextAddText}
           onAddImageNode={handleContextAddImage}
           onAddVideoNode={handleContextAddVideo}
+          onAddVideoAnalysisNode={handleContextAddVideoAnalysis}
           onDeleteNode={handleContextDeleteNode}
           onCopyNode={handleContextCopyNode}
           onGenerateVideo={handleContextGenerateVideo}

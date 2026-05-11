@@ -3,11 +3,19 @@ import { Video, FileText, ImageIcon, Trash2, Copy, Play, Loader2, X, ScrollText,
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { CanvasNodeData, VideoNodeData, CanvasNode, TextNodeData, ScriptNodeData } from '../canvasTypes';
+import { CanvasModelChips, type CanvasModelChipOption } from './CanvasModelChips';
 
-const MODEL_OPTIONS = [
-  { value: 'kling', label: 'Kling' },
-  { value: 'sora2', label: 'Sora 2' },
-  { value: 'sora2pro', label: 'Sora 2 Pro' },
+const MODEL_OPTIONS: CanvasModelChipOption[] = [
+  { value: 'kling', label: 'Kling', color: 'purple' },
+  { value: 'sora2', label: 'Sora 2', color: 'purple' },
+  { value: 'sora2pro', label: 'Sora 2 Pro', color: 'purple' },
+];
+
+// Image gen models match productImages/Common/ModelSelectorChips so node + workspace stay in sync.
+const IMAGE_MODEL_OPTIONS: CanvasModelChipOption[] = [
+  { value: 'nano-banana-pro', label: 'NanoBanana Pro', color: 'blue' },
+  { value: 'flux-2-pro', label: 'Flux 2 Pro', color: 'blue' },
+  { value: 'gpt-image-1.5', label: 'GPT image 1.5', color: 'blue' },
 ];
 
 const DURATION_OPTIONS = [5, 10, 15];
@@ -18,7 +26,7 @@ function nextId() {
   return `node_${Date.now()}_${++nodeIdCounter}`;
 }
 
-type GenStep = null | 'choose' | 'video' | 'script';
+type GenStep = null | 'choose' | 'video' | 'script' | 'image';
 
 interface SelectionActionBarProps {
   onBatchGenerate?: (
@@ -44,9 +52,17 @@ interface SelectionActionBarProps {
       notes: string;
     }
   ) => void;
+  onBatchGenerateImage?: (
+    imageNodes: CanvasNode[],
+    textNodes: CanvasNode[],
+    prompt: string,
+    model: string,
+    aspectRatio: VideoNodeData['aspectRatio'],
+    outputCount: number
+  ) => void;
 }
 
-export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchGenerate, onGenerateScript }) => {
+export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchGenerate, onGenerateScript, onBatchGenerateImage }) => {
   const { t } = useLanguage();
   const selectedNodes = useCanvasStore((s) => s.selectedNodes);
   const removeNodes = useCanvasStore((s) => s.removeNodes);
@@ -68,6 +84,12 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
   const [scriptShotCount, setScriptShotCount] = useState(5);
   const [scriptDuration, setScriptDuration] = useState(10);
   const [scriptNotes, setScriptNotes] = useState('');
+
+  // Image config
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [imageModel, setImageModel] = useState('nano-banana-pro');
+  const [imageRatio, setImageRatio] = useState<VideoNodeData['aspectRatio']>('9:16');
+  const [imageOutputCount, setImageOutputCount] = useState(1);
 
   if (selectedNodes.length === 0) return null;
 
@@ -140,6 +162,17 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
     }
   };
 
+  const handleBatchGenerateImage = async () => {
+    if (imageNodes.length === 0) return;
+    setIsGenerating(true);
+    try {
+      onBatchGenerateImage?.(imageNodes, textNodes, imagePrompt, imageModel, imageRatio, imageOutputCount);
+    } finally {
+      setIsGenerating(false);
+      setStep('choose');
+    }
+  };
+
   // Summary
   const parts: string[] = [];
   if (imageNodes.length > 0) parts.push(`${imageNodes.length} ${t.canvas_node_image}`);
@@ -194,12 +227,14 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
               <span className="text-[11px] text-zinc-300 font-medium">{t.canvas_gen_type_script}</span>
             </button>
 
-            {/* Image Generation (placeholder) */}
+            {/* Image Generation */}
             <button
-              disabled
-              className="flex flex-col items-center gap-2 p-3 rounded-lg border border-white/5 opacity-40 cursor-not-allowed"
+              onClick={() => setStep('image')}
+              disabled={imageNodes.length === 0}
+              className="flex flex-col items-center gap-2 p-3 rounded-lg border border-white/5 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all group disabled:opacity-40 disabled:cursor-not-allowed"
+              title={imageNodes.length === 0 ? 'Select at least one image node as reference' : undefined}
             >
-              <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
                 <ImageIcon className="w-4.5 h-4.5 text-blue-400" />
               </div>
               <span className="text-[11px] text-zinc-300 font-medium">{t.canvas_gen_type_image}</span>
@@ -253,20 +288,19 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
             className="w-full px-2.5 py-1.5 text-xs bg-zinc-800 border border-white/10 rounded-md text-zinc-300 resize-none focus:outline-none focus:border-purple-500/50"
           />
 
+          {/* Model picker (chip row) */}
+          <div>
+            <label className="text-[10px] text-zinc-500 mb-1.5 block">{t.canvas_node_video}</label>
+            <CanvasModelChips
+              value={batchModel}
+              onChange={setBatchModel}
+              options={MODEL_OPTIONS}
+              size="sm"
+            />
+          </div>
+
           {/* Config row */}
-          <div className="grid grid-cols-4 gap-2">
-            <div>
-              <label className="text-[10px] text-zinc-500 mb-1 block">{t.canvas_node_video}</label>
-              <select
-                value={batchModel}
-                onChange={(e) => setBatchModel(e.target.value)}
-                className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
-              >
-                {MODEL_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
+          <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-[10px] text-zinc-500 mb-1 block">{t.canvas_btn_generate}</label>
               <select
@@ -323,6 +357,95 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
                 <Play className="w-3.5 h-3.5" />
               )}
               {t.canvas_gen_start_video}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2c: Image Generation Config */}
+      {step === 'image' && (
+        <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-blue-400" />
+              <span className="text-xs font-medium text-zinc-200">{t.canvas_gen_type_image}</span>
+            </div>
+            <button
+              onClick={() => setStep('choose')}
+              className="p-1 rounded hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-500">{basedOn}</p>
+
+          {/* Model chip row */}
+          <div>
+            <label className="text-[10px] text-zinc-500 mb-1.5 block">{t.canvas_node_image}</label>
+            <CanvasModelChips
+              value={imageModel}
+              onChange={setImageModel}
+              options={IMAGE_MODEL_OPTIONS}
+              size="sm"
+            />
+          </div>
+
+          {/* Prompt */}
+          <textarea
+            value={imagePrompt}
+            onChange={(e) => setImagePrompt(e.target.value)}
+            placeholder={t.canvas_prompt_input_placeholder}
+            rows={2}
+            className="w-full px-2.5 py-1.5 text-xs bg-zinc-800 border border-white/10 rounded-md text-zinc-300 resize-none focus:outline-none focus:border-blue-500/50"
+          />
+
+          {/* Ratio + Count */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-zinc-500 mb-1 block">Ratio</label>
+              <select
+                value={imageRatio}
+                onChange={(e) => setImageRatio(e.target.value as VideoNodeData['aspectRatio'])}
+                className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
+              >
+                {RATIO_OPTIONS.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] text-zinc-500 mb-1 block">{t.canvas_node_image} × N</label>
+              <select
+                value={imageOutputCount}
+                onChange={(e) => setImageOutputCount(Number(e.target.value))}
+                className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
+              >
+                {[1, 2, 3, 4].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={() => setStep('choose')}
+              className="px-3 py-1.5 rounded-md text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+            >
+              {t.canvas_gen_cancel}
+            </button>
+            <button
+              onClick={handleBatchGenerateImage}
+              disabled={isGenerating || imageNodes.length === 0}
+              className="px-4 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-500 text-white"
+            >
+              {isGenerating ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5" />
+              )}
+              {t.canvas_btn_generate}
             </button>
           </div>
         </div>

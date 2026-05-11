@@ -2,10 +2,11 @@ import React from 'react';
 import { type NodeProps } from '@xyflow/react';
 import { ScrollText, Loader2 } from 'lucide-react';
 import { NodeShell } from './NodeShell';
+import { RegenerateButton } from './RegenerateButton';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { ScriptNodeData, CanvasNode } from '../canvasTypes';
 
-export const ScriptNode: React.FC<NodeProps<CanvasNode>> = ({ data: rawData, selected }) => {
+export const ScriptNode: React.FC<NodeProps<CanvasNode>> = ({ id, data: rawData, selected }) => {
   const data = rawData as ScriptNodeData;
   const { t } = useLanguage();
 
@@ -20,6 +21,7 @@ export const ScriptNode: React.FC<NodeProps<CanvasNode>> = ({ data: rawData, sel
       color="orange"
       selected={selected}
       error={data.error}
+      headerActions={<RegenerateButton nodeId={id} status={data.status} />}
     >
       <div className="min-w-[280px] max-w-[380px]">
         {/* Loading state */}
@@ -79,6 +81,7 @@ export const ScriptNode: React.FC<NodeProps<CanvasNode>> = ({ data: rawData, sel
             <span className="text-[10px] text-zinc-500">
               {data.shots.reduce((sum, s) => sum + s.duration_sec, 0)}s
             </span>
+            <span className="text-[10px] text-zinc-600 ml-auto">by 豆包 Seed 2.0</span>
           </div>
         )}
       </div>

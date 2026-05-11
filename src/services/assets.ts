@@ -818,7 +818,7 @@ export interface SeedanceCharacterOptionsResponse {
   };
 }
 
-export type SeedanceSearchMode = 'default' | 'fuzzy' | 'smart';
+export type SeedanceSearchMode = 'default' | 'fuzzy' | 'smart' | 'combined';
 
 export interface SeedanceCharacterFilters {
   search_mode?: SeedanceSearchMode;
@@ -836,6 +836,7 @@ export interface SeedanceCharacterFilters {
   search_appearance?: string;
   search_scene?: string;
   search_query?: string;
+  search_fuzzy?: string;
   ordering?: string;
   page?: number;
   page_size?: number;
@@ -859,6 +860,7 @@ export const seedanceApi = {
     if (filters?.search_appearance) params.set('search_appearance', filters.search_appearance);
     if (filters?.search_scene) params.set('search_scene', filters.search_scene);
     if (filters?.search_query) params.set('search_query', filters.search_query);
+    if (filters?.search_fuzzy) params.set('search_fuzzy', filters.search_fuzzy);
     if (filters?.ordering) params.set('ordering', filters.ordering);
     if (filters?.page) params.set('page', String(filters.page));
     if (filters?.page_size) params.set('page_size', String(filters.page_size));

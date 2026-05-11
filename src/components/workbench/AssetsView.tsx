@@ -284,8 +284,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [seedanceEthnicities, setSeedanceEthnicities] = useState<string[]>([]);
   const [seedanceCulturalBranches, setSeedanceCulturalBranches] = useState<string[]>([]);
   const [seedanceSkinTones, setSeedanceSkinTones] = useState<string[]>([]);
-  const [seedanceSearchMode, setSeedanceSearchMode] = useState<SeedanceSearchMode>('fuzzy');
-  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
+  const [seedanceSearchMode] = useState<SeedanceSearchMode>('combined');
+  const [seedanceFilters, setSeedanceFilters] = useState<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'combined' });
   const [seedanceAdvancedOpen, setSeedanceAdvancedOpen] = useState(false);
   const [showSeedanceBrowser, setShowSeedanceBrowser] = useState(false);
   const [seedanceOptionsLoaded, setSeedanceOptionsLoaded] = useState(false);
@@ -298,7 +298,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const seedanceLoadingRef = useRef(false);
   const seedanceHasMoreRef = useRef(false);
   const seedancePageRef = useRef(1);
-  const seedanceFiltersRef = useRef<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'default' });
+  const seedanceFiltersRef = useRef<SeedanceCharacterFilters>({ page_size: 24, search_mode: 'combined' });
   const seedanceCharsCountRef = useRef(0);   // current array length, avoids stale closure in append
   // Error state — when true, infinite-scroll observer stops firing until user clicks retry
   const [seedanceError, setSeedanceError] = useState<string | null>(null);
@@ -826,7 +826,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   useEffect(() => {
     if (viewMode === 'plaza' && activeAssetTab === 'model') {
       void loadSeedanceOptions();
-      const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: seedanceSearchMode, page: 1 };
+      const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'combined', page: 1 };
       // Full state reset — prevent residual hasMore/page from previous session
       setSeedanceFilters(fresh);
       seedanceFiltersRef.current = fresh;
@@ -837,8 +837,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       seedancePageRef.current = 1;
       seedanceErrorRef.current = false;
       setSeedanceError(null);
-      // Only condition mode auto-loads; fuzzy/smart modes wait for user input.
-      if (seedanceSearchMode === 'default') void loadSeedanceCharacters(fresh);
+      void loadSeedanceCharacters(fresh);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, activeAssetTab]);
@@ -2814,8 +2813,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         setShowSeedanceBrowser(true);
                         void loadSeedanceOptions();
                         // Full reset before opening — prevents inheriting state from previous plaza/library session
-                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'fuzzy', page: 1 };
-                        setSeedanceSearchMode('fuzzy');
+                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: 'combined', page: 1 };
                         setSeedanceFilters(fresh);
                         seedanceFiltersRef.current = fresh;
                         setSeedanceCharacters([]);
@@ -2825,7 +2823,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                         seedancePageRef.current = 1;
                         seedanceErrorRef.current = false;
                         setSeedanceError(null);
-                        // fuzzy mode: wait for user input, no auto-load
+                        void loadSeedanceCharacters(fresh);
                       }}
                       className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition shrink-0"
                     >
@@ -3286,44 +3284,100 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
             <>
               {/* Single scrollable container: filters + grid */}
               <div ref={seedanceScrollRef} className="flex-1 overflow-y-auto custom-scroll">
-              {/* Search Mode Tabs */}
               <div className="flex items-center gap-1 mb-3">
-                {(['smart', 'fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
-                  const labels: Record<SeedanceSearchMode, string> = {
-                    smart: (t as any).assets_seedance_tab_smart || '智能搜索',
-                    default: t.assets_seedance_tab_default || '条件查询',
-                    fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
-                  };
-                  return (
-                    <button
-                      key={mode}
-                      onClick={() => {
-                        setSeedanceSearchMode(mode);
-                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: mode, page: 1 };
-                        setSeedanceFilters(fresh);
-                        setSeedanceAdvancedOpen(false);
-                        setSeedanceCharacters([]);
-                        setSeedanceTotalCount(0);
-                        setSeedanceHasMore(false);
-                        if (mode === 'default') {
-                          void loadSeedanceCharacters(fresh);
-                        }
-                      }}
-                      className={`px-3 py-1.5 text-xs rounded-t-lg border border-b-0 transition ${
-                        seedanceSearchMode === mode
-                          ? 'bg-zinc-800 text-orange-400 border-white/10 font-bold'
-                          : 'bg-transparent text-zinc-500 border-transparent hover:text-zinc-300'
-                      }`}
-                    >
-                      {labels[mode]}
-                    </button>
-                  );
-                })}
+                <span className="text-xs font-bold text-zinc-300">{t.assets_seedance_browser_title || '虚拟模特库'}</span>
                 <span className="text-[10px] text-zinc-500 ml-auto">{seedanceTotalCount} {t.assets_seedance_total || '位模特'}</span>
               </div>
 
               {/* Filters */}
               <div className="border-b border-white/5 mb-4">
+                <div className="pb-3 space-y-2">
+                  <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
+                    {(t as any).assets_seedance_tab_smart || '智能搜索'}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        value={seedanceFilters.search_query || ''}
+                        onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_query: e.target.value, search_mode: 'combined' }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const f = { ...seedanceFilters, search_mode: 'combined' as const, page: 1 };
+                            setSeedanceFilters(f);
+                            setSeedanceCharacters([]);
+                            void loadSeedanceCharacters(f);
+                          }
+                        }}
+                        placeholder={(t as any).assets_seedance_smart_placeholder || '输入一段描述，如“穿西装的年轻商务女性”'}
+                        className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        const f = { ...seedanceFilters, search_mode: 'combined' as const, page: 1 };
+                        setSeedanceFilters(f);
+                        setSeedanceCharacters([]);
+                        void loadSeedanceCharacters(f);
+                      }}
+                      className="px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition"
+                    >
+                      {(t as any).assets_seedance_smart_search || '搜索'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-zinc-600 leading-relaxed">
+                    {(t as any).assets_seedance_smart_hint || '基于图片和文字 embedding 的相似度排序。'}
+                  </p>
+                </div>
+                <div className="pb-3 space-y-2">
+                  <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
+                    {t.assets_seedance_tab_fuzzy || '模糊搜索'}
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={seedanceFilters.search_fuzzy || ''}
+                      onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_fuzzy: e.target.value, search_mode: 'combined' }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const f = { ...seedanceFilters, search_mode: 'combined' as const, page: 1 };
+                          setSeedanceFilters(f);
+                          setSeedanceCharacters([]);
+                          void loadSeedanceCharacters(f);
+                        }
+                      }}
+                      placeholder={(t as any).assets_seedance_fuzzy_unified_placeholder || '如 "中国 傣族 黄种人"、"大眼 卷发" 或 "美甲师 咖啡馆"'}
+                      className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-600 leading-relaxed">
+                    {(t as any).assets_seedance_fuzzy_unified_hint || '可搜索外貌、经历和场景；空格分隔，取交集，每个关键词命中任一元信息字段即可。'}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
+                    {`${t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸,中国,美国,丹麦,黄种人,黑种人,傣族'},${t.assets_seedance_fuzzy_scene_chips || '美甲师,歌手,外卖,夜市,咖啡馆,录音棚,追剧,露营'}`
+                      .split(',')
+                      .map((chip) => chip.trim())
+                      .filter(Boolean)
+                      .slice(0, 18)
+                      .map((chip) => (
+                        <button
+                          key={chip}
+                          onClick={() => {
+                            const prev = seedanceFilters.search_fuzzy || '';
+                            const next = prev ? `${prev} ${chip}` : chip;
+                            const f = { ...seedanceFilters, search_mode: 'combined' as const, search_fuzzy: next, page: 1 };
+                            setSeedanceFilters(f);
+                            setSeedanceCharacters([]);
+                            void loadSeedanceCharacters(f);
+                          }}
+                          className="px-1.5 py-0.5 text-[10px] bg-orange-500/10 text-orange-400 rounded hover:bg-orange-500/25 transition"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                  </div>
+                </div>
                 {seedanceSearchMode === 'smart' ? (
                   <div className="pb-3 space-y-2">
                     <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
@@ -3438,6 +3492,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                   </div>
                 ) : (
                   <div className="pb-3">
+                    <label className="block text-[10px] text-zinc-400 mb-2 font-medium">
+                      {t.assets_seedance_tab_default || '筛选'}
+                    </label>
                     <div className="flex flex-wrap items-center gap-3">
                       <select
                         value={seedanceFilters.gender || ''}
@@ -3693,7 +3750,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
-                          {seedanceSearchMode === 'smart' && typeof char.similarity_percent === 'number' && (
+                          {typeof char.similarity_percent === 'number' && (
                             <div className="absolute top-1.5 right-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[9px] font-bold text-purple-200 border border-purple-400/30">
                               {(t as any).assets_seedance_similarity || '相似度'} {Math.round(char.similarity_percent)}%
                             </div>
@@ -4338,45 +4395,96 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 <button className="text-zinc-400 hover:text-white" onClick={() => setShowSeedanceBrowser(false)}><X className="w-5 h-5" /></button>
               </div>
 
-              {/* Search Mode Tabs: 默认查询 | 模糊查询 */}
               <div className="flex items-center gap-1 px-6 pt-3 pb-0">
-                {(['smart', 'fuzzy', 'default'] as SeedanceSearchMode[]).map((mode) => {
-                  const labels: Record<SeedanceSearchMode, string> = {
-                    smart: (t as any).assets_seedance_tab_smart || '智能搜索',
-                    default: t.assets_seedance_tab_default || '条件查询',
-                    fuzzy: t.assets_seedance_tab_fuzzy || '模糊查询',
-                  };
-                  return (
-                    <button
-                      key={mode}
-                      onClick={() => {
-                        setSeedanceSearchMode(mode);
-                        const fresh: SeedanceCharacterFilters = { page_size: 24, search_mode: mode, page: 1 };
-                        setSeedanceFilters(fresh);
-                        setSeedanceAdvancedOpen(false);
-                        if (mode === 'default') {
-                          void loadSeedanceCharacters(fresh);
-                        } else {
-                          // fuzzy/smart tabs: don't load until user enters search terms
-                          setSeedanceCharacters([]);
-                          setSeedanceTotalCount(0);
-                        }
-                      }}
-                      className={`px-3 py-1.5 text-xs rounded-t-lg border border-b-0 transition ${
-                        seedanceSearchMode === mode
-                          ? 'bg-zinc-800 text-orange-400 border-white/10 font-bold'
-                          : 'bg-transparent text-zinc-500 border-transparent hover:text-zinc-300'
-                      }`}
-                    >
-                      {labels[mode]}
-                    </button>
-                  );
-                })}
+                <span className="text-xs font-bold text-zinc-300">{(t as any).assets_seedance_search || '搜索模特...'}</span>
                 <span className="text-[10px] text-zinc-500 ml-auto">{seedanceTotalCount} {t.assets_seedance_total || '位模特'}</span>
               </div>
 
               {/* Filters */}
               <div className="border-b border-white/5">
+                <div className="px-6 py-3 space-y-2">
+                  <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
+                    {(t as any).assets_seedance_tab_smart || '智能搜索'}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        value={seedanceFilters.search_query || ''}
+                        onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_query: e.target.value, search_mode: 'combined' }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const f = { ...seedanceFilters, search_mode: 'combined' as const, page: 1 };
+                            setSeedanceFilters(f);
+                            void loadSeedanceCharacters(f);
+                          }
+                        }}
+                        placeholder={(t as any).assets_seedance_smart_placeholder || '输入一段描述，如“穿西装的年轻商务女性”'}
+                        className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        const f = { ...seedanceFilters, search_mode: 'combined' as const, page: 1 };
+                        setSeedanceFilters(f);
+                        void loadSeedanceCharacters(f);
+                      }}
+                      className="px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition"
+                    >
+                      {(t as any).assets_seedance_smart_search || '搜索'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-zinc-600 leading-relaxed">
+                    {(t as any).assets_seedance_smart_hint || '基于图片和文字 embedding 的相似度排序。'}
+                  </p>
+                </div>
+                <div className="px-6 pb-3 space-y-2">
+                  <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
+                    {t.assets_seedance_tab_fuzzy || '模糊搜索'}
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={seedanceFilters.search_fuzzy || ''}
+                      onChange={(e) => setSeedanceFilters((prev) => ({ ...prev, search_fuzzy: e.target.value, search_mode: 'combined' }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const f = { ...seedanceFilters, search_mode: 'combined' as const, page: 1 };
+                          setSeedanceFilters(f);
+                          void loadSeedanceCharacters(f);
+                        }
+                      }}
+                      placeholder={(t as any).assets_seedance_fuzzy_unified_placeholder || '如 "中国 傣族 黄种人"、"大眼 卷发" 或 "美甲师 咖啡馆"'}
+                      className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-600 leading-relaxed">
+                    {(t as any).assets_seedance_fuzzy_unified_hint || '可搜索外貌、经历和场景；空格分隔，取交集，每个关键词命中任一元信息字段即可。'}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[10px] text-zinc-500">{t.assets_seedance_fuzzy_try || '试试：'}</span>
+                    {`${t.assets_seedance_fuzzy_appearance_chips || '大眼,双眼皮,厚唇,暖白皮,卷发,络腮胡,高大魁梧,圆形脸,中国,美国,丹麦,黄种人,黑种人,傣族'},${t.assets_seedance_fuzzy_scene_chips || '美甲师,歌手,外卖,夜市,咖啡馆,录音棚,追剧,露营'}`
+                      .split(',')
+                      .map((chip) => chip.trim())
+                      .filter(Boolean)
+                      .slice(0, 18)
+                      .map((chip) => (
+                        <button
+                          key={chip}
+                          onClick={() => {
+                            const prev = seedanceFilters.search_fuzzy || '';
+                            const next = prev ? `${prev} ${chip}` : chip;
+                            const f = { ...seedanceFilters, search_mode: 'combined' as const, search_fuzzy: next, page: 1 };
+                            setSeedanceFilters(f);
+                            void loadSeedanceCharacters(f);
+                          }}
+                          className="px-1.5 py-0.5 text-[10px] bg-orange-500/10 text-orange-400 rounded hover:bg-orange-500/25 transition"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                  </div>
+                </div>
                 {seedanceSearchMode === 'smart' ? (
                   <div className="px-6 py-3 space-y-2">
                     <label className="block text-[10px] text-zinc-400 mb-1 font-medium">
@@ -4491,6 +4599,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                 ) : (
                   /* ── Default mode: basic filters + collapsible advanced ── */
                   <div className="px-6 py-3">
+                    <label className="block text-[10px] text-zinc-400 mb-2 font-medium">
+                      {t.assets_seedance_tab_default || '筛选'}
+                    </label>
                     {/* Basic filters row */}
                     <div className="flex flex-wrap items-center gap-3">
                       {/* Gender */}
@@ -4758,7 +4869,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                             onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
-                          {seedanceSearchMode === 'smart' && typeof char.similarity_percent === 'number' && (
+                          {typeof char.similarity_percent === 'number' && (
                             <div className="absolute top-1.5 right-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[9px] font-bold text-purple-200 border border-purple-400/30">
                               {(t as any).assets_seedance_similarity || '相似度'} {Math.round(char.similarity_percent)}%
                             </div>

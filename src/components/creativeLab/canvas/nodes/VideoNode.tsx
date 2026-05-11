@@ -7,11 +7,13 @@ import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { VideoNodeData, CanvasNode } from '../canvasTypes';
 import { CanvasModelChips, type CanvasModelChipOption } from '../panels/CanvasModelChips';
+import { CostBadge } from './imageModes/CostBadge';
 
 const MODEL_OPTIONS: CanvasModelChipOption[] = [
   { value: 'kling', label: 'Kling', color: 'purple' },
   { value: 'sora2', label: 'Sora 2', color: 'purple' },
   { value: 'sora2pro', label: 'Sora 2 Pro', color: 'purple' },
+  { value: 'seedance2.0', label: 'Seedance', color: 'purple' },
 ];
 
 const DURATION_OPTIONS = [5, 10, 15];
@@ -129,9 +131,17 @@ export const VideoNode: React.FC<NodeProps<CanvasNode> & VideoNodeActions> = ({
         </select>
       </div>
 
-      {/* Generate button */}
+      {/* Generate button + inline cost preview */}
       <button
+        type="button"
         disabled={isRunning || !data.prompt.trim()}
+        onClick={() => {
+          if (isRunning || !data.prompt.trim()) return;
+          // Dispatch an inline-generate event; CanvasEditor mutates THIS node
+          // (status='running' → poll → fill videoUrl) rather than spawning a
+          // new node like canvas:regenerate does.
+          window.dispatchEvent(new CustomEvent('canvas:generate-inline', { detail: { nodeId: id } }));
+        }}
         className="w-full py-1.5 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-purple-600 hover:bg-purple-500 text-white"
       >
         {isRunning ? (
@@ -146,6 +156,13 @@ export const VideoNode: React.FC<NodeProps<CanvasNode> & VideoNodeActions> = ({
           </>
         )}
       </button>
+      <div className="flex justify-end mt-1">
+        <CostBadge
+          kind="video"
+          model={data.model}
+          durationSec={data.duration}
+        />
+      </div>
     </NodeShell>
   );
 };

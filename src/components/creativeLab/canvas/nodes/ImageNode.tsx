@@ -1,31 +1,56 @@
-import React, { useCallback, useRef } from 'react';
+/**
+ * Unified ImageNode — one canvas node that can produce an image through 5
+ * different mode-paths (upload / first_frame / smart_repair / clothing_swap /
+ * ai_model). The active `data.mode` selects which sub-component renders inside
+ * the NodeShell. Outputs (one or many) are shown by `<OutputGrid>` below the
+ * mode-specific body and are persisted on the node via `outputs` + `imageUrl`.
+ *
+ * Backward compat: legacy ImageNodes without `mode` render as `upload`.
+ */
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { type NodeProps } from '@xyflow/react';
-import { ImageIcon, Upload, X } from 'lucide-react';
+import { ImageIcon } from 'lucide-react';
 import { NodeShell } from './NodeShell';
 import { RegenerateButton } from './RegenerateButton';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
-import type { ImageNodeData, CanvasNode } from '../canvasTypes';
+import type { ImageNodeData, CanvasNode, ImageNodeMode } from '../canvasTypes';
+import { ImageModeChips } from './imageModes/ImageModeChips';
+import { OutputGrid } from './imageModes/OutputGrid';
+import { UploadMode } from './imageModes/UploadMode';
+import { FirstFrameMode } from './imageModes/FirstFrameMode';
+import { SmartRepairMode } from './imageModes/SmartRepairMode';
+import { ClothingSwapMode } from './imageModes/ClothingSwapMode';
+import { AIModelMode } from './imageModes/AIModelMode';
+import { runGeneration, hydratePending } from './imageModes/imageGenHandlers';
 
 export const ImageNode: React.FC<NodeProps<CanvasNode>> = ({ id, data: rawData, selected }) => {
   const data = rawData as ImageNodeData;
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const { t } = useLanguage();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const onFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const url = URL.createObjectURL(file);
-      updateNodeData(id, { imageUrl: url, source: 'upload' } as Partial<ImageNodeData>);
-    },
-    [id, updateNodeData]
-  );
+  const mode: ImageNodeMode = data.mode || 'upload';
 
-  const onClear = useCallback(() => {
-    updateNodeData(id, { imageUrl: null, assetId: null, source: 'upload' } as Partial<ImageNodeData>);
-  }, [id, updateNodeData]);
+  // Resume polling for any pending requests on mount (refresh / view-switch
+  // recovery). The handler reads pendingRequestIds and re-fires per-mode pollers.
+  useEffect(() => {
+    if (data.pendingRequestIds && data.pendingRequestIds.length > 0 && data.status === 'running') {
+      hydratePending(id, data, { updateNodeData });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const handleGenerate = useCallback(() => {
+    void runGeneration(id, data, { updateNodeData });
+  }, [id, data, updateNodeData]);
+
+  const outputs = useMemo(() => data.outputs || [], [data.outputs]);
+
+  // Upload mode is the only one with `hasTarget=false` (it's a pure source).
+  // All generation modes accept upstream edges (so upstream Text/Image nodes
+  // can feed prompts/refs via future P0-4 auto-fill).
+  const hasTarget = mode !== 'upload';
+  const showRegen = data.source === 'generated' && mode !== 'upload';
 
   return (
     <NodeShell
@@ -34,40 +59,37 @@ export const ImageNode: React.FC<NodeProps<CanvasNode>> = ({ id, data: rawData, 
       status={data.status}
       color="blue"
       selected={selected}
-      hasTarget={data.source === 'generated'}
+      hasTarget={hasTarget}
       error={data.error}
-      headerActions={data.source === 'generated' ? <RegenerateButton nodeId={id} status={data.status} /> : undefined}
+      headerActions={showRegen ? <RegenerateButton nodeId={id} status={data.status} /> : undefined}
     >
-      {data.imageUrl ? (
-        <div className="relative group">
-          <img
-            src={data.imageUrl}
-            alt="Asset"
-            className="w-full h-36 object-cover rounded-md border border-white/5"
-          />
-          <button
-            onClick={onClear}
-            className="absolute top-1 right-1 p-1 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <X className="w-3 h-3 text-white" />
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full h-28 border-2 border-dashed border-white/10 rounded-md flex flex-col items-center justify-center gap-2 hover:border-blue-500/40 hover:bg-blue-500/5 transition-colors"
-        >
-          <Upload className="w-5 h-5 text-zinc-500" />
-          <span className="text-[11px] text-zinc-500">{t.canvas_upload_click}</span>
-        </button>
-      )}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={onFileSelect}
-      />
+      <div className="min-w-[260px] max-w-[320px]">
+        {/* Mode switcher */}
+        <ImageModeChips
+          value={mode}
+          onChange={(next) => updateNodeData(id, { mode: next })}
+        />
+
+        {/* Mode-specific body */}
+        {mode === 'upload' && (
+          <UploadMode id={id} data={data} updateNodeData={updateNodeData} />
+        )}
+        {mode === 'first_frame' && (
+          <FirstFrameMode id={id} data={data} updateNodeData={updateNodeData} onGenerate={handleGenerate} />
+        )}
+        {mode === 'smart_repair' && (
+          <SmartRepairMode id={id} data={data} updateNodeData={updateNodeData} onGenerate={handleGenerate} />
+        )}
+        {mode === 'clothing_swap' && (
+          <ClothingSwapMode id={id} data={data} updateNodeData={updateNodeData} onGenerate={handleGenerate} />
+        )}
+        {mode === 'ai_model' && (
+          <AIModelMode id={id} data={data} updateNodeData={updateNodeData} onGenerate={handleGenerate} />
+        )}
+
+        {/* Shared output grid */}
+        {outputs.length > 0 && <OutputGrid outputs={outputs} />}
+      </div>
     </NodeShell>
   );
 };

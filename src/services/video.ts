@@ -988,6 +988,28 @@ export const videoApi = {
     return await response.json();
   },
 
+  // Canvas: concatenate multiple completed VideoNode outputs via backend ffmpeg.
+  // Synchronous round-trip; returns final video_url + duration. Backend rejects
+  // (400 FORMAT_MISMATCH) when inputs differ in resolution/aspect — frontend
+  // is expected to surface the error with the offending indices.
+  concatVideos: async (videoUrls: string[]): Promise<{
+    video_url: string;
+    duration: number;
+    width: number;
+    height: number;
+    input_count: number;
+  }> => {
+    const resp = await apiRequest<{ code: number; data: { video_url: string; duration: number; width: number; height: number; input_count: number } }>(
+      `${API_BASE_URL}/concat-videos/`,
+      {
+        method: 'POST',
+        body: { video_urls: videoUrls },
+        fallbackMessage: 'Failed to concatenate videos',
+      },
+    );
+    return resp.data;
+  },
+
   // 1. Generate Video
   generate: async (payload: unknown) => {
     const csrftoken = getCookie('csrftoken');

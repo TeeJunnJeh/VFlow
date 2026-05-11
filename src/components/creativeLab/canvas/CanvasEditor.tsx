@@ -121,7 +121,14 @@ async function resolveImagePath(url: string): Promise<string> {
   return path;
 }
 
-function CanvasEditorInner() {
+interface CanvasEditorProps {
+  // Optional cross-view navigator (Workbench → setActiveView). Used by
+  // SelectionActionBar to launch the Gallery workspace with the canvas's
+  // current image preloaded.
+  onNavigate?: (view: string) => void;
+}
+
+function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
   const {
     nodes,
     edges,
@@ -558,11 +565,13 @@ function CanvasEditorInner() {
         }
 
         // Step 3: Build payload aligned with workbench (WV:2264-2329)
-        // Model mapping (WV:4114-4121)
+        // Model mapping (WV:4114-4121, 9303 for seedance)
         const backendModel = model === 'sora2pro' ? 'sora-2-pro'
           : model === 'sora2' ? 'sora-2'
+          : model === 'seedance2.0' ? 'seedance-2.0'
           : model; // 'kling' stays as-is
         const isKling = backendModel === 'kling';
+        const isSeedance = backendModel === 'seedance-2.0';
 
         let generatePayload: Record<string, unknown>;
 
@@ -588,6 +597,31 @@ function CanvasEditorInner() {
             mode: 'pro',
             project_id: projectId,
           };
+        } else if (isSeedance) {
+          // Seedance 2.0 payload (mirrors WorkbenchView.tsx:9302-9327 minimal subset).
+          // Seedance prefers image_path + optional image_paths for multi-frame, and
+          // accepts standard sound/aspect_ratio. Duration clamped to its own range.
+          const seedanceDuration = Math.max(4, Math.min(15, Math.round(duration)));
+          generatePayload = {
+            model: backendModel,
+            prompt: fullPrompt,
+            duration: seedanceDuration,
+            sound: sound ? 'on' : 'off',
+            aspect_ratio: aspectRatio,
+            asset_source: 'product',
+            user_language: language,
+            target_language: language,
+            project_id: projectId,
+            model_asset_id: null,
+            motion_asset_id: null,
+            mode: 'pro',
+          };
+          if (uploadedPaths[0]) {
+            generatePayload.image_path = uploadedPaths[0];
+          }
+          if (uploadedPaths.length > 1) {
+            generatePayload.image_paths = uploadedPaths;
+          }
         } else {
           // Sora / other models payload (WV:2332-2356)
           generatePayload = {
@@ -692,8 +726,15 @@ function CanvasEditorInner() {
         return;
       }
 
-      // Create N PROCESSING ImageNode placeholders horizontally
+      // Create N PROCESSING ImageNode placeholders horizontally. Each one is
+      // marked mode='first_frame' with the full config snapshot so that:
+      //   - The node renders the FirstFrameMode UI on completion
+      //   - Per-node regenerate (P0-4) can replay this exact call
       const placeholderIds: string[] = [];
+      const firstFrameModelValue = (['nano-banana-pro', 'flux-2-pro', 'gpt-image-1.5'].includes(model)
+        ? model
+        : 'nano-banana-pro') as ImageNodeData['firstFrameModel'];
+      const safeOutputCount = (Math.max(1, Math.min(4, outputCount)) as 1 | 2 | 3 | 4);
       for (let i = 0; i < outputCount; i += 1) {
         const newId = nextId();
         placeholderIds.push(newId);
@@ -704,6 +745,11 @@ function CanvasEditorInner() {
           imageUrl: null,
           assetId: null,
           source: 'generated',
+          mode: 'first_frame',
+          firstFramePrompt: fullPrompt,
+          firstFrameModel: firstFrameModelValue,
+          firstFrameReferenceUrls: referenceUrls,
+          outputCount: safeOutputCount,
         };
         addNode({
           id: newId,
@@ -849,6 +895,79 @@ function CanvasEditorInner() {
     return () => window.removeEventListener('canvas:regenerate', handler);
   }, [handleBatchGenerate, handleBatchGenerateImage, handleGenerateScript]);
 
+  // Concatenate selected VideoNodes via the backend ffmpeg endpoint.
+  // Creates a PROCESSING placeholder VideoNode to the right of the input set,
+  // then fills it on success. On 400 FORMAT_MISMATCH, surfaces the error
+  // (backend payload includes mismatched indices).
+  const handleConcatenateVideos = useCallback(
+    async (videoSourceNodes: CanvasNode[], orderedVideoUrls: string[]) => {
+      if (videoSourceNodes.length < 2 || orderedVideoUrls.length < 2) return;
+
+      // Anchor position to the right of rightmost input
+      let maxX = -Infinity;
+      let sumY = 0;
+      videoSourceNodes.forEach((n) => {
+        if (n.position.x > maxX) maxX = n.position.x;
+        sumY += n.position.y;
+      });
+      const avgY = sumY / videoSourceNodes.length;
+
+      // Carry over aspect ratio from first input (it's the validation key anyway).
+      const firstData = videoSourceNodes[0].data as VideoNodeData;
+      const newId = nextId();
+      const placeholderData: VideoNodeData = {
+        kind: 'video',
+        label: 'Concatenated Video',
+        status: 'running',
+        videoUrl: null,
+        thumbnailUrl: firstData.thumbnailUrl,
+        taskId: null,
+        projectId: null,
+        prompt: `Concat of ${orderedVideoUrls.length} clips`,
+        model: 'concat',
+        duration: 0,
+        aspectRatio: firstData.aspectRatio,
+      };
+      addNode({
+        id: newId,
+        type: 'video',
+        position: { x: maxX + 350, y: avgY },
+        data: placeholderData,
+      } as CanvasNode);
+      videoSourceNodes.forEach((src) => {
+        useCanvasStore.getState().onConnect({
+          source: src.id,
+          target: newId,
+          sourceHandle: null,
+          targetHandle: null,
+        });
+      });
+
+      try {
+        const result = await videoApi.concatVideos(orderedVideoUrls);
+        updateNodeData(newId, {
+          status: 'completed',
+          videoUrl: result.video_url,
+          duration: result.duration,
+        } as Partial<VideoNodeData>);
+      } catch (err: any) {
+        // Backend uses error_code='FORMAT_MISMATCH' for resolution mismatches;
+        // we surface a friendly message with the offending indices when available.
+        let msg = 'Concatenation failed';
+        if (err?.errorCode === 'FORMAT_MISMATCH') {
+          const mm = (err?.data?.mismatched || []) as Array<{ index: number; width: number; height: number }>;
+          const expected = `${err?.data?.expected_width || '?'}×${err?.data?.expected_height || '?'}`;
+          const offenders = mm.map((m) => `#${m.index + 1} (${m.width}×${m.height})`).join(', ');
+          msg = `Resolution mismatch. Expected ${expected}. Offenders: ${offenders}`;
+        } else if (err instanceof Error) {
+          msg = err.message;
+        }
+        updateNodeData(newId, { status: 'failed', error: msg } as Partial<VideoNodeData>);
+      }
+    },
+    [addNode, updateNodeData],
+  );
+
   // Sync task status from TaskContext → VideoNode status
   useEffect(() => {
     nodes.forEach((node) => {
@@ -873,6 +992,154 @@ function CanvasEditorInner() {
       }
     });
   }, [tasks, nodes, updateNodeData]);
+
+  // Inline video generation — fired by VideoNode's in-node Generate button via
+  // `canvas:generate-inline` CustomEvent. Unlike `canvas:regenerate`, this does
+  // NOT spawn a new node; it mutates the targeted VideoNode (status='running',
+  // taskId set). The existing TaskContext sync useEffect (line ~972) flips the
+  // node to completed when the task finishes.
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const ce = e as CustomEvent<{ nodeId: string }>;
+      const targetId = ce.detail?.nodeId;
+      if (!targetId) return;
+      const state = useCanvasStore.getState();
+      const targetNode = state.nodes.find((n) => n.id === targetId);
+      if (!targetNode || targetNode.type !== 'video') return;
+      const targetData = targetNode.data as VideoNodeData;
+      const prompt = (targetData.prompt || '').trim();
+      if (!prompt) return;
+
+      const userId = user?.id;
+      if (!userId) return;
+
+      // Collect upstream image refs from incoming edges (text refs are folded
+      // into prompt by the user; only images need to be passed as image_path).
+      const upstreamIds = state.edges
+        .filter((edge) => edge.target === targetId)
+        .map((edge) => edge.source);
+      const upstreamImageUrls: string[] = state.nodes
+        .filter((n) => upstreamIds.includes(n.id) && n.type === 'image')
+        .map((n) => (n.data as ImageNodeData).imageUrl || '')
+        .filter(Boolean);
+
+      // Mark running immediately so the button flips to 生成中
+      updateNodeData(targetId, { status: 'running', error: undefined } as Partial<VideoNodeData>);
+
+      try {
+        // Step 1: Create project (mirrors handleBatchGenerate path)
+        const createResp = await videoApi.createProject(userId, {
+          title: prompt.slice(0, 50) || 'Canvas Video',
+          aspect_ratio: targetData.aspectRatio,
+        });
+        const respData = createResp?.data || createResp;
+        const projectId = String(respData?.id || respData?.project_id || '');
+        if (!projectId) throw new Error('Failed to create project');
+        updateNodeData(targetId, { projectId } as Partial<VideoNodeData>);
+
+        // Step 2: Resolve upstream image URLs to server paths
+        const uploadedPaths: string[] = [];
+        for (const url of upstreamImageUrls) {
+          uploadedPaths.push(await resolveImagePath(url));
+        }
+
+        // Step 3: Build per-model payload (identical to handleBatchGenerate)
+        const model = targetData.model;
+        const duration = targetData.duration;
+        const aspectRatio = targetData.aspectRatio;
+        const backendModel = model === 'sora2pro' ? 'sora-2-pro'
+          : model === 'sora2' ? 'sora-2'
+          : model === 'seedance2.0' ? 'seedance-2.0'
+          : model;
+        const isKling = backendModel === 'kling';
+        const isSeedance = backendModel === 'seedance-2.0';
+
+        let generatePayload: Record<string, unknown>;
+        if (isKling && uploadedPaths.length > 0) {
+          generatePayload = {
+            model: backendModel,
+            prompt,
+            duration,
+            sound: 'off',
+            kling_mode: 'first_frame',
+            omni_assets: uploadedPaths.map((url, i) => ({
+              role: i === 0 ? 'first_frame' : 'reference',
+              image_url: url,
+              asset_id: null,
+              name: `canvas_image_${i}`,
+            })),
+            user_language: language,
+            target_language: language,
+            model_asset_id: null,
+            motion_asset_id: null,
+            aspect_ratio: aspectRatio,
+            mode: 'pro',
+            project_id: projectId,
+          };
+        } else if (isSeedance) {
+          const seedanceDuration = Math.max(4, Math.min(15, Math.round(duration)));
+          generatePayload = {
+            model: backendModel,
+            prompt,
+            duration: seedanceDuration,
+            sound: 'on',
+            aspect_ratio: aspectRatio,
+            asset_source: 'product',
+            user_language: language,
+            target_language: language,
+            project_id: projectId,
+            model_asset_id: null,
+            motion_asset_id: null,
+            mode: 'pro',
+          };
+          if (uploadedPaths[0]) generatePayload.image_path = uploadedPaths[0];
+          if (uploadedPaths.length > 1) generatePayload.image_paths = uploadedPaths;
+        } else {
+          generatePayload = {
+            model: backendModel,
+            prompt,
+            duration,
+            sound: 'on',
+            project_id: projectId,
+            aspect_ratio: aspectRatio,
+            user_language: language,
+            target_language: language,
+            mode: 'pro',
+            model_asset_id: null,
+            motion_asset_id: null,
+          };
+          if (uploadedPaths[0]) generatePayload.image_path = uploadedPaths[0];
+          if (backendModel.startsWith('sora')) {
+            generatePayload.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
+          }
+        }
+
+        const genResp = await videoApi.generate(generatePayload);
+        const genData = genResp?.data || genResp;
+        const taskId = genData?.task_id;
+        if (!taskId) throw new Error('No task_id returned from generate');
+
+        updateNodeData(targetId, { taskId: String(taskId) } as Partial<VideoNodeData>);
+
+        // Hand off to TaskContext so the existing sync useEffect (line ~972)
+        // will flip the node to 'completed' once the polling finishes.
+        addTask({
+          id: taskId,
+          projectId,
+          type: 'video_generation',
+          status: 'processing',
+          name: prompt.slice(0, 30) || 'Canvas Video',
+          thumbnail: uploadedPaths[0] || undefined,
+          createdAt: Date.now(),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Video generation failed';
+        updateNodeData(targetId, { status: 'failed', error: msg } as Partial<VideoNodeData>);
+      }
+    };
+    window.addEventListener('canvas:generate-inline', handler);
+    return () => window.removeEventListener('canvas:generate-inline', handler);
+  }, [updateNodeData, user, language, addTask]);
 
   // MagicCompose: drop a TextNode carrying the user prompt and trigger script generation
   // against it. The existing handleGenerateScript path connects them and fans out shots.
@@ -1063,6 +1330,8 @@ function CanvasEditorInner() {
         onBatchGenerate={handleBatchGenerate}
         onGenerateScript={handleGenerateScript}
         onBatchGenerateImage={handleBatchGenerateImage}
+        onOpenInGallery={onNavigate ? () => onNavigate('product_images_gallery') : undefined}
+        onConcatenateVideos={handleConcatenateVideos}
       />
 
       {/* Context menu */}
@@ -1086,10 +1355,10 @@ function CanvasEditorInner() {
   );
 }
 
-export const CanvasEditor: React.FC = () => {
+export const CanvasEditor: React.FC<CanvasEditorProps> = ({ onNavigate }) => {
   return (
     <ReactFlowProvider>
-      <CanvasEditorInner />
+      <CanvasEditorInner onNavigate={onNavigate} />
     </ReactFlowProvider>
   );
 };

@@ -20,11 +20,64 @@ export interface TextNodeData extends BaseNodeData {
 }
 
 // --- Image Node ---
+// Unified image source on the canvas. `mode` indicates HOW the image came to be.
+// Each mode reads only the subset of optional fields it needs; downstream
+// consumers always read `imageUrl` / `outputs`. Old ImageNodes (no mode field)
+// render as mode='upload' for backward compat.
+export type ImageNodeMode =
+  | 'upload'
+  | 'first_frame'
+  | 'smart_repair'
+  | 'clothing_swap'
+  | 'ai_model';
+
+export type ImageNodeOutput = {
+  imageUrl: string;
+  assetId?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 export interface ImageNodeData extends BaseNodeData {
   kind: 'image';
+
+  // Primary output indirection (downstream consumers read these)
   imageUrl: string | null;
   assetId: string | null;
   source: 'upload' | 'generated' | 'library';
+
+  // Mode switcher (default 'upload' if absent for backward compat)
+  mode?: ImageNodeMode;
+
+  // Multi-output store + async polling reanimation
+  outputs?: ImageNodeOutput[];
+  pendingRequestIds?: string[];
+  outputCount?: 1 | 2 | 3 | 4;
+
+  // -- mode === 'first_frame' --
+  firstFramePrompt?: string;
+  firstFrameModel?: 'nano-banana-pro' | 'flux-2-pro' | 'gpt-image-1.5';
+  firstFrameReferenceUrls?: string[];
+
+  // -- mode === 'smart_repair' --
+  smartRepairSourceUrl?: string | null;
+  smartRepairPrompt?: string;
+  smartRepairModel?: 'nano-banana-pro' | 'flux-2-pro' | 'gpt-image-1.5';
+  smartRepairStrength?: 'light' | 'medium' | 'strong';
+
+  // -- mode === 'clothing_swap' --
+  clothingSwapModelUrl?: string | null;
+  clothingSwapGarmentUrl?: string | null;
+  // Matches backend `ClothingSwapCategory` (Top / Bottom / Full Body) but in
+  // lowercase + snake; capitalized at call time inside the handler.
+  clothingSwapCategory?: 'top' | 'bottom' | 'full_body';
+
+  // -- mode === 'ai_model' --
+  aiModelMode?: 'virtual' | 'real';
+  aiModelPrompt?: string;
+  aiModelGender?: 'female' | 'male' | 'no_limit';
+  aiModelStyle?: 'commercial' | 'fashion' | 'lifestyle';
+  aiModelRealSourceUrl?: string | null;
+  aiModelRealBrief?: string;
 }
 
 // --- Video Node ---

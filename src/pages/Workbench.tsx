@@ -694,7 +694,7 @@ const Workbench = () => {
 
           <div className={activeView === 'creative_lab_canvas' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <ViewErrorBoundary label="CanvasEditor">
-              <CanvasEditor />
+              <CanvasEditor onNavigate={(view) => setActiveView(view as ViewType)} />
             </ViewErrorBoundary>
           </div>
 

@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Video, FileText, ImageIcon, Trash2, Copy, Play, Loader2, X, ScrollText, Film } from 'lucide-react';
+import { Video, FileText, ImageIcon, Trash2, Copy, Play, Loader2, X, ScrollText, Film, LayoutGrid } from 'lucide-react';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
-import type { CanvasNodeData, VideoNodeData, CanvasNode, TextNodeData, ScriptNodeData } from '../canvasTypes';
+import type { CanvasNodeData, VideoNodeData, CanvasNode, TextNodeData, ScriptNodeData, ImageNodeData } from '../canvasTypes';
 import { CanvasModelChips, type CanvasModelChipOption } from './CanvasModelChips';
+import { setCanvasToGalleryTransfer } from '../../canvasToGalleryTransfer';
 
 const MODEL_OPTIONS: CanvasModelChipOption[] = [
   { value: 'kling', label: 'Kling', color: 'purple' },
   { value: 'sora2', label: 'Sora 2', color: 'purple' },
   { value: 'sora2pro', label: 'Sora 2 Pro', color: 'purple' },
+  { value: 'seedance2.0', label: 'Seedance', color: 'purple' },
 ];
 
 // Image gen models match productImages/Common/ModelSelectorChips so node + workspace stay in sync.
@@ -26,7 +28,7 @@ function nextId() {
   return `node_${Date.now()}_${++nodeIdCounter}`;
 }
 
-type GenStep = null | 'choose' | 'video' | 'script' | 'image';
+type GenStep = null | 'choose' | 'video' | 'script' | 'image' | 'concat';
 
 interface SelectionActionBarProps {
   onBatchGenerate?: (
@@ -60,9 +62,11 @@ interface SelectionActionBarProps {
     aspectRatio: VideoNodeData['aspectRatio'],
     outputCount: number
   ) => void;
+  onOpenInGallery?: () => void;
+  onConcatenateVideos?: (videoNodes: CanvasNode[], orderedVideoUrls: string[]) => void;
 }
 
-export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchGenerate, onGenerateScript, onBatchGenerateImage }) => {
+export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchGenerate, onGenerateScript, onBatchGenerateImage, onOpenInGallery, onConcatenateVideos }) => {
   const { t } = useLanguage();
   const selectedNodes = useCanvasStore((s) => s.selectedNodes);
   const removeNodes = useCanvasStore((s) => s.removeNodes);
@@ -90,6 +94,10 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
   const [imageModel, setImageModel] = useState('nano-banana-pro');
   const [imageRatio, setImageRatio] = useState<VideoNodeData['aspectRatio']>('9:16');
   const [imageOutputCount, setImageOutputCount] = useState(1);
+
+  // Concat ordering — user manually reorders the selected videos before submitting.
+  // Initial order populated when entering step='concat'; kept in sync with selection.
+  const [concatOrder, setConcatOrder] = useState<string[]>([]);
 
   if (selectedNodes.length === 0) return null;
 
@@ -173,6 +181,74 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
     }
   };
 
+  // "Open in Gallery" — single ImageNode with non-empty imageUrl
+  const singleImageWithUrl = (() => {
+    if (selectedNodes.length !== 1) return null;
+    const n = selectedNodes[0];
+    const d = n.data as ImageNodeData;
+    if (d.kind !== 'image' || !d.imageUrl) return null;
+    return { nodeId: n.id, imageUrl: d.imageUrl };
+  })();
+
+  const handleOpenInGallery = () => {
+    if (!singleImageWithUrl || !onOpenInGallery) return;
+    setCanvasToGalleryTransfer({
+      productImageUrl: singleImageWithUrl.imageUrl,
+      fromNodeId: singleImageWithUrl.nodeId,
+    });
+    onOpenInGallery();
+  };
+
+  // ---- Concatenate ----
+  // Only completed VideoNodes with a videoUrl are eligible. Need 2+ to concat.
+  const concatCandidates = videoNodes.filter((n) => {
+    const d = n.data as VideoNodeData;
+    return d.status === 'completed' && !!d.videoUrl;
+  });
+  const canConcatenate = concatCandidates.length >= 2;
+
+  // When user opens the concat step, seed the order from current selection
+  // sorted top-to-bottom by Y position (user choice from Q3 was reorderable).
+  const openConcatStep = () => {
+    const sorted = [...concatCandidates].sort((a, b) => a.position.y - b.position.y);
+    setConcatOrder(sorted.map((n) => n.id));
+    setStep('concat');
+  };
+
+  const moveConcatItem = (nodeId: string, direction: -1 | 1) => {
+    setConcatOrder((prev) => {
+      const idx = prev.indexOf(nodeId);
+      if (idx < 0) return prev;
+      const target = idx + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  };
+
+  const handleSubmitConcat = async () => {
+    if (concatOrder.length < 2) return;
+    const orderedNodes: CanvasNode[] = [];
+    const orderedUrls: string[] = [];
+    concatOrder.forEach((id) => {
+      const node = concatCandidates.find((n) => n.id === id);
+      if (!node) return;
+      const url = (node.data as VideoNodeData).videoUrl;
+      if (!url) return;
+      orderedNodes.push(node);
+      orderedUrls.push(url);
+    });
+    if (orderedUrls.length < 2) return;
+    setIsGenerating(true);
+    try {
+      onConcatenateVideos?.(orderedNodes, orderedUrls);
+    } finally {
+      setIsGenerating(false);
+      setStep('choose');
+    }
+  };
+
   // Summary
   const parts: string[] = [];
   if (imageNodes.length > 0) parts.push(`${imageNodes.length} ${t.canvas_node_image}`);
@@ -194,6 +270,16 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
         <span className="text-xs text-zinc-400">{summary}</span>
         <div className="flex items-center gap-1">
+          {singleImageWithUrl && onOpenInGallery && (
+            <button
+              onClick={handleOpenInGallery}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 transition-colors"
+              title="Open this image in the Gallery workspace"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Open in Gallery
+            </button>
+          )}
           <button
             onClick={handleCopySelected}
             className="p-1.5 rounded-md hover:bg-white/5 text-zinc-400 hover:text-zinc-200 transition-colors"
@@ -249,6 +335,116 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
                 <Film className="w-4.5 h-4.5 text-purple-400" />
               </div>
               <span className="text-[11px] text-zinc-300 font-medium">{t.canvas_gen_type_video}</span>
+            </button>
+          </div>
+
+          {/* Concatenate (only when 2+ completed VideoNodes are selected) */}
+          {canConcatenate && onConcatenateVideos && (
+            <div className="mt-3 pt-3 border-t border-white/5">
+              <button
+                onClick={openConcatStep}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-purple-500/30 bg-purple-500/5 hover:bg-purple-500/10 text-purple-200 transition-colors"
+              >
+                <Film className="w-3.5 h-3.5" />
+                <span className="text-xs font-medium">
+                  {((t as Record<string, string | undefined>).canvas_concat_button || 'Concatenate {n} videos into one')
+                    .replace('{n}', String(concatCandidates.length))}
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 2d: Concatenate videos */}
+      {step === 'concat' && (
+        <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Film className="w-4 h-4 text-purple-400" />
+              <span className="text-xs font-medium text-zinc-200">
+                {(t as Record<string, string | undefined>).canvas_concat_title || 'Concatenate Videos'}
+              </span>
+            </div>
+            <button
+              onClick={() => setStep('choose')}
+              className="p-1 rounded hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-500">
+            {(t as Record<string, string | undefined>).canvas_concat_help
+              || 'Reorder with ↑/↓. Videos must share the same resolution; backend will reject mismatches.'}
+          </p>
+
+          <div className="space-y-1.5 max-h-[260px] overflow-y-auto custom-scroll">
+            {concatOrder.map((nodeId, idx) => {
+              const node = concatCandidates.find((n) => n.id === nodeId);
+              if (!node) return null;
+              const d = node.data as VideoNodeData;
+              return (
+                <div
+                  key={nodeId}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-zinc-800/60 border border-white/5"
+                >
+                  <span className="text-[10px] font-bold text-zinc-400 w-4 text-center">{idx + 1}</span>
+                  {d.thumbnailUrl ? (
+                    <img src={d.thumbnailUrl} alt="" className="w-10 h-10 rounded object-cover bg-black/40" />
+                  ) : (
+                    <div className="w-10 h-10 rounded bg-black/40 flex items-center justify-center">
+                      <Film className="w-4 h-4 text-zinc-500" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] text-zinc-300 truncate">
+                      {d.prompt ? d.prompt.slice(0, 40) : `Video ${idx + 1}`}
+                    </div>
+                    <div className="text-[10px] text-zinc-500">
+                      {d.duration}s · {d.aspectRatio} · {d.model}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => moveConcatItem(nodeId, -1)}
+                      disabled={idx === 0}
+                      className="p-0.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Move up"
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 12 12" fill="currentColor"><path d="M6 3L2 7h8z" /></svg>
+                    </button>
+                    <button
+                      onClick={() => moveConcatItem(nodeId, 1)}
+                      disabled={idx === concatOrder.length - 1}
+                      className="p-0.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Move down"
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 12 12" fill="currentColor"><path d="M6 9l4-4H2z" /></svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={() => setStep('choose')}
+              className="px-3 py-1.5 rounded-md text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+            >
+              {t.canvas_gen_cancel || 'Cancel'}
+            </button>
+            <button
+              onClick={handleSubmitConcat}
+              disabled={isGenerating || concatOrder.length < 2}
+              className="px-4 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-purple-600 hover:bg-purple-500 text-white"
+            >
+              {isGenerating ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5" />
+              )}
+              {(t as Record<string, string | undefined>).canvas_concat_submit || 'Concatenate'}
             </button>
           </div>
         </div>

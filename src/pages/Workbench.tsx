@@ -599,7 +599,7 @@ const Workbench = () => {
 
   return (
     <WorkbenchModelProvider>
-      <div className="flex h-screen overflow-hidden bg-zinc-950/70 text-zinc-100 font-sans">
+      <div className="flex h-screen overflow-hidden bg-[#050505] text-zinc-100 font-sans">
         {shouldShowSidebar && (
             <Sidebar
               activeView={activeView}

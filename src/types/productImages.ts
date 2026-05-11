@@ -132,7 +132,13 @@ export type SmartRepairToolCode =
   | 'text_replace'
   | 'custom_retouch';
 
-export type SmartRepairModel = 'flux-2-pro' | 'flux-2-max' | 'flux-2-flex' | 'flux-2-dev';
+// AI 智能修复支持的 3 个模型（与 AI 商品套图 / AI 首帧图共用同一套）：
+//   - nano-banana-pro  → 后端异步轮询（Nano Banana Edit）
+//   - flux-2-pro       → 后端同步（Flux 2 Pro）
+//   - gpt-image-1.5    → 后端同步（OpenAI-compat / GPT image 1.5）
+// 旧 localStorage 里可能残留 'flux-2-max' / 'flux-2-flex' / 'flux-2-dev'，
+// 由 SmartRepairView 的 sanity-check fallback 到 'flux-2-pro'。
+export type SmartRepairModel = 'nano-banana-pro' | 'flux-2-pro' | 'gpt-image-1.5';
 
 export interface SmartRepairParams {
   prompt: string;

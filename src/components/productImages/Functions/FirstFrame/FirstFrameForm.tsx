@@ -6,13 +6,7 @@ import { billingApi } from '../../../../services/billing';
 import { productImagesApi } from '../../../../services/productImagesApi';
 import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameOpeningScene, FirstFrameParams } from '../../../../types/productImages';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
-import {
-  AspectRatioPicker,
-  ModelSelectorChips,
-  type ModelSelectorValue,
-  firstFrameRatiosForModel,
-  ratioDescriptorsForLanguage,
-} from '../../Common';
+import { AspectRatioPicker, firstFrameRatiosForModel, ratioDescriptorsForLanguage } from '../../Common';
 
 interface FirstFrameFormProps {
   images: File[];
@@ -40,10 +34,8 @@ const FALLBACK_PARAMS: FirstFrameParams = {
 
 const NANO_BANANA_FIRST_FRAME_MODEL: FirstFrameModel = 'nano-banana-pro';
 const GPT_FIRST_FRAME_MODELS: FirstFrameModel[] = ['gpt-image-1.5'];
-// 与 ModelSelectorChips 默认 3 选项保持一致：NanoBanana / Flux 2 Pro / GPT image 1.5
 const VISIBLE_FIRST_FRAME_MODELS: FirstFrameModel[] = [
   NANO_BANANA_FIRST_FRAME_MODEL,
-  'flux-2-pro',
   'gpt-image-1.5',
 ];
 
@@ -83,8 +75,7 @@ const normalizeFirstFrameOpeningScene = (value?: FirstFrameParams['openingScene'
 };
 
 const normalizeFirstFrameParams = (params: FirstFrameParams): FirstFrameParams => {
-  // 保留用户选择的 model（在 VISIBLE_FIRST_FRAME_MODELS 内），否则 fallback 到默认 Nano Banana
-  const model = normalizeFirstFrameModel(params.model);
+  const model = NANO_BANANA_FIRST_FRAME_MODEL;
   return {
     ...params,
     model,
@@ -117,6 +108,14 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
       ...(defaultParams || {}),
     }),
     [defaultParams]
+  );
+
+  const models = useMemo(
+    () => [
+      { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
+      { label: 'GPT Image 1.5', value: 'gpt-image-1.5' },
+    ],
+    []
   );
 
   const openingSceneOptions = useMemo(
@@ -342,25 +341,22 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
         </div>
 
         <div className="space-y-6">
-          <div>
-            <ModelSelectorChips
-              value={normalizeFirstFrameModel(formData.model) as ModelSelectorValue}
-              onChange={(next) => {
-                const nextModel = next as FirstFrameModel;
+          <div className="hidden">
+            <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.wb_model_title || t.ff_style_label}</label>
+            <DropdownSelect
+              value={formData.model || ''}
+              options={models}
+              onChange={(value) => {
+                const nextModel = value as FirstFrameModel;
                 setFormData({
                   ...formData,
                   model: nextModel,
                   aspectRatio: normalizeFirstFrameAspectRatio(formData.aspectRatio, nextModel),
                 });
-                if (errors.model) {
-                  setErrors((prev) => {
-                    const cleaned = { ...prev };
-                    delete cleaned.model;
-                    return cleaned;
-                  });
-                }
               }}
-              orientation="vertical"
+              buttonClassName={`w-full bg-zinc-900/70 border rounded-xl px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 ${errors.model ? 'border-red-500' : 'border-white/10'}`}
+              iconClassName="w-4 h-4 text-zinc-500"
+              optionClassName="text-sm"
             />
             {errors.model && <p className="text-red-400 text-xs mt-1">{errors.model}</p>}
           </div>

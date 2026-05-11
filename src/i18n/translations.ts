@@ -1,4 +1,4 @@
-﻿// src/i18n/translations.ts
+// src/i18n/translations.ts
 
 export const translations = {
   en: {

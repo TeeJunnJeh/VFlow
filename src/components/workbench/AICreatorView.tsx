@@ -36,6 +36,7 @@ import {
 } from '../../services/aiCreator';
 import { videoApi } from '../../services/video';
 import { assetsApi } from '../../services/assets';
+import { ApiError } from '../../services/errors';
 import { AppDialog } from '../common/AppDialog';
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
@@ -388,6 +389,22 @@ export const AICreatorView: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!activeConversationId) return;
+    if (conversations.some((c) => c.id === activeConversationId)) return;
+    setActiveConversationId(null);
+    setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
+    setResults([]);
+    setUploadedImages([]);
+    setEditingIdx(null);
+    setEditText('');
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore storage errors
+    }
+  }, [activeConversationId, conversations, isZh]);
+
+  useEffect(() => {
     // Persist active conversation id so it survives tab switch / refresh
     try {
       if (activeConversationId) {
@@ -404,14 +421,14 @@ export const AICreatorView: React.FC = () => {
   // 只刷新消息，不恢复缓存，避免覆盖当前正在编辑的状态
   useEffect(() => {
     const onVisible = () => {
-      if (!document.hidden && activeConversationId) {
-        void loadConversation(activeConversationId, { skipStateRestore: true });
+      if (!document.hidden && activeConversationId && conversations.some((c) => c.id === activeConversationId)) {
+        void loadConversation(activeConversationId, { skipStateRestore: true, silent: true });
       }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId]);
+  }, [activeConversationId, conversations]);
 
   // 监听全局任务队列，当 AI Creator 生成的视频任务完成时更新结果卡片
   useEffect(() => {
@@ -498,7 +515,7 @@ export const AICreatorView: React.FC = () => {
     // Optionally auto-create on first message
   };
 
-  const loadConversation = async (id: string, options?: { skipStateRestore?: boolean }) => {
+  const loadConversation = async (id: string, options?: { skipStateRestore?: boolean; silent?: boolean }) => {
     if (convoLoading) return;
 
     // 切走前先把当前会话的临时状态缓存下来
@@ -545,7 +562,34 @@ export const AICreatorView: React.FC = () => {
       setEditingIdx(null);
       setEditText('');
     } catch (e: any) {
-      openInfo('Error', e?.message || 'Failed to load conversation');
+      const isNotFound = (e instanceof ApiError && e.status === 404)
+        || String(e?.message || '').includes('对话不存在');
+      if (isNotFound) {
+        setConversations((prev) => prev.filter((c) => c.id !== id));
+        setActiveConversationId(null);
+        setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
+        setResults([]);
+        setUploadedImages([]);
+        setEditingIdx(null);
+        setEditText('');
+        try {
+          window.localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // ignore storage errors
+        }
+        if (!options?.silent) {
+          openInfo(
+            isZh ? '提示' : 'Notice',
+            isZh ? '该对话已不存在，已为你创建新对话。' : 'This conversation no longer exists. A new chat has been started.',
+          );
+        }
+        return;
+      }
+      if (!options?.silent) {
+        openInfo('Error', e?.message || 'Failed to load conversation');
+      } else {
+        console.error('Failed to refresh conversation:', e);
+      }
     } finally {
       setConvoLoading(false);
     }

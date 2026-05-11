@@ -1,7 +1,7 @@
 import React from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Shield, Lock, Sparkles, ShoppingCart, Globe, Clock, TrendingUp } from 'lucide-react';
+import { ArrowRight, Shield, Lock, Sparkles, ShoppingCart, Globe, Clock, TrendingUp, ChevronLeft, ChevronRight, Zap, Brain, Wand2, Video, Image, Layers } from 'lucide-react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from '../components/common/LanguageSwitcher';
@@ -124,6 +124,84 @@ const LandingPage = () => {
     show: { y: 0, opacity: 1, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const } }
   };
 
+  const demoSlides = React.useMemo(() => ([
+    {
+      kind: 'video' as const,
+      src: '/intro-page-demo/kling_7b04ff964d.mp4',
+      title: '视频生成',
+      description: '一键生成脚本，实现可视化编辑',
+    },
+    {
+      kind: 'image' as const,
+      src: '/intro-page-demo/anime_ip_after.jpg',
+      title: 'AI 智能修复',
+      description: '智能修复图片中的服装质量问题。',
+    },
+    {
+      kind: 'image' as const,
+      src: '/intro-page-demo/repainted.jpeg',
+      title: 'AI 海报编辑',
+      description: 'AI + 手动调节商品套图文字位置，实现智能化编辑',
+    },
+    {
+      kind: 'image' as const,
+      src: '/intro-page-demo/product_gallery_demo.png',
+      title: 'AI 商品套图',
+      description: '多图展示，助力商品销售。',
+    },
+    {
+      kind: 'image' as const,
+      src: '/intro-page-demo/first_frame_demo.png',
+      title: 'AI 首帧图',
+      description: 'AI 生成视频首帧，提升视频质量。',
+    },
+    {
+      kind: 'image' as const,
+      src: '/intro-page-demo/clothing_demo.png',
+      title: 'AI 换装',
+      description: 'AI 换装人物，实现个性化编辑。',
+    }
+  ]), []);
+
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+  const [isCarouselHovered, setIsCarouselHovered] = useState(false);
+
+  React.useEffect(() => {
+    if (demoSlides.length <= 1) return;
+    if (isCarouselHovered) return;
+    const intervalId = window.setInterval(() => {
+      if (document.hidden) return;
+      setActiveSlideIndex((prev) => (prev + 1) % demoSlides.length);
+    }, 2000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [demoSlides.length, isCarouselHovered]);
+
+  const normalizeSlideOffset = React.useCallback((idx: number) => {
+    const len = demoSlides.length;
+    if (len <= 1) return 0;
+    let offset = idx - activeSlideIndex;
+    if (offset > len / 2) offset -= len;
+    if (offset < -len / 2) offset += len;
+    return offset;
+  }, [activeSlideIndex, demoSlides.length]);
+
+  const goToSlide = React.useCallback((nextIndex: number) => {
+    const len = demoSlides.length;
+    if (len === 0) return;
+    const wrapped = ((nextIndex % len) + len) % len;
+    setActiveSlideIndex(wrapped);
+  }, [demoSlides.length]);
+
+  const goPrev = React.useCallback(() => {
+    goToSlide(activeSlideIndex - 1);
+  }, [activeSlideIndex, goToSlide]);
+
+  const goNext = React.useCallback(() => {
+    goToSlide(activeSlideIndex + 1);
+  }, [activeSlideIndex, goToSlide]);
+
   return (
       <motion.div
           initial={{ opacity: 0 }}
@@ -224,320 +302,314 @@ const LandingPage = () => {
             </p>
           </div>
 
-          <div className="mt-14 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-              <div className="w-11 h-11 rounded-xl bg-violet-500/15 border border-violet-500/20 flex items-center justify-center mb-4">
-                <ShoppingCart size={20} className="text-violet-200" />
-              </div>
-              <h3 className="text-white font-extrabold text-lg">电商商品一键转视频</h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">商品链接/图片 → 自动生成卖点脚本与镜头结构。</p>
+          <div className="mt-14">
+            <div className="max-w-3xl">
+              <h2 className="text-2xl md:text-3xl font-black text-white">案例预览</h2>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-              <div className="w-11 h-11 rounded-xl bg-orange-500/15 border border-orange-500/20 flex items-center justify-center mb-4">
-                <Sparkles size={20} className="text-orange-200" />
-              </div>
-              <h3 className="text-white font-extrabold text-lg">爆款风格模板</h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">快速套用 TikTok / Reels 常见脚本结构与节奏。</p>
-            </div>
+            <div
+              className="relative mt-7"
+              onMouseEnter={() => setIsCarouselHovered(true)}
+              onMouseLeave={() => setIsCarouselHovered(false)}
+            >
+              <button
+                type="button"
+                onClick={goPrev}
+                className="absolute left-0 top-1/2 -translate-y-1/2 h-11 w-11 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition inline-flex items-center justify-center"
+                aria-label="Previous"
+              >
+                <ChevronLeft className="w-5 h-5 text-white" />
+              </button>
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-              <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center mb-4">
-                <Clock size={20} className="text-emerald-200" />
-              </div>
-              <h3 className="text-white font-extrabold text-lg">更快产出</h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">从素材到成片流程可视化，减少反复沟通与手工剪辑。</p>
-            </div>
+              <button
+                type="button"
+                onClick={goNext}
+                className="absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition inline-flex items-center justify-center"
+                aria-label="Next"
+              >
+                <ChevronRight className="w-5 h-5 text-white" />
+              </button>
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-              <div className="w-11 h-11 rounded-xl bg-sky-500/15 border border-sky-500/20 flex items-center justify-center mb-4">
-                <Globe size={20} className="text-sky-200" />
-              </div>
-              <h3 className="text-white font-extrabold text-lg">面向全球投放</h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">适配海外电商常用渠道与内容形态，助你极速出海。</p>
-            </div>
-          </div>
+              <div className="px-14 md:px-16">
+                <div className="relative aspect-[16/9]">
+                  {demoSlides.map((slide, idx) => {
+                    const offset = normalizeSlideOffset(idx);
+                    const isActive = offset === 0;
+                    const isNearby = Math.abs(offset) <= 1;
 
-          <div className="mt-16 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8">
-              <h2 className="text-2xl font-black text-white">怎么用</h2>
-              <ol className="mt-5 space-y-4 text-slate-300">
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10 border border-white/10 text-sm font-black text-white">1</span>
-                  <div>
-                    <div className="font-bold text-white">上传素材</div>
-                    <div className="text-sm leading-relaxed">上传商品图/场景图，或准备商品链接与卖点信息。</div>
-                  </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10 border border-white/10 text-sm font-black text-white">2</span>
-                  <div>
-                    <div className="font-bold text-white">填写生成要求</div>
-                    <div className="text-sm leading-relaxed">选择画幅比例、模型、输出数量等参数。</div>
-                  </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10 border border-white/10 text-sm font-black text-white">3</span>
-                  <div>
-                    <div className="font-bold text-white">一键生成并迭代</div>
-                    <div className="text-sm leading-relaxed">预览结果，按投放反馈快速调整脚本、画面与节奏。</div>
-                  </div>
-                </li>
-              </ol>
-            </div>
+                    const x = offset * 240;
+                    const scale = isActive ? 1 : 0.92;
+                    const opacity = isActive ? 1 : (isNearby ? 0.28 : 0);
+                    const blurPx = isActive ? 0 : 1.5;
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8">
-              <h2 className="text-2xl font-black text-white">适用场景</h2>
-              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center gap-2 text-white font-extrabold">
-                    <TrendingUp size={18} className="text-orange-200" />
-                    <span>投放素材</span>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-300 leading-relaxed">快速生成多版本素材，A/B 测试找出高转化组合。</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center gap-2 text-white font-extrabold">
-                    <Lock size={18} className="text-violet-200" />
-                    <span>新品冷启动</span>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-300 leading-relaxed">从 0 到 1 批量产出讲卖点、讲场景的短视频。</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center gap-2 text-white font-extrabold">
-                    <Shield size={18} className="text-emerald-200" />
-                    <span>店铺内容矩阵</span>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-300 leading-relaxed">统一风格输出，持续更新账号内容。</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center gap-2 text-white font-extrabold">
-                    <Sparkles size={18} className="text-orange-200" />
-                    <span>创作者灵感</span>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-300 leading-relaxed">脚本与镜头结构可视化，快速获得创作方向。</div>
-                </div>
-              </div>
-            </div>
-          </div>
+                    return (
+                      <motion.div
+                        key={`${slide.kind}-${slide.src}`}
+                        initial={false}
+                        animate={{
+                          x,
+                          scale,
+                          opacity,
+                          filter: `blur(${blurPx}px)`,
+                        }}
+                        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+                        style={{
+                          zIndex: isActive ? 30 : (isNearby ? 10 : 0),
+                          pointerEvents: isActive ? 'auto' : (isNearby ? 'auto' : 'none'),
+                        }}
+                        onClick={() => {
+                          if (!isActive && isNearby) goToSlide(idx);
+                        }}
+                        className="absolute inset-0 rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden cursor-pointer"
+                      >
+                        <div className="w-full h-full flex flex-col">
+                          <div className="w-full aspect-[16/9] bg-black/20 overflow-hidden">
+                            {slide.kind === 'video' ? (
+                              <video
+                                src={slide.src}
+                                controls={isActive}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <img
+                                src={slide.src}
+                                alt={slide.title}
+                                loading="lazy"
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                          </div>
 
-          <div className="mt-16">
-            <h2 className="text-2xl md:text-3xl font-black text-white text-center">精彩即将呈现</h2>
-            <p className="mt-3 text-center text-sm md:text-base text-slate-300">
-              案例展示区（占位）：左侧视频，右侧三张商品图。
-            </p>
-
-            <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:p-6">
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:grid-rows-3">
-                <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden lg:row-span-3">
-                  <div className="w-full aspect-[9/16] lg:aspect-auto lg:h-full">
-                    <video
-                      src="/intro-page-demo/kling_7b04ff964d.mp4"
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      preload="metadata"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
+                          <div className="hidden md:block p-5">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-white font-extrabold">{slide.title}</div>
+                              <div className="text-xs text-zinc-400 tabular-nums">{idx + 1} / {demoSlides.length}</div>
+                            </div>
+                            <div className="mt-1 text-sm text-slate-300 leading-relaxed">{slide.description}</div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
-                  <div className="w-full aspect-[16/9]">
-                    <img
-                      src="/intro-page-demo/anime_ip_after.jpg"
-                      alt="案例图片 1"
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
-                  <div className="w-full aspect-[16/9]">
-                    <img
-                      src="/intro-page-demo/repainted.jpeg"
-                      alt="案例图片 2"
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
-                  <div className="w-full aspect-[16/9]">
-                    <img
-                      src="/intro-page-demo/product_gallery_1776926764914.jpeg"
-                      alt="案例图片 3"
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
+                <div className="mt-4 md:hidden text-center text-xs text-zinc-400 tabular-nums">
+                  {activeSlideIndex + 1} / {demoSlides.length}
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div className="mt-16">
-            <h2 className="text-2xl md:text-3xl font-black text-white text-center">定价</h2>
-            <p className="mt-3 text-center text-sm md:text-base text-slate-300">
-              先拟一个草稿版本，后续可按你的实际点数/套餐做精确调整。
-            </p>
-
-            <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8">
-                <div className="flex items-center justify-between gap-4">
-                  <h3 className="text-xl font-black text-white">视频生成</h3>
-                  <span className="text-xs font-extrabold text-violet-200 border border-violet-500/20 bg-violet-500/10 px-3 py-1 rounded-full">
-                    Video
-                  </span>
-                </div>
-
-                <div className="mt-6 space-y-4">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-5">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="text-white font-extrabold">体验版</div>
-                      <div className="text-slate-300 text-sm">￥0（限量）</div>
-                    </div>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-300 leading-relaxed">
-                      <li>适合：首次体验与 Demo</li>
-                      <li>包含：基础模型 + 基础画幅</li>
-                      <li>限制：排队优先级较低 / 输出数量受限</li>
-                    </ul>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-5">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="text-white font-extrabold">标准版</div>
-                      <div className="text-slate-300 text-sm">￥XX / 月（草稿）</div>
-                    </div>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-300 leading-relaxed">
-                      <li>适合：日常投放素材生产</li>
-                      <li>包含：更高输出上限 + 更快生成</li>
-                      <li>支持：批量生成、多版本 A/B 测试</li>
-                    </ul>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-5">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="text-white font-extrabold">企业版</div>
-                      <div className="text-slate-300 text-sm">联系报价</div>
-                    </div>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-300 leading-relaxed">
-                      <li>适合：团队协作与大规模投放</li>
-                      <li>包含：更高并发 / 专属额度 / SLA</li>
-                      <li>支持：自定义模型/流程（按需）</li>
-                    </ul>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleStart}
-                  className="mt-6 w-full px-10 py-4 rounded-xl bg-gradient-to-r from-violet-600 to-pink-600 text-white font-black text-lg hover:scale-[1.02] active:scale-[0.99] transition-all inline-flex items-center justify-center gap-3"
-                >
-                  {t.landing_cta_start}
-                  <ArrowRight size={20} />
-                </button>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8">
-                <div className="flex items-center justify-between gap-4">
-                  <h3 className="text-xl font-black text-white">商品图片生成</h3>
-                  <span className="text-xs font-extrabold text-orange-200 border border-orange-500/20 bg-orange-500/10 px-3 py-1 rounded-full">
-                    Product Images
-                  </span>
-                </div>
-
-                <div className="mt-6 space-y-4">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-5">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="text-white font-extrabold">基础版</div>
-                      <div className="text-slate-300 text-sm">￥XX / 月（草稿）</div>
-                    </div>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-300 leading-relaxed">
-                      <li>适合：商品主图/场景图快速出图</li>
-                      <li>包含：常用风格与尺寸</li>
-                      <li>支持：批量生成、快速挑选</li>
-                    </ul>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-5">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="text-white font-extrabold">专业版</div>
-                      <div className="text-slate-300 text-sm">￥XX / 月（草稿）</div>
-                    </div>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-300 leading-relaxed">
-                      <li>适合：电商运营与创意团队</li>
-                      <li>包含：更高出图上限 + 更快处理</li>
-                      <li>支持：更多风格模板与工作区管理</li>
-                    </ul>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-5">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="text-white font-extrabold">按量计费</div>
-                      <div className="text-slate-300 text-sm">￥X / 张（草稿）</div>
-                    </div>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-300 leading-relaxed">
-                      <li>适合：偶尔使用或突发活动</li>
-                      <li>按生成张数扣费，可灵活控制预算</li>
-                    </ul>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleStart}
-                  className="mt-6 w-full px-10 py-4 rounded-xl border border-white/10 bg-white/5 text-white font-black text-lg hover:bg-white/10 active:scale-[0.99] transition-all inline-flex items-center justify-center gap-3"
-                >
-                  进入工作台
-                  <ArrowRight size={20} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-16">
-            <h2 className="text-2xl font-black text-white text-center">FAQ</h2>
-            <div className="mt-6 mx-auto max-w-4xl space-y-3">
-              <details className="group rounded-xl border border-white/10 bg-white/[0.03] p-5">
-                <summary className="cursor-pointer select-none text-white font-extrabold flex items-center justify-between">
-                  <span>是否需要登录才能使用？</span>
-                  <span className="text-slate-400 group-open:rotate-180 transition-transform">⌄</span>
-                </summary>
-                <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-                  你可以直接进入工作台开始体验流程；部分能力在未登录状态可能会受限，具体以页面提示为准。
-                </p>
-              </details>
-              <details className="group rounded-xl border border-white/10 bg-white/[0.03] p-5">
-                <summary className="cursor-pointer select-none text-white font-extrabold flex items-center justify-between">
-                  <span>适合哪些平台的短视频？</span>
-                  <span className="text-slate-400 group-open:rotate-180 transition-transform">⌄</span>
-                </summary>
-                <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-                  主要面向 TikTok / Instagram Reels 等海外短视频渠道的内容形态与节奏。
-                </p>
-              </details>
-              <details className="group rounded-xl border border-white/10 bg-white/[0.03] p-5">
-                <summary className="cursor-pointer select-none text-white font-extrabold flex items-center justify-between">
-                  <span>怎样提升转化率？</span>
-                  <span className="text-slate-400 group-open:rotate-180 transition-transform">⌄</span>
-                </summary>
-                <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-                  建议同一商品生成多个版本做 A/B 测试，持续优化开头三秒、卖点顺序与强 CTA。
-                </p>
-              </details>
             </div>
           </div>
         </section>
 
-        <footer className="absolute bottom-4 inset-x-0 z-10 text-center">
-          <a
-            href="http://beian.miit.gov.cn"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-          >
-            粤ICP备2026027661号
-          </a>
+        <section className="relative z-10 max-w-7xl mx-auto px-6 md:px-10 pb-32">
+          <div className="max-w-3xl">
+            <h2 className="text-2xl md:text-3xl font-black text-white">核心功能</h2>
+          </div>
+          
+          <div className="mt-16 space-y-24">
+            <motion.div 
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+              className="flex flex-col md:flex-row items-center gap-10 md:gap-16"
+            >
+              <div className="flex-1 w-full">
+                <div className="aspect-video rounded-3xl bg-gradient-to-br from-violet-600/15 to-blue-500/10 border border-white/10 overflow-hidden flex items-center justify-center">
+                  <div className="p-8 text-center">
+                    <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-violet-500 to-purple-600 flex items-center justify-center">
+                      <Video className="w-10 h-10 text-white" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 w-full">
+                <h3 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent mb-4">视频生成</h3>
+                <p className="text-white text-2xl font-bold mb-4">一键从图文生成爆款短视频</p>
+                <p className="text-slate-300 text-lg leading-relaxed mb-8">
+                  支持商品链接上传或图片拖拽，自动生成完整脚本、镜头语言、语音配音与动态画面，一键导出 9:16 竖屏短视频，完美适配 TikTok / Reels 等海外平台。
+                </p>
+                <motion.button
+                  onClick={handleStart}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="relative px-10 py-4 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full text-black font-bold text-lg shadow-[0_0_30px_rgba(34,211,238,0.4)] flex items-center gap-3"
+                >
+                  免费试用
+                  <ArrowRight size={22} />
+                </motion.button>
+              </div>
+            </motion.div>
+
+            <motion.div 
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+              className="flex flex-col md:flex-row-reverse items-center gap-10 md:gap-16"
+            >
+              <div className="flex-1 w-full">
+                <div className="aspect-video rounded-3xl bg-gradient-to-br from-pink-600/15 to-rose-500/10 border border-white/10 overflow-hidden flex items-center justify-center">
+                  <div className="p-8 text-center">
+                    <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-pink-500 to-rose-600 flex items-center justify-center">
+                      <Image className="w-10 h-10 text-white" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 w-full">
+                <h3 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-pink-400 to-rose-500 bg-clip-text text-transparent mb-4">AI 智能修图</h3>
+                <p className="text-white text-2xl font-bold mb-4">秒级修复商品图片瑕疵</p>
+                <p className="text-slate-300 text-lg leading-relaxed mb-8">
+                  智能去除图片水印、修正服装褶皱与质量问题，一键生成高清商品主图和白底图，大幅提升电商商品图片品质与转化率。
+                </p>
+                <motion.button
+                  onClick={handleStart}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="relative px-10 py-4 bg-gradient-to-r from-pink-400 to-rose-500 rounded-full text-white font-bold text-lg shadow-[0_0_30px_rgba(236,72,153,0.4)] flex items-center gap-3"
+                >
+                  免费试用
+                  <ArrowRight size={22} />
+                </motion.button>
+              </div>
+            </motion.div>
+
+            <motion.div 
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.4 }}
+              className="flex flex-col md:flex-row items-center gap-10 md:gap-16"
+            >
+              <div className="flex-1 w-full">
+                <div className="aspect-video rounded-3xl bg-gradient-to-br from-violet-600/15 to-cyan-500/10 border border-white/10 overflow-hidden flex items-center justify-center">
+                  <div className="p-8 text-center">
+                    <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-violet-500 to-cyan-600 flex items-center justify-center">
+                      <Layers className="w-10 h-10 text-white" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 w-full">
+                <h3 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-violet-400 to-cyan-500 bg-clip-text text-transparent mb-4">素材资产库</h3>
+                <p className="text-white text-2xl font-bold mb-4">沉淀你的数字资产</p>
+                <p className="text-slate-300 text-lg leading-relaxed mb-8">
+                  统一管理全局素材，沉淀创作资产，实现素材高效复用与价值循环。支持多格式资源存储、标签分类、快速检索，团队协作更高效。
+                </p>
+                <motion.button
+                  onClick={handleStart}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="relative px-10 py-4 bg-gradient-to-r from-violet-500 to-cyan-500 rounded-full text-white font-bold text-lg shadow-[0_0_30px_rgba(139,92,246,0.4)] flex items-center gap-3"
+                >
+                  免费试用
+                  <ArrowRight size={22} />
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        <section className="relative z-10 max-w-7xl mx-auto px-6 md:px-10 pb-20">
+          <div className="max-w-3xl">
+            <h2 className="text-2xl md:text-3xl font-black text-white">技术优势</h2>
+          </div>
+          
+          <div className="mt-12 space-y-8">
+            <motion.div 
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              className="relative group"
+            >
+              <div className="absolute -inset-1 bg-gradient-to-r from-violet-600/20 to-orange-500/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-all duration-700" />
+              <div className="relative p-8 rounded-3xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-500">
+                <div className="flex items-start gap-6">
+                  <div className="flex-shrink-0 w-16 h-16 rounded-2xl bg-gradient-to-tr from-violet-600 to-purple-500 flex items-center justify-center shadow-2xl shadow-violet-500/30">
+                    <Zap size={32} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-2xl font-black text-white mb-3">极速渲染引擎</h3>
+                    <p className="text-slate-300 text-lg leading-relaxed">
+                      自研 GPU 加速渲染管线，视频生成速度较行业平均水平提升 300%，从图文到成片仅需数秒，大幅缩短内容生产周期。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div 
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+              className="relative group"
+            >
+              <div className="absolute -inset-1 bg-gradient-to-r from-pink-600/20 to-violet-500/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-all duration-700" />
+              <div className="relative p-8 rounded-3xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-500">
+                <div className="flex items-start gap-6">
+                  <div className="flex-shrink-0 w-16 h-16 rounded-2xl bg-gradient-to-tr from-pink-600 to-rose-500 flex items-center justify-center shadow-2xl shadow-pink-500/30">
+                    <Brain size={32} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-2xl font-black text-white mb-3">多模态智能理解</h3>
+                    <p className="text-slate-300 text-lg leading-relaxed">
+                      深度融合视觉、文本、音频多模态大模型，精准解析商品特征与用户意图，自动生成符合海外市场审美的专业级视频脚本与镜头语言。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div 
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.4 }}
+              className="relative group"
+            >
+              <div className="absolute -inset-1 bg-gradient-to-r from-orange-500/20 to-pink-500/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-all duration-700" />
+              <div className="relative p-8 rounded-3xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-500">
+                <div className="flex items-start gap-6">
+                  <div className="flex-shrink-0 w-16 h-16 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 flex items-center justify-center shadow-2xl shadow-orange-500/30">
+                    <Wand2 size={32} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-2xl font-black text-white mb-3">端到端工作流自动化</h3>
+                    <p className="text-slate-300 text-lg leading-relaxed">
+                      从商品链接/图片输入，到脚本生成、画面渲染、语音配音、字幕添加全链路自动化，零人工干预即可产出高转化率的跨境电商短视频。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        <footer className="relative z-10 border-t border-white/10">
+          <div className="max-w-7xl mx-auto px-6 md:px-10 py-10 flex flex-col items-center gap-4">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-lg">
+              <a href="/contact" className="text-white hover:text-violet-400 font-bold transition-colors">联系我们</a>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+              <a href="/doc" className="text-zinc-300 hover:text-white transition-colors">产品文档</a>
+              <a href="/privacy-policy" className="text-zinc-300 hover:text-white transition-colors">隐私条款</a>
+              <a href="/terms-of-service" className="text-zinc-300 hover:text-white transition-colors">服务协议</a>
+            </div>
+            <a
+              href="http://beian.miit.gov.cn"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              粤ICP备2026027661号
+            </a>
+          </div>
         </footer>
 
         {isDebugDialogOpen && (

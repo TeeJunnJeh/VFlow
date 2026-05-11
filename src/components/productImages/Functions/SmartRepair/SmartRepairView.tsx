@@ -87,7 +87,7 @@ type SmartRepairImageSource =
   | { kind: 'upload'; file: File; previewUrl: string }
   | { kind: 'asset'; assetId: string; path: string; previewUrl: string; name: string };
 
-type SmartRepairPickerTarget = 'source' | 'reference' | 'model';
+type SmartRepairPickerTarget = 'source' | 'model';
 
 interface SmartRepairViewProps {
   onBack?: () => void;
@@ -703,7 +703,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const isZh = language === 'zh';
 
   const [sourceImageSource, setSourceImageSource] = useState<SmartRepairImageSource | null>(null);
-  const [referenceSource, setReferenceSource] = useState<SmartRepairImageSource | null>(null);
   const [modelSource, setModelSource] = useState<SmartRepairImageSource | null>(null);
   const [pickerTarget, setPickerTarget] = useState<SmartRepairPickerTarget | null>(null);
   const [error, setError] = useState<ErrorInfo | null>(null);
@@ -1068,12 +1067,11 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setRepairTasks((prev) => prev.filter((t) => t.localId !== localId));
   };
 
-  // Three image slots (source / reference / model) all use SmartRepairImageSource.
+  // Two image slots (source / model) both use SmartRepairImageSource.
   // For kind==='upload' we own the blob URL and revoke on replace/clear/unmount;
   // for kind==='asset' the server URL is owned by the asset library.
   const getSetter = useCallback((target: SmartRepairPickerTarget) => {
     if (target === 'source') return setSourceImageSource;
-    if (target === 'reference') return setReferenceSource;
     return setModelSource;
   }, []);
 
@@ -1100,7 +1098,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   useEffect(() => {
     return () => {
       if (sourceImageSource?.kind === 'upload') URL.revokeObjectURL(sourceImageSource.previewUrl);
-      if (referenceSource?.kind === 'upload') URL.revokeObjectURL(referenceSource.previewUrl);
       if (modelSource?.kind === 'upload') URL.revokeObjectURL(modelSource.previewUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1115,7 +1112,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
         assetId: asset.id,
         path: asset.file_url,
         previewUrl: asset.thumbnail || asset.file_url,
-        name: asset.name || (pickerTarget === 'model' ? 'Model' : pickerTarget === 'source' ? 'Source' : 'Reference'),
+        name: asset.name || (pickerTarget === 'model' ? 'Model' : 'Source'),
       };
       getSetter(pickerTarget)((prev) => {
         if (prev?.kind === 'upload') URL.revokeObjectURL(prev.previewUrl);
@@ -1215,11 +1212,10 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   );
 
   const sourcePreviewUrl = sourceImageSource?.previewUrl || '';
-  const referencePreviewUrl = referenceSource?.previewUrl || '';
   const modelPreviewUrl = modelSource?.previewUrl || '';
   useEffect(() => {
     let alive = true;
-    const sources = [sourcePreviewUrl, referencePreviewUrl, modelPreviewUrl]
+    const sources = [sourcePreviewUrl, modelPreviewUrl]
       .map((value) => String(value || '').trim())
       .filter(Boolean);
     if (sources.length === 0) {
@@ -1236,7 +1232,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     return () => {
       alive = false;
     };
-  }, [referencePreviewUrl, modelPreviewUrl, sourcePreviewUrl]);
+  }, [modelPreviewUrl, sourcePreviewUrl]);
 
   const handleGenerate = async () => {
     if (!requireAuth()) return;
@@ -1321,9 +1317,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           projectId,
           sourceImagePath: sourceImageSource.kind === 'asset' ? sourceImageSource.path : undefined,
           sourceAssetId: sourceImageSource.kind === 'asset' ? sourceImageSource.assetId : undefined,
-          referenceImage: referenceSource?.kind === 'upload' ? referenceSource.file : undefined,
-          referenceImagePath: referenceSource?.kind === 'asset' ? referenceSource.path : undefined,
-          referenceAssetId: referenceSource?.kind === 'asset' ? referenceSource.assetId : undefined,
           modelImage: modelSource?.kind === 'upload' ? modelSource.file : undefined,
           modelImagePath: modelSource?.kind === 'asset' ? modelSource.path : undefined,
           modelAssetId: modelSource?.kind === 'asset' ? modelSource.assetId : undefined,
@@ -1447,13 +1440,15 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           </button>
         </div>
         {source?.kind === 'asset' ? (
+          // 预览矩形：aspect-square（1:1 方形，与 AI 首帧图素材预览一致）
           <div className="overflow-hidden rounded-lg border border-white/10 bg-black/25">
-            <img
-              src={source.previewUrl}
-              alt={source.name}
-              className="w-full object-cover"
-              style={{ maxHeight: '170px' }}
-            />
+            <div className="aspect-square w-full overflow-hidden bg-zinc-900">
+              <img
+                src={source.previewUrl}
+                alt={source.name}
+                className="block h-full w-full object-cover"
+              />
+            </div>
             <div className="flex items-center justify-between gap-2 p-2">
               <div className="min-w-0">
                 <div className="truncate text-[11px] font-semibold text-zinc-100">{source.name}</div>
@@ -1470,31 +1465,30 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
           </div>
         ) : source?.kind === 'upload' ? (
           <div>
-            <img
-              src={source.previewUrl}
-              alt={target}
-              className="w-full rounded-lg border border-white/10 object-cover"
-              style={{ maxHeight: '170px' }}
-            />
+            <div className="aspect-square w-full overflow-hidden rounded-lg border border-white/10 bg-zinc-900">
+              <img
+                src={source.previewUrl}
+                alt={target}
+                className="block h-full w-full object-cover"
+              />
+            </div>
             <button
               onClick={() => clearImageSource(target)}
               className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
             >
               {target === 'source'
                 ? t.sr_change_image
-                : target === 'reference'
-                  ? t.sr_remove_reference
-                  : (zh ? '移除模特图' : 'Remove model')}
+                : (zh ? '移除模特图' : 'Remove model')}
             </button>
           </div>
         ) : (
+          // 空态上传矩形：默认尺寸（p-8 大方形），与 AI 首帧图上传区一致
           <ImageUploader
             maxFiles={1}
-            size="compact"
             onFilesSelected={(files) => setSourceFromFile(target, files[0] || null)}
             onError={(err) =>
               setError({
-                code: target === 'reference' ? 'REFERENCE_UPLOAD_ERROR' : 'MODEL_UPLOAD_ERROR',
+                code: target === 'source' ? 'SOURCE_UPLOAD_ERROR' : 'MODEL_UPLOAD_ERROR',
                 message: err,
                 severity: 'warning',
               })
@@ -1545,7 +1539,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           setActiveSubpage(item.key);
                           setActiveToolCode(null);
                           clearImageSource('source');
-                          clearImageSource('reference');
                           clearImageSource('model');
                           setPrompt('');
                           setActivePresetIndex(-1);
@@ -1683,13 +1676,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                           target: 'source',
                           title: isZh ? '原图（必传）' : 'Source Image (Required)',
                           source: sourceImageSource,
-                          isZh,
-                        })}
-
-                        {renderImageSourceSlot({
-                          target: 'reference',
-                          title: t.sr_reference_optional,
-                          source: referenceSource,
                           isZh,
                         })}
 
@@ -1956,7 +1942,6 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         <button
                           onClick={() => {
                             clearImageSource('source');
-                            clearImageSource('reference');
                             clearImageSource('model');
                             if (activeTool) {
                               setPrompt(getInitialToolPrompt(activeTool));

@@ -10,6 +10,7 @@ export type ViewType =
   | 'product_images_ai_model'
   | 'creative_lab_replay'
   | 'creative_lab_script_extract'
+  | 'creative_lab_canvas'
   | 'templates'
   | 'history'
   | 'agent'

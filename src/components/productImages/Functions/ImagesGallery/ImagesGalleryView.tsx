@@ -8,6 +8,10 @@ import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { AppDialog } from '../../../common/AppDialog';
+import {
+  readCanvasToGalleryTransfer,
+  clearCanvasToGalleryTransfer,
+} from '../../../creativeLab/canvasToGalleryTransfer';
 
 const GALLERY_PANEL_MIN_WIDTH = 300;
 const GALLERY_PANEL_MAX_WIDTH = 500;
@@ -447,6 +451,23 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
   const { language } = useLanguage();
   const [leftWidth, setLeftWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
   const [middleWidth, setMiddleWidth] = useState<number>(GALLERY_PANEL_DEFAULT_WIDTH);
+
+  // Canvas → Gallery transfer: when the user clicked "Open in Gallery" from a
+  // canvas ImageNode, pre-fill the product image slot here. Triggers only when
+  // the user actually navigates here (isVisible flips true), reads once, clears.
+  useEffect(() => {
+    if (!props.isVisible) return;
+    const payload = readCanvasToGalleryTransfer();
+    if (!payload) return;
+    const isAlreadyKnown =
+      props.galleryRestoredImagePaths.includes(payload.productImageUrl)
+      || props.galleryImages.length > 0;
+    if (!isAlreadyKnown) {
+      props.setGalleryRestoredImagePaths([payload.productImageUrl]);
+    }
+    clearCanvasToGalleryTransfer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.isVisible]);
   const [isBasicsCollapsed, setIsBasicsCollapsed] = useState(false);
   const [isQuickBatchDialogOpen, setIsQuickBatchDialogOpen] = useState(false);
   const [galleryBulkDialogDraft, setGalleryBulkDialogDraft] = useState<GalleryBulkConfig>(() => cloneGalleryBulkConfig(props.galleryBulkConfig));

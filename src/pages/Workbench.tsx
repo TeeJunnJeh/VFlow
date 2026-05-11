@@ -53,6 +53,7 @@ import { BillingView } from '../components/workbench/BillingView';
 import { AICreatorView } from '../components/workbench/AICreatorView';
 import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
 import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
+import { CanvasEditor } from '../components/creativeLab/canvas/CanvasEditor';
 import { Sidebar } from '../components/workbench/Sidebar';
 import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
@@ -77,6 +78,7 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   product_images_ai_model: 'VFLOW AI - 商品图 - AI 模特',
   creative_lab_replay: 'VFLOW AI - 创意实验室 - 爆款复刻',
   creative_lab_script_extract: 'VFLOW AI - 创意实验室 - 脚本提取',
+  creative_lab_canvas: 'VFLOW AI - 创意实验室 - 无限画布',
   templates: 'VFLOW AI - 模板',
   history: 'VFLOW AI - 历史记录',
   agent: 'VFLOW AI - Agent',
@@ -105,6 +107,8 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'Use Creative Lab viral replay to select reference videos, product images, and virtual models, then generate Seedance-ready product ads with safe fallback paths.',
   creative_lab_script_extract:
     'Extract Seedance-ready advertising scripts from reference videos, including reusable structure, shot rhythm, style tags, and selling point suggestions.',
+  creative_lab_canvas:
+    'Compose viral video ideas on an infinite LibLib-style node canvas — drop products, models, prompts, and scripts as nodes, then batch-generate Seedance scripts or videos from any selection.',
   product_images_ai_model:
     'Generate AI model assets from natural-language requirements for product photos, using asynchronous 302AI image generation and result polling.',
   templates:
@@ -685,6 +689,12 @@ const Workbench = () => {
           <div className={activeView === 'creative_lab_script_extract' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <ViewErrorBoundary label="CreativeLabScriptExtractView">
               <CreativeLabScriptExtractView />
+            </ViewErrorBoundary>
+          </div>
+
+          <div className={activeView === 'creative_lab_canvas' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="CanvasEditor">
+              <CanvasEditor onNavigate={(view) => setActiveView(view as ViewType)} />
             </ViewErrorBoundary>
           </div>
 

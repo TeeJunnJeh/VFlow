@@ -17,5 +17,13 @@ export {
   GALLERY_RATIOS,
   SMART_REPAIR_RATIOS,
   firstFrameRatiosForModel,
+  smartRepairRatiosForModel,
+  normalizeSmartRepairAspectRatio,
   ratioDescriptorsForLanguage,
 } from './aspectRatioOptions';
+export {
+  ModelSelectorChips,
+  DEFAULT_MODEL_SELECTOR_OPTIONS,
+  type ModelSelectorValue,
+  type ModelSelectorOption,
+} from './ModelSelectorChips';

@@ -1,7 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, ChevronLeft, ChevronsDown, Download, Sparkles, Loader2, Library, Minus, Plus, Settings, X, RotateCcw } from 'lucide-react';
+import Masonry from 'react-masonry-css';
 import { useLanguage } from '../../../../context/LanguageContext';
-import { AspectRatioPicker, ErrorDialog, type ErrorInfo, ImageUploader, SMART_REPAIR_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
+import {
+  AspectRatioPicker,
+  ErrorDialog,
+  type ErrorInfo,
+  ImageUploader,
+  ModelSelectorChips,
+  type ModelSelectorValue,
+  ratioDescriptorsForLanguage,
+  smartRepairRatiosForModel,
+  normalizeSmartRepairAspectRatio,
+} from '../../Common';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { downloadBlob, productImagesApi, smartRepairUserPresetsApi } from '../../../../services/productImagesApi';
 import { billingApi } from '../../../../services/billing';
@@ -56,18 +67,17 @@ const SMART_REPAIR_PROMPT_SOFT_MAX = 1000;
 const SMART_REPAIR_OUTPUT_COUNT_MIN = 1;
 const SMART_REPAIR_OUTPUT_COUNT_MAX = 4;
 
-interface SmartRepairModelOption {
-  value: SmartRepairModel;
-  labelZh: string;
-  labelEn: string;
-}
+// 与 ModelSelectorChips 默认 3 选项保持一致：NanoBanana / Flux 2 Pro / GPT image 1.5
+const SUPPORTED_SMART_REPAIR_MODELS: SmartRepairModel[] = ['nano-banana-pro', 'flux-2-pro', 'gpt-image-1.5'];
 
-const SMART_REPAIR_MODEL_OPTIONS: SmartRepairModelOption[] = [
-  { value: 'flux-2-pro', labelZh: 'Flux 2 Pro · 通用推荐', labelEn: 'Flux 2 Pro · Recommended' },
-  { value: 'flux-2-max', labelZh: 'Flux 2 Max · 最高质量', labelEn: 'Flux 2 Max · Best quality' },
-  { value: 'flux-2-flex', labelZh: 'Flux 2 Flex · 快速', labelEn: 'Flux 2 Flex · Fast' },
-  { value: 'flux-2-dev', labelZh: 'Flux 2 Dev · 开发版', labelEn: 'Flux 2 Dev · Beta' },
-];
+// 旧 localStorage / 历史回放可能传入 'flux-2-max'/'flux-2-flex'/'flux-2-dev'，
+// 兜底到 'flux-2-pro' 避免空白页 / 上游 400
+const normalizeSmartRepairModel = (raw?: string | null): SmartRepairModel => {
+  const value = String(raw || '').trim();
+  return (SUPPORTED_SMART_REPAIR_MODELS as string[]).includes(value)
+    ? (value as SmartRepairModel)
+    : 'flux-2-pro';
+};
 
 const generateLocalId = () => `sr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -722,6 +732,9 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
   const pollAbortRef = useRef<Set<string>>(new Set());
   const pollStartedRef = useRef<Set<string>>(new Set());
   const isSubmittingRef = useRef<boolean>(false);
+  // 与 isSubmittingRef 配对的可渲染态：仅用于驱动「立即生成 → 生成中…」按钮文案 + 禁用态，
+  // 真正的并发去重靠 ref（同步、不重复请求）。
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Two-column layout state: combined edit column + right preview/history column
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1259,6 +1272,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
     try {
       isSubmittingRef.current = true;
+      setIsSubmitting(true);
       setError(null);
       const submission = await productImagesApi.submitSmartRepair(
         sourceImageSource.kind === 'upload' ? sourceImageSource.file : null,
@@ -1310,6 +1324,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
       });
     } finally {
       isSubmittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -1354,7 +1369,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
     setOutputCount(task.settings.outputCount);
     setActiveSubpage(task.settings.subpage);
     setActiveToolCode(task.settings.toolCode);
-    if (task.settings.model) setSelectedModel(task.settings.model);
+    if (task.settings.model) setSelectedModel(normalizeSmartRepairModel(task.settings.model));
     setActivePresetIndex(-1);
     setActiveUserPresetIndex(-1);
     dismissCard(task.localId);
@@ -1801,31 +1816,34 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
 
                     {/* Bottom: gen settings + actions, spans full combined column */}
                     <div className="mt-4 shrink-0 border-t border-white/10 pt-4">
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-                        <div className="text-sm font-semibold text-zinc-200 shrink-0">
+                      <div className="space-y-3">
+                        <div className="text-sm font-semibold text-zinc-200">
                           {isZh ? '生成设置' : 'Generation Settings'}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-zinc-500 shrink-0">{isZh ? '模型' : 'Model'}</span>
-                          <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value as SmartRepairModel)}
-                            className="rounded-lg border border-white/10 bg-black/20 px-3 py-1.5 text-sm text-zinc-200 focus:border-orange-400/50"
-                          >
-                            {SMART_REPAIR_MODEL_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {isZh ? opt.labelZh : opt.labelEn}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+
+                        {/* 第一行：3 模型 chip 选择器 */}
+                        <ModelSelectorChips
+                          value={selectedModel as ModelSelectorValue}
+                          onChange={(next) => {
+                            const nextModel = next as SmartRepairModel;
+                            setSelectedModel(nextModel);
+                            // 切换模型时按新模型的支持集 fallback 比例
+                            setAspectRatio((prev) =>
+                              normalizeSmartRepairAspectRatio(String(prev || '1:1'), nextModel) as SmartRepairParams['aspectRatio']
+                            );
+                          }}
+                          orientation="horizontal"
+                        />
+
+                        {/* 第二行起：比例 / 强度 / 张数 */}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-zinc-500 shrink-0">{t.sr_aspect}</span>
                           <AspectRatioPicker
                             value={String(aspectRatio || '1:1')}
                             onChange={(next) => setAspectRatio(next as SmartRepairParams['aspectRatio'])}
-                            primary={SMART_REPAIR_RATIOS.primary}
-                            more={SMART_REPAIR_RATIOS.more}
+                            primary={smartRepairRatiosForModel(selectedModel).primary}
+                            more={smartRepairRatiosForModel(selectedModel).more}
                             labels={{
                               more: isZh ? '更多比例' : 'More ratios',
                               vertical: t.pi_gallery_ratio_group_vertical,
@@ -1894,6 +1912,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             </button>
                           </div>
                         </div>
+                        </div>
                       </div>
 
                       <div className="mt-3 flex items-center gap-3">
@@ -1916,12 +1935,18 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                         </button>
                         <button
                           onClick={handleGenerate}
-                          className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={!sourceImageSource}
+                          className="flex-1 px-4 py-2 text-sm font-semibold bg-orange-500 text-black rounded-lg hover:bg-orange-400 transition inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
+                          disabled={!sourceImageSource || isSubmitting}
                         >
-                          <Sparkles className="w-4 h-4" />
-                          {isZh ? '立即生成' : 'Generate Now'}
-                          {estimatedCost > 0 ? (
+                          {isSubmitting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-4 h-4" />
+                          )}
+                          {isSubmitting
+                            ? (isZh ? '生成中…' : 'Generating…')
+                            : (isZh ? '立即生成' : 'Generate Now')}
+                          {!isSubmitting && estimatedCost > 0 ? (
                             <span className="ml-1 text-[10px] font-semibold text-black/75 whitespace-nowrap">
                               {`-${formatCreditAmount(estimatedCost)} ${t.v_points}`}
                             </span>
@@ -1980,14 +2005,27 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             {isZh ? '暂无任务，提交后任务会出现在这里' : 'No active tasks. Submit one to see it here.'}
                           </div>
                         ) : (
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {repairTasks.map((task) => (
+                          <Masonry
+                            breakpointCols={2}
+                            className="pg-masonry-grid"
+                            columnClassName="pg-masonry-grid-col"
+                          >
+                            {repairTasks.map((task) => {
+                              const placeholderAspect = (() => {
+                                const raw = String(task.settings?.aspectRatio || '').trim();
+                                const m = raw.match(/^(\d+)\s*[:\/]\s*(\d+)$/);
+                                return m ? `${m[1]} / ${m[2]}` : '1 / 1';
+                              })();
+                              return (
                               <div
                                 key={task.localId}
                                 className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition"
                               >
                                 {task.status === 'processing' && (
-                                  <div className="aspect-video flex items-center justify-center bg-black/40">
+                                  <div
+                                    className="flex items-center justify-center bg-black/40"
+                                    style={{ aspectRatio: placeholderAspect }}
+                                  >
                                     <div className="flex flex-col items-center gap-2 text-zinc-300">
                                       <Loader2 className="w-6 h-6 animate-spin text-orange-400" />
                                       <div className="text-sm">{isZh ? '处理中…' : 'Processing…'}</div>
@@ -2001,11 +2039,14 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                                   <img
                                     src={task.outputs[0].imageUrl}
                                     alt={`smart-repair-${task.localId}`}
-                                    className="w-full aspect-video object-cover"
+                                    className="block w-full h-auto"
                                   />
                                 )}
                                 {task.status === 'failed' && (
-                                  <div className="aspect-video flex items-center justify-center bg-red-900/20 px-4">
+                                  <div
+                                    className="flex items-center justify-center bg-red-900/20 px-4"
+                                    style={{ aspectRatio: placeholderAspect }}
+                                  >
                                     <div className="text-center">
                                       <div className="text-sm text-red-300 font-semibold mb-1">
                                         {isZh ? '生成失败' : 'Generation failed'}
@@ -2065,8 +2106,9 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                                   )}
                                 </div>
                               </div>
-                            ))}
-                          </div>
+                              );
+                            })}
+                          </Masonry>
                         )
                       ) : (
                         historyItems.length === 0 ? (
@@ -2074,14 +2116,18 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                             <p className="text-sm text-zinc-500">{t.sr_empty_history}</p>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          <Masonry
+                            breakpointCols={2}
+                            className="pg-masonry-grid"
+                            columnClassName="pg-masonry-grid-col"
+                          >
                             {historyItems.slice(0, 12).map((item) => (
                               <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 overflow-hidden hover:border-orange-400/30 transition">
-                                <div className="aspect-video overflow-hidden bg-black/50">
+                                <div className="bg-black/50">
                                   <img
                                     src={item.outputImages[0].imageUrl}
                                     alt={`smart-repair-history-thumbnail`}
-                                    className="w-full h-full object-cover hover:scale-105 transition duration-300"
+                                    className="block w-full h-auto hover:scale-[1.02] transition duration-300"
                                   />
                                 </div>
                                 <div className="p-3">
@@ -2108,7 +2154,7 @@ export const SmartRepairView: React.FC<SmartRepairViewProps> = ({ onBack, projec
                                 </div>
                               </div>
                             ))}
-                          </div>
+                          </Masonry>
                         )
                       )}
                     </div>

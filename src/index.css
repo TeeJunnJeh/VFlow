@@ -1409,3 +1409,15 @@ html.theme-dim .hist-workbar-toggle-active {
 .pg-masonry-grid-col > div:last-child {
   margin-bottom: 0; /* outer space-y-3 already provides inter-group gap */
 }
+
+/* --- Canvas: ReactFlow selection highlight (bright for dark mode) --- */
+.react-flow {
+  --xy-selection-background-color: rgba(249, 115, 22, 0.12);
+  --xy-selection-border: 1.5px dashed rgba(249, 115, 22, 0.7);
+  --xy-node-boxshadow-selected: 0 0 0 2px rgba(249, 115, 22, 0.6);
+}
+.theme-light .react-flow {
+  --xy-selection-background-color: rgba(249, 115, 22, 0.08);
+  --xy-selection-border: 1.5px dashed rgba(234, 88, 12, 0.5);
+  --xy-node-boxshadow-selected: 0 0 0 2px rgba(234, 88, 12, 0.45);
+}

@@ -8,6 +8,7 @@ import {
   FolderOpen,
   History,
   Image as ImageIcon,
+  LayoutDashboard,
   LayoutGrid,
   LogIn,
   PencilLine,
@@ -57,6 +58,7 @@ const PRODUCT_IMAGE_VIEWS: ViewType[] = [
 const CREATIVE_LAB_VIEWS: ViewType[] = [
   'creative_lab_replay',
   'creative_lab_script_extract',
+  'creative_lab_canvas',
 ];
 
 const isProductImageViewType = (view: string | null | undefined): view is ViewType => (
@@ -160,6 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const creativeLabOptions: Array<{ view: ViewType; label: string; icon: any }> = [
     { view: 'creative_lab_replay', label: (t as any).wb_nav_creative_replay || '爆款复刻', icon: Flame },
     { view: 'creative_lab_script_extract', label: (t as any).wb_nav_creative_script_extract || '脚本提取', icon: Clapperboard },
+    { view: 'creative_lab_canvas', label: (t as any).wb_nav_creative_canvas || '无限画布', icon: LayoutDashboard },
   ];
 
   React.useLayoutEffect(() => {

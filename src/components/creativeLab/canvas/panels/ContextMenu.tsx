@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, ImageIcon, Video, Trash2, Copy, Film, ScrollText, Wand2 } from 'lucide-react';
+import { FileText, ImageIcon, Video, Trash2, Copy, Film, ScrollText, Wand2, Upload } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 
 export interface ContextMenuPosition {
@@ -16,6 +16,7 @@ interface ContextMenuProps {
   onAddImageNode: () => void;
   onAddVideoNode: () => void;
   onAddVideoAnalysisNode?: () => void;
+  onAddUploadNode?: () => void;
   onDeleteNode?: () => void;
   onCopyNode?: () => void;
   onGenerateVideo?: () => void;
@@ -31,12 +32,14 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onAddImageNode,
   onAddVideoNode,
   onAddVideoAnalysisNode,
+  onAddUploadNode,
   onDeleteNode,
   onCopyNode,
   onGenerateVideo,
   onGenerateScript,
 }) => {
   const { t } = useLanguage();
+  const tt = t as Record<string, string | undefined>;
 
   const handleClick = (action: () => void) => {
     action();
@@ -74,6 +77,14 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 icon={<Wand2 className="w-3.5 h-3.5" />}
                 label="Add Video Analysis"
                 onClick={() => handleClick(onAddVideoAnalysisNode)}
+                color="text-emerald-400"
+              />
+            )}
+            {onAddUploadNode && (
+              <MenuItem
+                icon={<Upload className="w-3.5 h-3.5" />}
+                label={tt.canvas_menu_add_upload || 'Add Upload Resource'}
+                onClick={() => handleClick(onAddUploadNode)}
                 color="text-emerald-400"
               />
             )}

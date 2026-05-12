@@ -1,9 +1,9 @@
 import React from 'react';
-import { FileText, ImageIcon, Video, Save, Trash2, ZoomIn, ZoomOut, Maximize, Wand2, Sparkles } from 'lucide-react';
+import { FileText, ImageIcon, Video, Save, Trash2, ZoomIn, ZoomOut, Maximize, Wand2, Sparkles, Upload } from 'lucide-react';
 import { useReactFlow } from '@xyflow/react';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
-import type { TextNodeData, ImageNodeData, VideoNodeData, CanvasNode } from '../canvasTypes';
+import type { TextNodeData, ImageNodeData, VideoNodeData, UploadResourceNodeData, CanvasNode } from '../canvasTypes';
 
 let nodeIdCounter = 0;
 function nextId() {
@@ -76,8 +76,19 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({ onSave, isSaving, 
     addNode({ id: nextId(), type: 'video', position: pos, data } as CanvasNode);
   };
 
+  const addUploadNode = () => {
+    const pos = getCenter();
+    const data: UploadResourceNodeData = {
+      kind: 'upload',
+      label: 'Upload',
+      status: 'idle',
+      resourceKind: null,
+    };
+    addNode({ id: nextId(), type: 'upload', position: pos, data } as CanvasNode);
+  };
+
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-xl px-2 py-1.5 shadow-xl">
+    <div className="absolute top-10 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-xl px-2 py-1.5 shadow-xl">
       {/* Magic Compose */}
       {onMagicCompose && (
         <div className="flex items-center gap-0.5 pr-2 border-r border-white/10">
@@ -97,6 +108,12 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({ onSave, isSaving, 
         <ToolbarBtn icon={<FileText className="w-4 h-4" />} label={t.canvas_node_text} onClick={addTextNode} color="text-orange-400" />
         <ToolbarBtn icon={<ImageIcon className="w-4 h-4" />} label={t.canvas_node_image} onClick={addImageNode} color="text-blue-400" />
         <ToolbarBtn icon={<Video className="w-4 h-4" />} label={t.canvas_node_video} onClick={addVideoNode} color="text-purple-400" />
+        <ToolbarBtn
+          icon={<Upload className="w-4 h-4" />}
+          label={(t as Record<string, string | undefined>).canvas_node_upload || 'Upload'}
+          onClick={addUploadNode}
+          color="text-emerald-400"
+        />
       </div>
 
       {/* Zoom */}

@@ -8,6 +8,10 @@ import type { ViewType } from '../../../workbench/types';
 import type { LoadingTheme } from '../../../../utils/loadingTheme';
 import ResizableSplitter from '../../../common/ResizableSplitter';
 import { AppDialog } from '../../../common/AppDialog';
+import {
+  buildGalleryBoardExampleSlots as buildBoardExampleSlotsFromLayout,
+  getGalleryBoardExampleAspectRatioStyle as getBoardExampleAspectRatioStyleFromLayout,
+} from './galleryBoardExampleLayout';
 
 const GALLERY_PANEL_MIN_WIDTH = 300;
 const GALLERY_PANEL_MAX_WIDTH = 500;
@@ -101,13 +105,22 @@ export type ImagesGalleryViewProps = {
   panelClassName: (view: ViewType) => string;
   t: any;
 
-  galleryExamples: Array<{ id: string; title: string; subtitle: string; previewUrl: string; isUserSnapshot?: boolean; inputImageUrls?: string[] }>;
+  galleryExamples: Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    previewUrl: string;
+    isUserSnapshot?: boolean;
+    inputImageUrls?: string[];
+    resultUrls?: string[];
+  }>;
   applyGalleryExample: (id: string) => void;
   isGalleryApplyingExample: boolean;
   saveGalleryExampleSnapshot?: () => void;
   isGallerySavingExampleSnapshot?: boolean;
   deleteGalleryExampleSnapshot?: (id: string) => void;
   isGalleryDeletingExampleSnapshot?: boolean;
+  openGalleryBoardExample: () => void;
 
   galleryFileInputRef: React.RefObject<HTMLInputElement | null>;
   galleryImages: File[];
@@ -615,11 +628,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     [props.galleryPreviewItems]
   );
   const galleryBoardExampleAspect = useMemo(
-    () => getBoardExampleAspectRatioStyle(props.galleryBoardCanvasRatio),
+    () => getBoardExampleAspectRatioStyleFromLayout(props.galleryBoardCanvasRatio),
     [props.galleryBoardCanvasRatio]
   );
   const galleryBoardExampleSlots = useMemo(
-    () => buildGalleryBoardExampleSlots(gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio),
+    () => buildBoardExampleSlotsFromLayout(gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio),
     [gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio]
   );
 
@@ -1150,7 +1163,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               const inputThumbs = (Array.isArray(item.inputImageUrls) ? item.inputImageUrls : [])
                 .filter(Boolean)
                 .slice(0, 2);
-              if (inputThumbs.length === 0) inputThumbs.push(item.previewUrl);
+              const resultThumbs = (Array.isArray(item.resultUrls) ? item.resultUrls : [])
+                .map((url) => String(url || '').trim())
+                .filter(Boolean)
+                .slice(0, 4);
+              const collageThumbs = resultThumbs.length > 0 ? resultThumbs : [item.previewUrl];
+              const collageSlots = buildBoardExampleSlotsFromLayout(collageThumbs.length, '4:3');
 
               return (
                 <button
@@ -1162,15 +1180,34 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   title={props.isGalleryGenerating || props.isGalleryApplyingExample ? (props.t.pg_img_examples_loading || '生成中...') : (isUserSnapshot ? (props.t.pg_img_saved_example_hover_tip || '悬浮显示操作') : (props.t.pg_img_examples_click_to_generate || '点击填充'))}
                 >
                   <div className="relative h-full w-full">
-                    <img
-                      src={item.previewUrl}
-                      alt={item.title}
-                      className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.04] group-hover:brightness-110 ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : ''}`}
-                    />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.18),transparent_30%),linear-gradient(145deg,rgba(9,9,11,0.96),rgba(24,24,27,0.9))]">
+                      {collageThumbs.map((thumb, thumbIndex) => {
+                        const slot = collageSlots[thumbIndex] || collageSlots[collageSlots.length - 1];
+                        if (!slot) return null;
+                        return (
+                          <div
+                            key={`${item.id}-collage-${thumbIndex}`}
+                            className="absolute overflow-hidden rounded-[14px] border border-white/10 bg-black/20 shadow-[0_4px_14px_rgba(0,0,0,0.24)]"
+                            style={{
+                              left: `${slot.x * 100}%`,
+                              top: `${slot.y * 100}%`,
+                              width: `${slot.w * 100}%`,
+                              height: `${slot.h * 100}%`,
+                            }}
+                          >
+                            <img
+                              src={thumb}
+                              alt={`${item.title}-${thumbIndex + 1}`}
+                              className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.04] group-hover:brightness-110 ${isUserSnapshot ? 'opacity-85 group-hover:opacity-70 group-hover:blur-sm' : ''}`}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
 
-                    <div className="absolute left-3 top-3 inline-flex items-center rounded-full border border-white/15 bg-black/35 px-2.5 py-1 text-[11px] font-semibold text-white/80">
-                      最终结果
+                    <div className="absolute left-3 top-3 z-20 inline-flex items-center rounded-full border border-white/15 bg-black/70 px-2.5 py-1 text-[11px] font-semibold text-white/90">
+                      套图示例
                     </div>
 
                     <div className="absolute left-3 bottom-[62px] px-1 py-0.5">
@@ -2530,10 +2567,10 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 type="button"
                 ref={galleryBoardEditButtonRef}
                 onClick={() => openGalleryBoardEditor()}
-                className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
+                className="inline-flex items-center gap-2 rounded-2xl border border-orange-400/40 bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2.5 text-xs font-extrabold text-black shadow-[0_10px_24px_rgba(249,115,22,0.35)] transition hover:translate-y-[-1px] hover:from-orange-300 hover:to-orange-400"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                {t.pg_img_board_edit}
+                去拼图
               </button>
               <button
                 type="button"
@@ -2610,6 +2647,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   )}
                 </div>
 
+                {false ? (
                 <div
                   ref={galleryBoardExampleRef}
                   className={`rounded-2xl border border-white/10 bg-black/25 p-4 ${getGuideFocusClass('board')}`}
@@ -2617,10 +2655,13 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-bold text-zinc-100">{t.pg_img_board_example_title}</div>
+                      <div className="mt-1 text-[11px] text-zinc-500">
+                        {props.galleryProductName || t.pg_img_board_example_desc || '点击进入画板，继续微调成品效果'}
+                      </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => openGalleryBoardEditor({ onboarding: true })}
+                      onClick={props.openGalleryBoardExample}
                       className="inline-flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs font-bold text-orange-200 transition hover:bg-orange-500/15"
                     >
                       <LayoutGrid className="h-3.5 w-3.5" />
@@ -2645,6 +2686,23 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                       >
                         <div className="absolute left-[6%] top-[5%] h-[5.5%] w-[34%] rounded-full bg-white/14" />
                         <div className="absolute left-[6%] top-[13%] h-[2.8%] w-[22%] rounded-full bg-white/8" />
+                        <div className="absolute right-[6%] top-[7%] z-20 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[11px] font-semibold text-white/80">
+                          {gallerySucceededPreviewItems.length} 张成品
+                        </div>
+                        <div className="absolute left-[6%] bottom-[7%] z-20 max-w-[52%] rounded-[18px] border border-white/10 bg-black/40 px-4 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.28)] backdrop-blur-sm">
+                          <div className="text-sm font-extrabold text-white">
+                            {props.galleryProductName || t.pg_img_board_example_title}
+                          </div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-white/70">
+                            {gallerySucceededPreviewItems.length > 0
+                              ? gallerySucceededPreviewItems
+                                  .map((item) => String(item.outputType || '').trim())
+                                  .filter(Boolean)
+                                  .slice(0, 4)
+                                  .join(' / ')
+                              : props.t.pg_img_board_example_desc || '点击进入画板继续编辑'}
+                          </div>
+                        </div>
                         {galleryBoardExampleSlots.map((slot, index) => {
                           const item = gallerySucceededPreviewItems[index];
                           if (!item?.imageUrl) return null;
@@ -2674,6 +2732,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     )}
                   </div>
                 </div>
+                ) : null}
               </div>
             </div>
           ) : (

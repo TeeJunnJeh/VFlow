@@ -740,6 +740,46 @@ export const videoApi = {
     return await response.json();
   },
 
+  generateGalleryBoardCopy: async (payload: {
+    product_name?: string;
+    target_language?: string;
+    core_selling_points?: string[];
+    board_items: Array<{
+      image_layer_id?: string;
+      image_path?: string;
+      current_text_layer_id?: string;
+      current_text?: string;
+      index?: number;
+      rect?: {
+        id?: string;
+        x?: number;
+        y?: number;
+        w?: number;
+        h?: number;
+      };
+    }>;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/gallery/board-copy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const fallback = `套图文案生成失败: ${response.status} ${response.statusText || ''}`.trim();
+      throw await parseApiError(response, fallback);
+    }
+
+    return await response.json();
+  },
+
   generateProductGalleryPlan: async (payload: {
     prompt?: string;
     image_paths?: string[];

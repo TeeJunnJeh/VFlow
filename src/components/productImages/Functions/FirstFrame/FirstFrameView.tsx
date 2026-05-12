@@ -87,6 +87,12 @@ const FIRST_FRAME_PICKER_TABS = [
     fallbackLabel: 'Images',
     assetType: 'product' as const,
   },
+  {
+    key: 'model' as const,
+    labelKey: 'assets_tab_virtual_models',
+    fallbackLabel: 'Virtual Models',
+    assetType: 'model' as const,
+  },
 ];
 const FIRST_FRAME_PANEL_MIN_WIDTH = 280;
 const FIRST_FRAME_PANEL_MAX_WIDTH = 720;

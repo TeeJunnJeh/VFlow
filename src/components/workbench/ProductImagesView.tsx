@@ -8,6 +8,7 @@ import { AppDialog } from '../common/AppDialog';
 import { ErrorModal } from './workflow/ErrorModal';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } from './GalleryBoardEditor';
+import { buildGalleryBoardExampleDraft } from '../productImages/Functions/ImagesGallery/galleryBoardExampleLayout';
 import { assetsApi, seedanceApi, type SeedanceCharacter } from '../../services/assets';
 import { videoApi } from '../../services/video';
 import { downloadBlob, productImagesApi } from '../../services/productImagesApi';
@@ -2402,6 +2403,89 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     setGalleryBoardLibraryAssetType('product');
     setGalleryBoardPickerAssets([]);
     setIsGalleryBoardAssetPickerOpen(true);
+  };
+
+  const openGalleryBoardExample = () => {
+    const livePreviewAssets = galleryPreviewItems
+      .filter((item) => item.status === 'succeeded' && Boolean(String(item.imageUrl || '').trim()))
+      .slice(0, 9)
+      .map((item, index) => ({
+        localId: `board-example-live-${item.localId || index}`,
+        requestId: item.requestId,
+        imageUrl: String(item.imageUrl || '').trim(),
+        source: 'current' as const,
+        layout: item.layout,
+      }));
+
+    const getOutputTypeLabel = (outputType?: string) => {
+      const normalized = String(outputType || '').trim();
+      if (normalized === 'white_bg') return t.pi_gallery_output_white_bg;
+      if (normalized === 'scene') return t.pi_gallery_output_scene;
+      if (normalized === 'selling_point') return t.pi_gallery_output_selling_point;
+      if (normalized === 'cover') return t.pi_gallery_output_cover;
+      if (normalized === 'poster') return t.pi_gallery_output_poster;
+      return normalized;
+    };
+
+    const lastAppliedExampleId = String(galleryLastAppliedExampleId || '').trim();
+    const matchedExample = lastAppliedExampleId
+      ? galleryExampleTemplates.find((item) => item.id === lastAppliedExampleId) || null
+      : null;
+
+    const fallbackExampleAssets = livePreviewAssets.length > 0 || !matchedExample
+      ? []
+      : (Array.isArray(matchedExample.settings.outputItems) ? matchedExample.settings.outputItems : [])
+          .map((row, index) => ({
+            localId: `board-example-${matchedExample.id}-${index}`,
+            requestId: `example-${matchedExample.id}-${index}`,
+            imageUrl: String((row as any)?.result_url || '').trim(),
+            source: 'current' as const,
+            layout: row.layout,
+          }))
+          .filter((item) => Boolean(item.imageUrl));
+
+    const exampleAssets = livePreviewAssets.length > 0 ? livePreviewAssets : fallbackExampleAssets;
+    if (exampleAssets.length < 1) {
+      openGalleryBoardEditor({ onboarding: true });
+      return;
+    }
+
+    const exampleTitle = String(galleryProductName || matchedExample?.title || t.pg_img_board_example_title || '').trim() || '套图示例';
+    const exampleSubtitle = livePreviewAssets.length > 0
+      ? galleryPreviewItems
+          .filter((item) => item.status === 'succeeded' && Boolean(String(item.imageUrl || '').trim()))
+          .map((item) => getOutputTypeLabel(item.outputType))
+          .filter(Boolean)
+          .slice(0, 4)
+          .join(' / ')
+      : String(matchedExample?.subtitle || '').trim() || gallerySellingPoints.filter((item) => String(item || '').trim()).slice(0, 2).join(' / ');
+
+    const exampleSellingPoints = gallerySellingPoints
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+    const fallbackSellingPoints = Array.isArray(matchedExample?.settings?.sellingPoints)
+      ? matchedExample.settings.sellingPoints.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+
+    const draft = buildGalleryBoardExampleDraft({
+      assets: exampleAssets,
+      ratioId: galleryBoardCanvasRatio,
+      title: exampleTitle,
+      subtitle: exampleSubtitle,
+      sellingPoints: exampleSellingPoints.length > 0 ? exampleSellingPoints : fallbackSellingPoints,
+    });
+
+    setGalleryBoardSessionAssets(exampleAssets);
+    setGalleryBoardLocalAssets([]);
+    setGalleryBoardPickerAssets([]);
+    setGalleryBoardDraft(draft);
+    setGalleryBoardSelectedAssetIds(draft.selectedAssetLocalIds);
+    setGalleryBoardCanvasRatio(draft.templateRatioId);
+    setGalleryBoardOnboardingStage('editor');
+    setIsGalleryBoardAssetPickerOpen(false);
+    setIsGalleryBoardLibraryPickerOpen(false);
+    setIsGalleryBoardHistoryPickerOpen(false);
+    setIsGalleryBoardEditorOpen(true);
   };
 
   useEffect(() => {
@@ -6571,6 +6655,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
             inputImageUrls: (Array.isArray(template.inputImageUrls) && template.inputImageUrls.length > 0)
               ? template.inputImageUrls
               : (Array.isArray(template.settings?.uploadedImagePaths) ? template.settings.uploadedImagePaths : []),
+            resultUrls: (Array.isArray(template.settings?.outputItems) ? template.settings.outputItems : [])
+              .map((item: any) => String(item?.result_url || '').trim())
+              .filter(Boolean)
+              .slice(0, 9),
           }))}
           applyGalleryExample={applyGalleryExample}
           isGalleryApplyingExample={Boolean(galleryExampleApplyingId)}
@@ -6578,6 +6666,7 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           isGallerySavingExampleSnapshot={isGallerySavingExampleSnapshot}
           deleteGalleryExampleSnapshot={deleteGalleryExampleSnapshot}
           isGalleryDeletingExampleSnapshot={isGalleryDeletingExampleSnapshot}
+          openGalleryBoardExample={openGalleryBoardExample}
           galleryFileInputRef={galleryFileInputRef}
           galleryImages={galleryImages}
           galleryPreviewUrls={galleryPreviewUrls}

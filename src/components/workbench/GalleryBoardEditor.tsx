@@ -1,10 +1,15 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Download, Folder, Loader2, Plus, Redo2, Replace, Trash2, Type, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, Download, Folder, Loader2, Plus, Redo2, Replace, Sparkles, Trash2, Type, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
 import { AppDialog } from '../common/AppDialog';
 import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
+import { videoApi } from '../../services/video';
 import { useLanguage } from '../../context/LanguageContext';
+import { getGalleryBoardEditorShortcutAction } from './galleryBoardEditorShortcuts';
+import { buildGalleryBoardSellingPointLayers, type GalleryBoardImageFrame } from './galleryBoardDefaultTextLayout';
+import { applyGalleryBoardCopyDrafts, buildGalleryBoardCopyItems, type GalleryBoardCopyDraft } from './galleryBoardCopyGeneration';
+import { getGalleryBoardTextDisplayProps } from './galleryBoardTextRender';
 
 export type GalleryBoardAsset = {
   localId: string;
@@ -65,6 +70,7 @@ type BoardTextLayer = {
   align: 'left' | 'center' | 'right';
   lineHeight: number;
   padding: number;
+  linkedImageLayerId?: string | null;
 };
 
 type BoardLayer = BoardImageLayer | BoardTextLayer;
@@ -1159,7 +1165,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   onLocalAssetsChange,
   onDraftChange,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const layerIdSeedRef = useRef(0);
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
   const templatePanelCardRef = useRef<HTMLDivElement | null>(null);
@@ -1188,6 +1194,12 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [localAssets, setLocalAssets] = useState<GalleryBoardAsset[]>(() => initialLocalAssets || []);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [textFontSizeDraft, setTextFontSizeDraft] = useState('');
+  const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
+  const [editingTextValue, setEditingTextValue] = useState('');
+  const [isBoardCopyPreviewOpen, setIsBoardCopyPreviewOpen] = useState(false);
+  const [isBoardCopyGenerating, setIsBoardCopyGenerating] = useState(false);
+  const [boardCopyError, setBoardCopyError] = useState<string | null>(null);
+  const [boardCopyDrafts, setBoardCopyDrafts] = useState<GalleryBoardCopyDraft[]>([]);
   const [selectedAssetLocalIds, setSelectedAssetLocalIds] = useState<string[]>(() => initialDraft?.selectedAssetLocalIds || assets.map((item) => item.localId));
   const [templateTooltip, setTemplateTooltip] = useState<TemplateTooltipState | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -1596,18 +1608,37 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       flipY: false,
     }));
 
+    const sellingPointSource = sellingPoints
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+    const defaultSellingPointSource = Array.from(
+      { length: Math.max(imageLayers.length, 1) },
+      (_, index) => `核心卖点 ${index + 1}`
+    );
+    const sellingPointLayers = buildGalleryBoardSellingPointLayers(
+      imageLayers.map((layer) => ({
+        id: layer.id,
+        x: layer.x,
+        y: layer.y,
+        w: layer.w,
+        h: layer.h,
+      })) satisfies GalleryBoardImageFrame[],
+      sellingPointSource.length > 0 ? sellingPointSource : defaultSellingPointSource
+    );
+
     const layers: BoardLayer[] = [
       ...imageLayers,
+      ...sellingPointLayers,
       {
         id: nextLayerId(),
         type: 'text',
         name: t.pg_board_title,
         text: titleText,
         x: Math.round(template.canvasWidth * 0.06),
-        y: Math.round(template.canvasHeight * 0.04),
+        y: Math.round(template.canvasHeight * 0.025),
         w: Math.round(template.canvasWidth * 0.62),
-        h: Math.round(template.canvasHeight * 0.08),
-        fontSize: clamp(Math.round(template.canvasWidth * 0.048), 32, 72),
+        h: Math.round(template.canvasHeight * 0.07),
+        fontSize: clamp(Math.round(template.canvasWidth * 0.042), 30, 64),
         fontWeight: 700,
         fontFamily: 'Microsoft YaHei',
         color: '#111111',
@@ -1757,31 +1788,24 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target) {
-        const tagName = String(target.tagName || '').toLowerCase();
-        if (target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
-          return;
-        }
-      }
+      const action = getGalleryBoardEditorShortcutAction({
+        key: event.key,
+        targetTagName: target?.tagName,
+        targetIsContentEditable: target?.isContentEditable,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      });
 
-      const hasModifier = event.metaKey || event.ctrlKey;
-      if (!hasModifier) return;
+      if (!action) return;
 
-      const key = String(event.key || '').toLowerCase();
-      if (key === 'z' && event.shiftKey) {
-        event.preventDefault();
-        handleRedo();
+      event.preventDefault();
+      if (action === 'delete-selected') {
+        removeSelectedLayer();
         return;
       }
-      if (key === 'y' && event.ctrlKey) {
-        event.preventDefault();
-        handleRedo();
-        return;
-      }
-      if (key === 'z') {
-        event.preventDefault();
-        handleUndo();
-      }
+      if (action === 'redo') handleRedo();
+      else handleUndo();
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -1839,6 +1863,13 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     }
     setTextFontSizeDraft('');
   }, [selectedLayer]);
+  useEffect(() => {
+    if (!editingTextLayerId) return;
+    if (!board.layers.some((layer) => layer.id === editingTextLayerId && layer.type === 'text')) {
+      setEditingTextLayerId(null);
+      setEditingTextValue('');
+    }
+  }, [board.layers, editingTextLayerId]);
   const backgroundAsset = useMemo(
     () => (board.backgroundImageAssetLocalId ? assetMap.get(board.backgroundImageAssetLocalId) || null : null),
     [assetMap, board.backgroundImageAssetLocalId]
@@ -1850,6 +1881,21 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     );
     return matched?.id || 'custom';
   }, [board.canvasHeight, board.canvasWidth]);
+  const boardCopyPreviewRows = useMemo(() => {
+    const sourceItems = buildGalleryBoardCopyItems({
+      layers: board.layers,
+      assetsById: assetMap,
+    });
+    return boardCopyDrafts.map((draft) => {
+      const source = sourceItems.find((item) => item.imageLayerId === draft.imageLayerId) || null;
+      const asset = source?.imageAssetLocalId ? assetMap.get(source.imageAssetLocalId) || null : null;
+      return {
+        draft,
+        source,
+        asset,
+      };
+    });
+  }, [assetMap, board.layers, boardCopyDrafts]);
   const backgroundBounds = useMemo(
     () => ({
       x: board.backgroundImageX,
@@ -2086,14 +2132,44 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   const removeSelectedLayer = () => {
     if (!board.selectedLayerId) return;
+    const selected = board.layers.find((layer) => layer.id === board.selectedLayerId) || null;
+    setEditingTextLayerId((prev) => (prev === board.selectedLayerId ? null : prev));
     updateBoard((prev) => {
-      const nextLayers = prev.layers.filter((layer) => layer.id !== prev.selectedLayerId);
+      const nextLayers = prev.layers.filter((layer) => {
+        if (layer.id === prev.selectedLayerId) return false;
+        if (selected?.type === 'image' && layer.type === 'text' && layer.linkedImageLayerId === selected.id) return false;
+        return true;
+      });
       return {
         ...prev,
         layers: nextLayers,
         selectedLayerId: null,
       };
     }, { record: true });
+  };
+
+  const beginTextLayerEditing = (layer: BoardTextLayer) => {
+    selectLayer(layer.id);
+    setEditingTextLayerId(layer.id);
+    setEditingTextValue(layer.text);
+  };
+
+  const cancelTextLayerEditing = () => {
+    setEditingTextLayerId(null);
+    setEditingTextValue('');
+  };
+
+  const commitTextLayerEditing = () => {
+    if (!editingTextLayerId) return;
+    const layerId = editingTextLayerId;
+    const nextText = editingTextValue;
+    setEditingTextLayerId(null);
+    setEditingTextValue('');
+
+    const currentLayer = board.layers.find((layer) => layer.id === layerId);
+    if (!currentLayer || currentLayer.type !== 'text' || currentLayer.text === nextText) return;
+
+    updateLayer(layerId, (layer) => (layer.type === 'text' ? { ...layer, text: nextText } : layer), { record: true });
   };
 
   const resizeCanvas = (nextWidth: number, nextHeight: number) => {
@@ -2156,6 +2232,92 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
       selectedLayerId: layer.id,
       selectedBackground: false,
     }), { record: true });
+  };
+
+  const normalizeBoardCopyDrafts = (drafts: GalleryBoardCopyDraft[]) =>
+    drafts
+      .map((draft, index) => {
+        const text = String(draft.text || '').trim() || `卖点 ${index + 1}`;
+        return {
+          ...draft,
+          text,
+        };
+      })
+      .filter((draft) => Boolean(String(draft.imageLayerId || '').trim()));
+
+  const handleGenerateBoardCopyPreview = async () => {
+    if (isBoardCopyGenerating) return;
+    const copyItems = buildGalleryBoardCopyItems({
+      layers: board.layers,
+      assetsById: assetMap,
+    });
+
+    if (copyItems.length === 0) {
+      onAlert?.(t.pg_board_import_image_required || '请先选择至少一张图片再生成文案。');
+      return;
+    }
+
+    setIsBoardCopyGenerating(true);
+    setBoardCopyError(null);
+
+    try {
+      const response = await videoApi.generateGalleryBoardCopy({
+        product_name: String(productName || '').trim(),
+        target_language: String(language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en',
+        core_selling_points: sellingPoints.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 9),
+        board_items: copyItems.map((item) => ({
+          image_layer_id: item.imageLayerId,
+          image_path: item.imagePath,
+          current_text_layer_id: item.currentTextLayerId || undefined,
+          current_text: item.currentText || undefined,
+          index: item.index,
+          rect: item.rect,
+        })),
+      });
+
+      const data = (response as any)?.data || response;
+      const rawItems = Array.isArray(data?.items) ? data.items : Array.isArray(data?.drafts) ? data.drafts : [];
+      const drafts = copyItems.map((item, index) => {
+        const matched = rawItems.find((row: any) => String(row?.image_layer_id || row?.imageLayerId || row?.imageLayerID || '') === item.imageLayerId) || rawItems[index];
+        const text = String(matched?.text || matched?.copy || matched?.headline || matched?.body || '').trim();
+        return {
+          imageLayerId: item.imageLayerId,
+          currentTextLayerId: item.currentTextLayerId,
+          text: text || item.currentText || `卖点 ${index + 1}`,
+          reason: String(matched?.reason || '').trim() || undefined,
+        };
+      });
+
+      setBoardCopyDrafts(normalizeBoardCopyDrafts(drafts));
+      setIsBoardCopyPreviewOpen(true);
+    } catch (error: any) {
+      const message = String(error?.message || t.pg_board_ai_copy_failed || '生成文案失败，请稍后重试。');
+      setBoardCopyError(message);
+      onAlert?.(message);
+    } finally {
+      setIsBoardCopyGenerating(false);
+    }
+  };
+
+  const handleApplyBoardCopyDrafts = () => {
+    const drafts = normalizeBoardCopyDrafts(boardCopyDrafts);
+    if (drafts.length === 0) {
+      setIsBoardCopyPreviewOpen(false);
+      return;
+    }
+
+    runRecordedChange(() => {
+      updateBoard((prev) => ({
+        ...prev,
+        layers: applyGalleryBoardCopyDrafts({
+          layers: prev.layers,
+          drafts,
+          createLayerId: () => nextLayerId(),
+        }) as BoardLayer[],
+      }));
+    });
+
+    setIsBoardCopyPreviewOpen(false);
   };
 
   const replaceSelectedImage = (assetLocalId: string) => {
@@ -2396,6 +2558,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   const handleLayerPointerDown = (layer: BoardLayer, event: React.PointerEvent<HTMLDivElement>) => {
     event.stopPropagation();
+    if (event.detail > 1) return;
     if (board.selectedLayerId !== layer.id) {
       selectLayer(layer.id);
       return;
@@ -3221,6 +3384,8 @@ linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)`,
               ) : null}
               {board.layers.map((layer) => {
                 const isSelected = layer.id === board.selectedLayerId;
+                const isEditingText = layer.type === 'text' && editingTextLayerId === layer.id;
+                const textDisplayProps = layer.type === 'text' ? getGalleryBoardTextDisplayProps(layer.align) : null;
                 const asset = layer.type === 'image' && layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
                 const imageUrl = layer.type === 'image' ? String(asset?.imageUrl || '').trim() : '';
                 const imageRect =
@@ -3288,7 +3453,7 @@ linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)`,
                       </div>
                     ) : (
                       <div
-                        className={`flex h-full w-full overflow-hidden whitespace-pre-wrap break-words ${isSelected ? 'border border-white/40' : 'border border-transparent'}`}
+                        className={`${textDisplayProps?.className || 'block h-full w-full overflow-hidden whitespace-pre-wrap break-words'} ${isSelected ? 'border border-white/40' : 'border border-transparent'}`}
                         style={{
                           borderRadius: 16 * boardScale,
                           background: layer.background || 'transparent',
@@ -3297,15 +3462,49 @@ linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)`,
                           fontWeight: layer.fontWeight,
                           fontFamily: layer.fontFamily,
                           lineHeight: layer.lineHeight,
-                          textAlign: layer.align,
+                          ...textDisplayProps?.style,
                           padding: layer.padding * boardScale,
                         }}
+                        onDoubleClick={(event) => {
+                          event.stopPropagation();
+                          beginTextLayerEditing(layer);
+                        }}
                       >
-                        {layer.text}
+                        {isEditingText ? (
+                          <textarea
+                            autoFocus
+                            value={editingTextValue}
+                            onChange={(event) => setEditingTextValue(event.target.value)}
+                            onBlur={commitTextLayerEditing}
+                            onClick={(event) => event.stopPropagation()}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onDoubleClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                cancelTextLayerEditing();
+                                return;
+                              }
+                              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                                event.preventDefault();
+                                commitTextLayerEditing();
+                              }
+                            }}
+                            className="h-full w-full resize-none border-none bg-transparent p-0 text-inherit outline-none"
+                            style={{
+                              font: 'inherit',
+                              lineHeight: 'inherit',
+                              color: 'inherit',
+                              textAlign: layer.align,
+                            }}
+                          />
+                        ) : (
+                          layer.text
+                        )}
                       </div>
                     )}
 
-                    {isSelected ? (
+                    {isSelected && !isEditingText ? (
                       <div
                         className="absolute bottom-[-4px] right-[-4px] h-2.5 w-2.5 cursor-se-resize rounded-full border border-black/40 bg-orange-400 shadow-[0_4px_10px_rgba(0,0,0,0.35)]"
                         onPointerDown={(event) => startPointerAction({ type: 'layer', layer }, event, 'resize')}
@@ -3339,6 +3538,20 @@ linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)`,
 
             {rightPanelSections.board ? (
               <div className="border-t border-white/10 px-4 pb-4 pt-4 space-y-3">
+            <button
+              type="button"
+              onClick={handleGenerateBoardCopyPreview}
+              disabled={isBoardCopyGenerating}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-orange-400/35 bg-gradient-to-r from-orange-400 to-orange-500 px-3 py-2.5 text-xs font-extrabold text-black shadow-[0_10px_24px_rgba(249,115,22,0.22)] transition hover:from-orange-300 hover:to-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isBoardCopyGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{t.pg_board_ai_copy_generate || 'AI一键生成文案'}</span>
+            </button>
+            {boardCopyError ? (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                {boardCopyError}
+              </div>
+            ) : null}
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-3">
               <label className="space-y-1">
                 <div className="flex items-center justify-between text-[11px] text-zinc-500">
@@ -4313,11 +4526,81 @@ linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)`,
                     {boardGuideStepIndex >= boardGuideSteps.length - 1 ? t.wb_guide_finish : t.wb_guide_next}
                   </button>
                 </div>
-              </div>
-            </div>,
-            document.body
-          )
+      </div>
+    </div>,
+    document.body
+  )
         : null}
+
+      <AppDialog
+        isOpen={isBoardCopyPreviewOpen}
+        title={t.pg_board_ai_copy_preview_title || 'AI文案预览'}
+        subtitle={t.pg_board_ai_copy_preview_subtitle || '确认后会把草稿写入每张图片下方的文案层。'}
+        onClose={() => setIsBoardCopyPreviewOpen(false)}
+        widthClassName="max-w-4xl"
+        contentClassName="overflow-hidden"
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setIsBoardCopyPreviewOpen(false)}
+              className="rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-zinc-800"
+            >
+              {t.pg_board_close}
+            </button>
+            <button
+              type="button"
+              onClick={handleApplyBoardCopyDrafts}
+              className="rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-orange-400"
+            >
+              {t.pg_board_apply || '应用文案'}
+            </button>
+          </div>
+        }
+      >
+        <div className="max-h-[68vh] space-y-3 overflow-y-auto pr-1">
+          {boardCopyPreviewRows.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center text-sm text-zinc-500">
+              {t.pg_board_ai_copy_empty || '没有可预览的文案。'}
+            </div>
+          ) : (
+            boardCopyPreviewRows.map(({ draft, source, asset }) => (
+              <div key={draft.imageLayerId} className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 md:grid-cols-[160px_minmax(0,1fr)]">
+                <div className="overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                  {asset?.imageUrl ? (
+                    <img src={asset.imageUrl} alt={draft.imageLayerId} className="h-40 w-full object-cover" />
+                  ) : (
+                    <div className="flex h-40 items-center justify-center text-xs text-zinc-500">
+                      {t.pg_board_no_image_bound || '未绑定图片'}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-100">{source?.currentText || draft.imageLayerId}</div>
+                      <div className="mt-1 text-[11px] text-zinc-500">
+                        {draft.reason || t.pg_board_ai_copy_preview_hint || '这是一版生成草稿，确认后写入文案层。'}
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-zinc-400">
+                      {draft.imageLayerId}
+                    </span>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm leading-relaxed text-zinc-100">
+                    {draft.text}
+                  </div>
+                  {source?.currentText ? (
+                    <div className="text-[11px] text-zinc-500">
+                      {t.pg_board_ai_copy_current_text || '当前文案'}: {source.currentText}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </AppDialog>
 
       <AppDialog
         isOpen={isHistoryPickerOpen}

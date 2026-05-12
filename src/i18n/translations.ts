@@ -867,6 +867,7 @@ export const translations = {
     wb_video_type_reaction: "Reaction",
     wb_video_type_story: "Storytelling",
     wb_video_type_creative_skit: "Creative Skit",
+    wb_video_type_creative_skit_tooltip: "Beta — generates more creative, high-concept ad scripts",
 
     wb_script_prompt_fallback: "Product promotion",
     wb_generating: "Generating...",
@@ -3379,6 +3380,7 @@ export const translations = {
     wb_video_type_reaction: "反应展示",
     wb_video_type_story: "故事讲述",
     wb_video_type_creative_skit: "趣味剧本",
+    wb_video_type_creative_skit_tooltip: "测试中，可生成创意性的广告",
 
     wb_script_prompt_fallback: "产品推广",
     wb_generating: "生成中...",
@@ -5691,6 +5693,7 @@ export const translations = {
     wb_video_type_reaction: "Reaksi",
     wb_video_type_story: "Penceritaan",
     wb_video_type_creative_skit: "Skit Kreatif",
+    wb_video_type_creative_skit_tooltip: "Dalam beta — menjana skrip iklan yang lebih kreatif",
 
     wb_upload_click: "Klik untuk Muat Naik",
     wb_upload_support: "Sokong muat naik",
@@ -7952,6 +7955,7 @@ export const translations = {
     wb_video_type_reaction: "Phản ứng",
     wb_video_type_story: "Kể chuyện",
     wb_video_type_creative_skit: "Kịch bản sáng tạo",
+    wb_video_type_creative_skit_tooltip: "Đang thử nghiệm — tạo kịch bản quảng cáo sáng tạo hơn",
 
     wb_upload_click: "Nhấn để tải lên",
     wb_upload_support: "Hỗ trợ tải lên",
@@ -10184,6 +10188,7 @@ export const translations = {
     wb_video_type_reaction: "리액션",
     wb_video_type_story: "스토리텔링",
     wb_video_type_creative_skit: "크리에이티브 스킷",
+    wb_video_type_creative_skit_tooltip: "베타 — 더 창의적인 광고 스크립트를 생성합니다",
 
     wb_upload_click: "업로드하려면 클릭",
     wb_upload_support: "업로드 지원",

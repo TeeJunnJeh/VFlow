@@ -5,6 +5,8 @@ import { ChevronDown } from 'lucide-react';
 export type DropdownSelectOption = {
   value: string;
   label: React.ReactNode;
+  // 鼠标 hover option 时显示的原生 tooltip 文字
+  title?: string;
 };
 
 type DropdownSelectRenderOptionArgs = {
@@ -121,6 +123,7 @@ export const DropdownSelect: React.FC<DropdownSelectProps> = ({
             key={opt.value}
             role="option"
             aria-selected={isSelected}
+            title={opt.title}
             className={`w-full text-left px-3 py-2 hover:bg-white/5 ${
               isSelected ? 'text-white' : 'text-zinc-200'
             } ${optionClassName}`}

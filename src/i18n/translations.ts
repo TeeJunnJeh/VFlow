@@ -337,6 +337,8 @@ export const translations = {
     canvas_concat_button: "Concatenate {n} videos into one",
     canvas_concat_submit: "Concatenate",
 
+    wb_nav_group_creation: "Creation",
+    wb_nav_group_personal: "Personal",
     ai_creator_title: "AI Creator",
     ai_creator_subtitle: "Describe anything and generate with one click",
     ai_creator_placeholder: "I want a 5-second sunglasses ad video...",
@@ -2861,6 +2863,8 @@ export const translations = {
     canvas_concat_button: "将 {n} 个视频拼接成一个长视频",
     canvas_concat_submit: "拼接",
 
+    wb_nav_group_creation: "创作",
+    wb_nav_group_personal: "个人",
     ai_creator_title: "AI 创作助手",
     ai_creator_subtitle: "描述需求，一键生成",
     ai_creator_placeholder: "我想生成一个5秒的太阳镜广告视频...",

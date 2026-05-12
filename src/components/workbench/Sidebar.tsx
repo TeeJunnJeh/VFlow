@@ -110,6 +110,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const themeButtonLabel = nextTheme === 'light'
     ? t.sidebar_switch_to_light
     : t.sidebar_switch_to_dark;
+  const creationGroupLabel = (t as any).wb_nav_group_creation || 'Creation';
+  const personalGroupLabel = (t as any).wb_nav_group_personal || 'Personal';
 
   const isProductImagesView = PRODUCT_IMAGE_VIEWS.includes(activeView);
   const isCreativeLabView = CREATIVE_LAB_VIEWS.includes(activeView);
@@ -183,17 +185,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
       onClick={() => {
         navigateToView(view);
       }}
-      className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
-        activeView === view ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
-      }`}
+      title={label}
+      className={`wb-sidebar-nav-item group ${activeView === view ? 'wb-sidebar-nav-item--active' : 'wb-sidebar-nav-item--inactive'}`}
     >
-      <div className={`transition-colors ${activeView === view ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+      <div className="wb-sidebar-nav-icon">
         <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
       </div>
-      {activeView === view && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
-      <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-        {label}
-      </div>
+      <span className="wb-sidebar-nav-label">{label}</span>
+      {activeView === view && <div className="wb-sidebar-nav-indicator" />}
     </button>
   );
 
@@ -217,19 +216,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
           }
           setActiveView(readLastProductImageView());
         }}
-        className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
-          active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
-        }`}
+        title={t.wb_nav_product_images}
+        className={`wb-sidebar-nav-item group ${active ? 'wb-sidebar-nav-item--active' : 'wb-sidebar-nav-item--inactive'}`}
         aria-expanded={isProductImagesSectionOpen}
         aria-controls="product-images-subnav"
       >
-        <div className={`transition-colors ${active ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+        <div className="wb-sidebar-nav-icon">
           <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
         </div>
-        {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
-        <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-          {t.wb_nav_product_images}
-        </div>
+        <span className="wb-sidebar-nav-label">{t.wb_nav_product_images}</span>
+        {active && <div className="wb-sidebar-nav-indicator" />}
       </button>
     );
   };
@@ -249,45 +245,56 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
           setIsProductImagesSectionOpen(false);
           setActiveView(readLastCreativeLabView());
         }}
-        className={`h-12 w-full rounded-xl flex items-center justify-center cursor-pointer transition group relative ${
-          active ? 'text-orange-500 bg-orange-500/10' : 'text-zinc-500 hover:text-zinc-300'
-        }`}
+        title={(t as any).wb_nav_creative_lab || '创意实验室'}
+        className={`wb-sidebar-nav-item group ${active ? 'wb-sidebar-nav-item--active' : 'wb-sidebar-nav-item--inactive'}`}
         aria-expanded={isCreativeLabSectionOpen}
         aria-controls="creative-lab-subnav"
       >
-        <div className={`transition-colors ${active ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+        <div className="wb-sidebar-nav-icon">
           <FlaskConical className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
         </div>
-        {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-orange-500 rounded-r-full" />}
-        <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-          {(t as any).wb_nav_creative_lab || '创意实验室'}
-        </div>
+        <span className="wb-sidebar-nav-label">{(t as any).wb_nav_creative_lab || '创意实验室'}</span>
+        {active && <div className="wb-sidebar-nav-indicator" />}
       </button>
     );
   };
 
   return (
     <aside className="relative bg-zinc-950 border-r border-white/5 flex z-[80] shrink-0">
-      <div className="w-16 lg:w-20 flex flex-col items-center py-6 gap-6 shrink-0">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex items-center justify-center font-bold italic text-black mb-2 shadow-lg shadow-orange-500/20">
-          VF
+      <div className="w-44 flex flex-col items-stretch py-6 gap-6 shrink-0">
+        <div className="flex h-10 items-center px-4 mb-2">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex shrink-0 items-center justify-center font-bold italic text-black shadow-lg shadow-orange-500/20">
+            VF
+          </div>
         </div>
 
-        <div className="flex flex-col gap-4 w-full px-2">
-          <ProductImagesNav />
-          <InternalNav icon={MessageSquare} view="ai_creator" label={t.wb_nav_ai_creator || 'AI Creator'} />
-          <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
-          <CreativeLabNav />
-          <InternalNav icon={activeView === 'assets' ? FolderOpen : Folder} view="assets" label={t.wb_nav_assets} />
-          <InternalNav icon={History} view="history" label={t.wb_nav_history} />
-          {isDebugModeEnabled && <InternalNav icon={Sparkles} view="agent" label={t.wb_nav_agent} />}
-          <InternalNav icon={CreditCard} view="billing" label={t.wb_nav_billing || 'Billing'} />
+        <div className="flex flex-col gap-5 w-full">
+          <nav className="wb-sidebar-nav-section" aria-label={creationGroupLabel}>
+            <div className="wb-sidebar-nav-section-title">{creationGroupLabel}</div>
+            <div className="flex flex-col gap-1 w-full">
+              <ProductImagesNav />
+              <InternalNav icon={MessageSquare} view="ai_creator" label={t.wb_nav_ai_creator || 'AI Creator'} />
+              <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
+              <CreativeLabNav />
+            </div>
+          </nav>
+
+          <nav className="wb-sidebar-nav-section" aria-label={personalGroupLabel}>
+            <div className="wb-sidebar-nav-section-title">{personalGroupLabel}</div>
+            <div className="flex flex-col gap-1 w-full">
+              <InternalNav icon={activeView === 'assets' ? FolderOpen : Folder} view="assets" label={t.wb_nav_assets} />
+              <InternalNav icon={History} view="history" label={t.wb_nav_history} />
+              {isDebugModeEnabled && <InternalNav icon={Sparkles} view="agent" label={t.wb_nav_agent} />}
+              <InternalNav icon={CreditCard} view="billing" label={t.wb_nav_billing || 'Billing'} />
+            </div>
+          </nav>
         </div>
 
-        <div className="mt-auto pb-6 w-full px-2 flex flex-col items-center gap-4">
+        <div className="mt-auto pb-6 w-full flex flex-col items-start gap-4 px-3">
           <button
             type="button"
             onClick={handleCycleTheme}
+            title={themeButtonLabel}
             className="w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative border-white/5 bg-zinc-900/50 hover:border-white/20"
           >
             <div className="text-zinc-500 group-hover:text-zinc-300 transition-colors">
@@ -307,6 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
               }
               navigateToView('profile');
             }}
+            title={!user ? ((t as any).guest_login_button || 'Log In') : t.profile_title}
             className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${
               !user
                 ? 'border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/20'

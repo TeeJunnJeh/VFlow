@@ -315,7 +315,7 @@ export function AssetLibraryPickerDialog<TabKey extends string = string>({
             disabled={selectedAssets.length === 0}
             className="rounded-lg bg-orange-500 px-5 py-2 text-sm font-black text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {t.ui_dialog_ok || 'OK'}
+            {t.ui_dialog_ok || 'OK'}{selectedAssets.length > 0 ? `（${selectedAssets.length}）` : ''}
           </button>
         </>
       )}

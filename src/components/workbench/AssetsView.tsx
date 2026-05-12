@@ -2332,7 +2332,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
              <LanguageSwitcher />
              {viewMode === 'library' ? (
                <>
-                 {activeAssetTab !== 'subject' && activeAssetTab !== 'model' && (
+                 {activeAssetTab !== 'subject' && (
                    <button onClick={openCreateFolderModal} className="bg-zinc-800 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-zinc-700 transition flex items-center gap-2"><FolderPlus className="w-4 h-4" /> {t.assets_btn_new_folder}</button>
                  )}
                  {activeAssetTab !== 'subject' && (

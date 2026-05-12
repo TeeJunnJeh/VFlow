@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 import { type NodeProps } from '@xyflow/react';
 import { FileText } from 'lucide-react';
 import { NodeShell } from './NodeShell';
+import { InputToggle } from './InputToggle';
 import { useCanvasStore } from '../canvasStore';
 import { useLanguage } from '../../../../context/LanguageContext';
 import type { TextNodeData, CanvasNode } from '../canvasTypes';
@@ -10,6 +11,7 @@ export const TextNode: React.FC<NodeProps<CanvasNode>> = ({ id, data: rawData, s
   const data = rawData as TextNodeData;
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const { t } = useLanguage();
+  const useAsInput = data.useAsInput !== false; // default on
 
   const ROLE_LABELS: Record<TextNodeData['role'], string> = {
     prompt: t.canvas_role_prompt,
@@ -38,8 +40,14 @@ export const TextNode: React.FC<NodeProps<CanvasNode>> = ({ id, data: rawData, s
       status={data.status}
       color="orange"
       selected={selected}
-      hasTarget={false}
+      hasTarget
       error={data.error}
+      headerActions={
+        <InputToggle
+          active={useAsInput}
+          onChange={(next) => updateNodeData(id, { useAsInput: next })}
+        />
+      }
     >
       <select
         value={data.role}

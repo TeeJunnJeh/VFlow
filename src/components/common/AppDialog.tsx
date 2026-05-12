@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface AppDialogProps {
@@ -39,7 +40,12 @@ export const AppDialog: React.FC<AppDialogProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  // Portal to document.body so the modal escapes any transformed/positioned
+  // ancestors (e.g. the ReactFlow canvas viewport, whose CSS transform makes
+  // `position: fixed` resolve to the transformed pane instead of the viewport
+  // — which previously trapped this dialog at the size of its caller node and
+  // swallowed click events).
+  const dialogContent = (
     <div className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/70 backdrop-blur-sm p-6`} onClick={onClose}>
       <div
         className={`w-full ${widthClassName} glass-panel rounded-2xl border border-white/10 p-6 shadow-2xl max-h-[calc(100vh-3rem)] flex flex-col`}
@@ -61,4 +67,8 @@ export const AppDialog: React.FC<AppDialogProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(dialogContent, document.body)
+    : dialogContent;
 };

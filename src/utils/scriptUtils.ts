@@ -20,6 +20,8 @@ export type ScriptCreativeCard = {
   backgroundSound?: string;
   transitionEditing?: string;
   callToAction?: string;
+  // 趣味剧本专用：屏幕字幕 / 文字弹出 / 旁白字幕 / 片尾标语序列
+  subtitles?: string[];
 };
 
 export type ScriptPage = {
@@ -154,6 +156,10 @@ export function buildCreativeCardPrompt(card?: ScriptCreativeCardLike): string {
   if (card.backgroundSound) sections.push(`[背景音]: ${card.backgroundSound}`);
   if (card.transitionEditing) sections.push(`[转场 / 剪辑]: ${card.transitionEditing}`);
   if (card.callToAction) sections.push(`[行动号召]: ${card.callToAction}`);
+  if (Array.isArray(card.subtitles) && card.subtitles.length > 0) {
+    const subtitles = card.subtitles.map((item, idx) => `- ${idx + 1}. ${item}`).join('\n');
+    sections.push(`[字幕]:\n${subtitles}`);
+  }
   return sections.join('\n');
 }
 
@@ -172,6 +178,7 @@ export function hasCreativeCardContent(card?: ScriptCreativeCardLike): boolean {
   if ((card.transitionEditing || '').trim()) return true;
   if ((card.callToAction || '').trim()) return true;
   if ((card.actions || []).some((item) => String(item || '').trim().length > 0)) return true;
+  if ((card.subtitles || []).some((item) => String(item || '').trim().length > 0)) return true;
   return false;
 }
 

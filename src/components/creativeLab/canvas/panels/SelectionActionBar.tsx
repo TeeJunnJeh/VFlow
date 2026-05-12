@@ -101,6 +101,16 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
 
   if (selectedNodes.length === 0) return null;
 
+  // When the user selects exactly one image/video/text node, the new
+  // BottomInputPanel handles configuration; the legacy SelectionActionBar
+  // would otherwise stack on top of it. Yield to the panel for those kinds.
+  if (selectedNodes.length === 1) {
+    const onlyKind = (selectedNodes[0].data as CanvasNodeData).kind;
+    if (onlyKind === 'image' || onlyKind === 'video' || onlyKind === 'text') {
+      return null;
+    }
+  }
+
   // Categorize selected nodes
   const imageNodes = selectedNodes.filter((n) => (n.data as CanvasNodeData).kind === 'image');
   const textNodes = selectedNodes.filter((n) => (n.data as CanvasNodeData).kind === 'text');

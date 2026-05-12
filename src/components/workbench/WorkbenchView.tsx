@@ -6949,6 +6949,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: '背景音',
         transitionEditing: '转场 / 剪辑',
         callToAction: '行动号召',
+        subtitles: '字幕',
       };
     }
     if (lang.startsWith('ko')) {
@@ -6962,6 +6963,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: '배경음',
         transitionEditing: '전환 / 편집',
         callToAction: '콜 투 액션',
+        subtitles: '자막',
       };
     }
     if (lang.startsWith('vi')) {
@@ -6975,6 +6977,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: 'Âm thanh nền',
         transitionEditing: 'Chuyển cảnh / Dựng',
         callToAction: 'Kêu gọi hành động',
+        subtitles: 'Phụ đề',
       };
     }
     if (lang.startsWith('ms')) {
@@ -6988,6 +6991,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: 'Bunyi Latar',
         transitionEditing: 'Peralihan / Suntingan',
         callToAction: 'Seruan Tindakan',
+        subtitles: 'Sari kata',
       };
     }
     return {
@@ -7000,6 +7004,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       backgroundSound: 'Background Sound',
       transitionEditing: 'Transition / Editing',
       callToAction: 'Call to Action',
+      subtitles: 'On-screen Text',
     };
   }, [language]);
 
@@ -7776,6 +7781,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         backgroundSound: normalizeScriptText(scriptContent?.creative_card?.background_sound || parsed?.creative_card?.background_sound),
         transitionEditing: normalizeScriptText(scriptContent?.creative_card?.transition_editing || parsed?.creative_card?.transition_editing),
         callToAction: normalizeScriptText(scriptContent?.creative_card?.call_to_action || parsed?.creative_card?.call_to_action),
+        subtitles: parseScriptStringList(scriptContent?.creative_card?.subtitles || parsed?.creative_card?.subtitles, 10),
       };
 
       const importedFullScript = normalizeScriptText(
@@ -8032,6 +8038,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       backgroundSound: normalizeScriptText(creativeCard?.background_sound),
       transitionEditing: normalizeScriptText(creativeCard?.transition_editing),
       callToAction: normalizeScriptText(creativeCard?.call_to_action),
+      subtitles: parseScriptStringList(creativeCard?.subtitles, 10),
     };
     const fullScriptBase = normalizeScriptText(scriptContent?.video_master_script) || buildFullScriptFallback(shots);
     const materialUsageTextRaw = String(scriptContent?.material_usage_text || '').trim();
@@ -8161,6 +8168,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         background_sound: currentPage.creativeCard.backgroundSound || '',
         transition_editing: currentPage.creativeCard.transitionEditing || '',
         call_to_action: currentPage.creativeCard.callToAction || '',
+        subtitles: currentPage.creativeCard.subtitles || [],
       } : undefined;
 
       const payload: any = {
@@ -8636,6 +8644,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : {}),
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
+        ...(videoType === '趣味剧本' ? { video_type: 'creative_skit' } : {}),
       };
       const reportPayload = {
         script_count: 1,
@@ -10054,6 +10063,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     { value: '前后对比', label: t.wb_video_type_before_after },
                     { value: '反应展示', label: t.wb_video_type_reaction },
                     { value: '故事讲述', label: t.wb_video_type_story },
+                    { value: '趣味剧本', label: t.wb_video_type_creative_skit, title: t.wb_video_type_creative_skit_tooltip },
                   ]}
                   onChange={(v) => {
                     setVideoType(v);

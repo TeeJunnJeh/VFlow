@@ -6,6 +6,7 @@ const TYPE_COLORS: Record<string, string> = {
   text: '#f97316',   // orange
   image: '#3b82f6',  // blue
   video: '#a855f7',  // purple
+  upload: '#10b981', // emerald — UploadResourceNode source
 };
 
 export const DataEdge: React.FC<EdgeProps<CanvasEdge>> = ({

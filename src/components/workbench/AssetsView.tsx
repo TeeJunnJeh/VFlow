@@ -48,7 +48,6 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   onNavigationIntentHandled,
   onSubjectGuideCompleted,
 }) => {
-  console.log('[AssetsView] render start');
   const { t, language } = useLanguage();
   const { updateUser, user } = useAuth();
   const _MB = 1024 * 1024;
@@ -892,7 +891,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       return;
     }
     void loadPlazaData();
-  }, [loadData, loadPlazaData, loadSubjects, viewMode, activeAssetTab, user]);
+  }, [loadData, loadPlazaData, loadSubjects, viewMode, activeAssetTab, user?.id]);
 
   useEffect(() => {
     if (isFolderModalOpen) {

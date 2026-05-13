@@ -837,7 +837,7 @@ button.wb-sidebar-nav-item {
   caret-color: transparent;
   user-select: none;
   -webkit-user-select: none;
-  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  transition: none;
 }
 
 .wb-sidebar-nav-section {
@@ -861,7 +861,8 @@ button.wb-sidebar-nav-item {
 
 .wb-sidebar-nav-icon {
   flex-shrink: 0;
-  transition: color 160ms ease;
+  pointer-events: none;
+  transition: none;
 }
 
 .wb-sidebar-nav-label {
@@ -876,6 +877,7 @@ button.wb-sidebar-nav-item {
   font-size: 0.9rem;
   line-height: 1.25rem;
   font-weight: 570;
+  pointer-events: none;
 }
 
 .wb-sidebar-nav-indicator {
@@ -887,6 +889,7 @@ button.wb-sidebar-nav-item {
   transform: translateY(-50%);
   border-radius: 0 9999px 9999px 0;
   background-color: #f97316;
+  pointer-events: none;
 }
 
 button.wb-sidebar-nav-item--inactive {

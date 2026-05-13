@@ -119,6 +119,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const [isCreativeLabSectionOpen, setIsCreativeLabSectionOpen] = React.useState(isCreativeLabView);
   const [productImagesSubnavWidth, setProductImagesSubnavWidth] = React.useState(PRODUCT_IMAGES_SUBNAV_MIN_WIDTH);
   const productImageLabelRefs = React.useRef<Array<HTMLSpanElement | null>>([]);
+  const suppressNextClickRef = React.useRef(false);
+  const suppressClickResetTimerRef = React.useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   React.useEffect(() => {
     if (isProductImagesView) {
@@ -152,6 +154,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     }
   }, [setActiveView]);
 
+  const suppressNextClick = React.useCallback(() => {
+    suppressNextClickRef.current = true;
+    if (suppressClickResetTimerRef.current) {
+      window.clearTimeout(suppressClickResetTimerRef.current);
+    }
+    suppressClickResetTimerRef.current = window.setTimeout(() => {
+      suppressNextClickRef.current = false;
+      suppressClickResetTimerRef.current = null;
+    }, 500);
+  }, []);
+
+  const handlePrimaryPointerDown = React.useCallback((event: React.PointerEvent<HTMLButtonElement>, view: ViewType) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    suppressNextClick();
+    navigateToView(view);
+  }, [navigateToView, suppressNextClick]);
+
+  React.useEffect(() => () => {
+    if (suppressClickResetTimerRef.current) {
+      window.clearTimeout(suppressClickResetTimerRef.current);
+    }
+  }, []);
+
   const productImageOptions: Array<{ view: ViewType; label: string; icon: any }> = [
     { view: 'product_images_clothing_swap', label: t.wb_nav_product_clothing_swap, icon: Shirt },
     { view: 'product_images_first_frame', label: t.wb_nav_product_first_frame, icon: Clapperboard },
@@ -182,14 +208,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   const InternalNav = ({ icon: Icon, view, label }: { icon: any; view: ViewType; label: string }) => (
     <button
       type="button"
+      onPointerDown={(event) => handlePrimaryPointerDown(event, view)}
       onClick={() => {
+        if (suppressNextClickRef.current) {
+          suppressNextClickRef.current = false;
+          return;
+        }
         navigateToView(view);
       }}
       title={label}
       className={`wb-sidebar-nav-item group ${activeView === view ? 'wb-sidebar-nav-item--active' : 'wb-sidebar-nav-item--inactive'}`}
     >
       <div className="wb-sidebar-nav-icon">
-        <Icon className={`w-5 h-5 transition-all ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
+        <Icon className={`w-5 h-5 ${activeView === view ? 'stroke-[2.5px]' : ''}`} />
       </div>
       <span className="wb-sidebar-nav-label">{label}</span>
       {activeView === view && <div className="wb-sidebar-nav-indicator" />}
@@ -202,7 +233,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     return (
       <button
         type="button"
+        onPointerDown={(event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+          event.preventDefault();
+          suppressNextClick();
+          if (active) {
+            setIsProductImagesSectionOpen((prev) => !prev);
+            return;
+          }
+          setIsProductImagesSectionOpen(true);
+          setIsCreativeLabSectionOpen(false);
+          try {
+            window.sessionStorage.removeItem(PRODUCT_GALLERY_GUIDE_TRIGGER_KEY);
+          } catch {
+            // ignore storage write failures
+          }
+          setActiveView(readLastProductImageView());
+        }}
         onClick={() => {
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
           if (active) {
             setIsProductImagesSectionOpen((prev) => !prev);
             return;
@@ -222,7 +274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         aria-controls="product-images-subnav"
       >
         <div className="wb-sidebar-nav-icon">
-          <ImageIcon className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
+          <ImageIcon className={`w-5 h-5 ${active ? 'stroke-[2.5px]' : ''}`} />
         </div>
         <span className="wb-sidebar-nav-label">{t.wb_nav_product_images}</span>
         {active && <div className="wb-sidebar-nav-indicator" />}
@@ -236,7 +288,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     return (
       <button
         type="button"
+        onPointerDown={(event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+          event.preventDefault();
+          suppressNextClick();
+          if (active) {
+            setIsCreativeLabSectionOpen((prev) => !prev);
+            return;
+          }
+          setIsCreativeLabSectionOpen(true);
+          setIsProductImagesSectionOpen(false);
+          setActiveView(readLastCreativeLabView());
+        }}
         onClick={() => {
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
           if (active) {
             setIsCreativeLabSectionOpen((prev) => !prev);
             return;
@@ -251,7 +319,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         aria-controls="creative-lab-subnav"
       >
         <div className="wb-sidebar-nav-icon">
-          <FlaskConical className={`w-5 h-5 transition-all ${active ? 'stroke-[2.5px]' : ''}`} />
+          <FlaskConical className={`w-5 h-5 ${active ? 'stroke-[2.5px]' : ''}`} />
         </div>
         <span className="wb-sidebar-nav-label">{(t as any).wb_nav_creative_lab || '创意实验室'}</span>
         {active && <div className="wb-sidebar-nav-indicator" />}
@@ -260,7 +328,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   };
 
   return (
-    <aside className="relative bg-zinc-950 border-r border-white/5 flex z-[80] shrink-0">
+    <aside className="relative bg-zinc-950 border-r border-white/5 flex z-[300] shrink-0">
       <div className="w-44 flex flex-col items-stretch py-6 gap-6 shrink-0">
         <div className="flex h-10 items-center px-4 mb-2">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex shrink-0 items-center justify-center font-bold italic text-black shadow-lg shadow-orange-500/20">
@@ -346,8 +414,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         id="product-images-subnav"
         className={`shrink-0 overflow-hidden bg-zinc-960/100 transition-[width,opacity,border-color] ${
           isProductImagesSectionOpen
-            ? 'border-l border-white/5 opacity-100'
-            : 'border-l border-transparent opacity-0'
+            ? 'border-l border-white/5 opacity-100 pointer-events-auto'
+            : 'border-l border-transparent opacity-0 pointer-events-none'
         }`}
         style={{
           width: isProductImagesSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
@@ -380,7 +448,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                 <button
                   key={opt.view}
                   type="button"
+                  onPointerDown={(event) => {
+                    if (event.pointerType === 'mouse' && event.button !== 0) return;
+                    event.preventDefault();
+                    suppressNextClick();
+                    setIsCreativeLabSectionOpen(false);
+                    try {
+                      if (opt.view === 'product_images_gallery') {
+                        window.sessionStorage.setItem(PRODUCT_GALLERY_GUIDE_TRIGGER_KEY, '1');
+                      } else {
+                        window.sessionStorage.removeItem(PRODUCT_GALLERY_GUIDE_TRIGGER_KEY);
+                      }
+                    } catch {
+                      // ignore storage write failures
+                    }
+                    setActiveView(opt.view);
+                  }}
                   onClick={() => {
+                    if (suppressNextClickRef.current) {
+                      suppressNextClickRef.current = false;
+                      return;
+                    }
                     setIsCreativeLabSectionOpen(false);
                     try {
                       if (opt.view === 'product_images_gallery') {
@@ -423,8 +511,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         id="creative-lab-subnav"
         className={`shrink-0 overflow-hidden bg-zinc-950/70 transition-[width,opacity,border-color] ${
           isCreativeLabSectionOpen
-            ? 'border-l border-white/5 opacity-100'
-            : 'border-l border-transparent opacity-0'
+            ? 'border-l border-white/5 opacity-100 pointer-events-auto'
+            : 'border-l border-transparent opacity-0 pointer-events-none'
         }`}
         style={{
           width: isCreativeLabSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
@@ -452,7 +540,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                 <button
                   key={opt.view}
                   type="button"
+                  onPointerDown={(event) => {
+                    if (event.pointerType === 'mouse' && event.button !== 0) return;
+                    event.preventDefault();
+                    suppressNextClick();
+                    setIsProductImagesSectionOpen(false);
+                    setActiveView(opt.view);
+                  }}
                   onClick={() => {
+                    if (suppressNextClickRef.current) {
+                      suppressNextClickRef.current = false;
+                      return;
+                    }
                     setIsProductImagesSectionOpen(false);
                     setActiveView(opt.view);
                   }}

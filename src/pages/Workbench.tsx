@@ -583,6 +583,10 @@ const Workbench = () => {
     }
   }, [getSubjectGuideSeenKey]);
 
+  const handleAssetsNavigationIntentHandled = useCallback(() => {
+    setAssetsNavigationIntent(null);
+  }, []);
+
   const handleNavigateToAssetsLibrary = useCallback(() => {
     setAssetsNavigationIntent(
       hasSeenSubjectGuide()
@@ -704,7 +708,7 @@ const Workbench = () => {
               currentFolderId={currentFolderId}
               setCurrentFolderId={setCurrentFolderId}
               navigationIntent={assetsNavigationIntent}
-              onNavigationIntentHandled={() => setAssetsNavigationIntent(null)}
+              onNavigationIntentHandled={handleAssetsNavigationIntentHandled}
               onSubjectGuideCompleted={markSubjectGuideSeen}
             />
             </ViewErrorBoundary>

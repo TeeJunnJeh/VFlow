@@ -508,11 +508,11 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     [props.galleryPreviewItems]
   );
   const galleryBoardExampleAspect = useMemo(
-    () => getBoardExampleAspectRatioStyleFromLayout(props.galleryBoardCanvasRatio),
+    () => getBoardExampleAspectRatioStyle(props.galleryBoardCanvasRatio),
     [props.galleryBoardCanvasRatio]
   );
   const galleryBoardExampleSlots = useMemo(
-    () => buildBoardExampleSlotsFromLayout(gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio),
+    () => buildGalleryBoardExampleSlots(gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio),
     [gallerySucceededPreviewItems.length, props.galleryBoardCanvasRatio]
   );
 
@@ -1048,7 +1048,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 .filter(Boolean)
                 .slice(0, 4);
               const collageThumbs = resultThumbs.length > 0 ? resultThumbs : [item.previewUrl];
-              const collageSlots = buildBoardExampleSlotsFromLayout(collageThumbs.length, '4:3');
+              const collageSlots = buildGalleryBoardExampleSlots(collageThumbs.length, '4:3');
 
               return (
                 <button

@@ -9,7 +9,6 @@ export interface FirstFrameToVideoTransferPayload {
   targetModel: FirstFrameVideoTargetModel;
   timestamp: string;
   workspaceId?: string;
-  workspaceOrder?: number;
 }
 
 export function writeFirstFrameToVideoTransfer(payload: FirstFrameToVideoTransferPayload) {
@@ -34,7 +33,6 @@ export function readFirstFrameToVideoTransfer(): FirstFrameToVideoTransferPayloa
     targetModel,
     timestamp: String(parsed.timestamp || new Date().toISOString()),
     workspaceId: parsed.workspaceId ? String(parsed.workspaceId) : undefined,
-    workspaceOrder: typeof parsed.workspaceOrder === 'number' ? parsed.workspaceOrder : undefined,
   };
 }
 

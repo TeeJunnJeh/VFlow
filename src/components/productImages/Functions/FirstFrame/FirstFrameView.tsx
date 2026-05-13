@@ -33,7 +33,7 @@ type FirstFramePickedAsset = AssetLibraryPickedAsset<FirstFramePickerTab>;
 
 interface FirstFrameWorkspaceMeta {
   id: string;
-  order: number;
+  name?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -53,7 +53,6 @@ interface FirstFrameDraftItem {
   id: string;
   name: string;
   workspaceId: string;
-  workspaceOrder: number;
   createdAt: number;
   updatedAt: number;
   snapshot: FirstFrameDraftSnapshot;
@@ -62,7 +61,6 @@ interface FirstFrameDraftItem {
 interface FirstFrameHistoryItem {
   id: string;
   workspaceId: string;
-  workspaceOrder: number;
   createdAt: string;
   outputImages: ProductImageResult[];
   elapsedSeconds: number | null;
@@ -229,7 +227,7 @@ const FIRST_FRAME_EXAMPLE_TEMPLATES: FirstFrameExampleTemplate[] = [
 
 const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   id: 'ff-workspace-1',
-  order: 1,
+  name: '',
   createdAt: Date.now(),
   updatedAt: Date.now(),
 });
@@ -260,7 +258,6 @@ const readFirstFrameDrafts = (): FirstFrameDraftItem[] => {
         const id = String(item?.id || '').trim();
         const name = String(item?.name || '').trim();
         const workspaceId = String(item?.workspaceId || '').trim();
-        const workspaceOrder = Math.max(1, Math.floor(Number(item?.workspaceOrder || 1)));
         const createdAt = Number(item?.createdAt);
         const updatedAt = Number(item?.updatedAt);
         const rawImages = Array.isArray(item?.snapshot?.images) ? item.snapshot.images : [];
@@ -269,7 +266,6 @@ const readFirstFrameDrafts = (): FirstFrameDraftItem[] => {
           id,
           name,
           workspaceId,
-          workspaceOrder,
           createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
           updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
           snapshot: {
@@ -438,7 +434,6 @@ const mapImageHistoryToFirstFrameItem = (item: ImageHistoryItem): FirstFrameHist
   return {
     id: item.id,
     workspaceId: item.workspaceId || 'ff-workspace-1',
-    workspaceOrder: item.workspaceOrder || 1,
     createdAt: item.createdAt,
     outputImages,
     elapsedSeconds,
@@ -459,8 +454,6 @@ const readWorkspaceMetas = (): FirstFrameWorkspaceMeta[] => {
     const normalized = parsed
       .map((item: any, index: number) => {
         const id = String(item?.id || '').trim();
-        const orderRaw = Number(item?.order);
-        const order = Number.isFinite(orderRaw) && orderRaw > 0 ? Math.floor(orderRaw) : index + 1;
         const createdAtRaw = Number(item?.createdAt);
         const updatedAtRaw = Number(item?.updatedAt);
 
@@ -468,7 +461,7 @@ const readWorkspaceMetas = (): FirstFrameWorkspaceMeta[] => {
 
         return {
           id,
-          order,
+          name: String(item?.name || '').trim() || undefined,
           createdAt: Number.isFinite(createdAtRaw) ? createdAtRaw : Date.now(),
           updatedAt: Number.isFinite(updatedAtRaw) ? updatedAtRaw : Date.now(),
         } satisfies FirstFrameWorkspaceMeta;
@@ -483,7 +476,6 @@ const readWorkspaceMetas = (): FirstFrameWorkspaceMeta[] => {
 
 interface FirstFrameWorkspacePaneProps {
   workspaceId: string;
-  workspaceOrder: number;
   workspaceLabel: string;
   projectId?: string;
   isVisible?: boolean;
@@ -495,7 +487,6 @@ interface FirstFrameWorkspacePaneProps {
 
 const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   workspaceId,
-  workspaceOrder,
   workspaceLabel,
   projectId,
   isVisible = true,
@@ -1130,7 +1121,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
 
       const response = await productImagesApi.generateFirstFrame(images, params, projectId, {
         workspaceId,
-        workspaceOrder,
       });
       if (generationSeqRef.current !== runSeq) return;
 
@@ -1445,7 +1435,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       targetModel,
       timestamp: new Date().toISOString(),
       firstFrameWorkspaceId: workspaceId,
-      firstFrameWorkspaceOrder: workspaceOrder,
     };
 
     writeFirstFrameToVideoTransfer({
@@ -1455,7 +1444,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       targetModel: payload.targetModel,
       timestamp: payload.timestamp,
       workspaceId: payload.firstFrameWorkspaceId,
-      workspaceOrder: payload.firstFrameWorkspaceOrder,
     });
     onApplyToWorkbench?.();
   };
@@ -2020,7 +2008,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                     {historyItems.map((item) => (
                       <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 overflow-hidden">
                         <div className="px-3 py-2 border-b border-white/10 bg-black/40 flex items-center justify-between text-xs text-zinc-400">
-                          <span>{t.ff_workspace} {item.workspaceOrder}</span>
+                          <span>{workspaceLabel}</span>
                           <span>{formatHistoryTime(item.createdAt)}</span>
                         </div>
                         <div className="p-3 grid grid-cols-4 gap-2">
@@ -2161,6 +2149,11 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   const [draftQuery, setDraftQuery] = useState('');
   const [renamingDraftId, setRenamingDraftId] = useState('');
   const [renamingDraftName, setRenamingDraftName] = useState('');
+  const [isWorkspaceNameDialogOpen, setIsWorkspaceNameDialogOpen] = useState(false);
+  const [workspaceNameDialogMode, setWorkspaceNameDialogMode] = useState<'create' | 'rename'>('create');
+  const [workspaceNameTargetId, setWorkspaceNameTargetId] = useState('');
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
+  const [workspaceNameError, setWorkspaceNameError] = useState('');
   const [draftToApply, setDraftToApply] = useState<FirstFrameDraftItem | null>(null);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
     if (typeof window === 'undefined') return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
@@ -2218,9 +2211,14 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     }
   }, [activeWorkspaceId, workspaceMetas]);
 
-  const workspaceLabel = useCallback((workspace: FirstFrameWorkspaceMeta) => (
-    `${t.ff_workspace} ${workspace.order}`
+  const defaultWorkspaceLabel = useCallback(() => (
+    String(t.ff_new_workspace || '').trim() || 'New Workspace'
   ), [t]);
+
+  const workspaceLabel = useCallback((workspace: FirstFrameWorkspaceMeta) => {
+    const name = String(workspace.name || '').trim();
+    return name || defaultWorkspaceLabel();
+  }, [defaultWorkspaceLabel]);
 
   const workspaceOptions = useMemo(
     () => workspaceMetas.map((workspace) => ({
@@ -2230,27 +2228,61 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     [workspaceMetas, workspaceLabel]
   );
 
-  const createWorkspace = () => {
-    const occupiedOrders = new Set(
-      workspaceMetas
-        .map((workspace) => workspace.order)
-        .filter((order) => Number.isFinite(order) && order > 0)
-    );
-    let order = 1;
-    while (occupiedOrders.has(order)) {
-      order += 1;
+  const openCreateWorkspaceDialog = () => {
+    setWorkspaceNameDialogMode('create');
+    setWorkspaceNameTargetId('');
+    setWorkspaceNameDraft(defaultWorkspaceLabel());
+    setWorkspaceNameError('');
+    setIsWorkspaceNameDialogOpen(true);
+  };
+
+  const openRenameWorkspaceDialog = (workspaceId: string) => {
+    const workspace = workspaceMetas.find((item) => item.id === workspaceId);
+    if (!workspace) return;
+    setWorkspaceNameDialogMode('rename');
+    setWorkspaceNameTargetId(workspace.id);
+    setWorkspaceNameDraft(workspaceLabel(workspace));
+    setWorkspaceNameError('');
+    setIsWorkspaceNameDialogOpen(true);
+  };
+
+  const closeWorkspaceNameDialog = () => {
+    setIsWorkspaceNameDialogOpen(false);
+    setWorkspaceNameTargetId('');
+    setWorkspaceNameDraft('');
+    setWorkspaceNameError('');
+  };
+
+  const confirmWorkspaceName = () => {
+    const name = workspaceNameDraft.trim();
+    if (!name) {
+      setWorkspaceNameError(t.ff_draft_name_required);
+      return;
     }
 
     const now = Date.now();
+    if (workspaceNameDialogMode === 'rename') {
+      const targetId = workspaceNameTargetId;
+      if (!targetId) return;
+      setWorkspaceMetas((prev) => prev.map((workspace) => (
+        workspace.id === targetId
+          ? { ...workspace, name, updatedAt: now }
+          : workspace
+      )));
+      closeWorkspaceNameDialog();
+      return;
+    }
+
     const newWorkspace: FirstFrameWorkspaceMeta = {
       id: `ff-workspace-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-      order,
+      name,
       createdAt: now,
       updatedAt: now,
     };
 
     setWorkspaceMetas((prev) => [newWorkspace, ...prev]);
     setActiveWorkspaceId(newWorkspace.id);
+    closeWorkspaceNameDialog();
   };
 
   const switchWorkspace = (workspaceId: string) => {
@@ -2292,19 +2324,17 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
   const activeWorkspaceLabel = workspaceLabel(activeWorkspaceMeta);
 
   const saveDraftForWorkspace = useCallback((name: string, snapshot: FirstFrameDraftSnapshot) => {
-    const workspace = workspaceMetas.find((item) => item.id === activeWorkspaceId) || activeWorkspaceMeta;
     const now = Date.now();
     const draft: FirstFrameDraftItem = {
       id: `ff-draft-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       name: name.trim() || defaultFirstFrameDraftName(t.ff_draft_default_name_prefix),
-      workspaceId: workspace.id,
-      workspaceOrder: workspace.order,
+      workspaceId: activeWorkspaceMeta.id,
       createdAt: now,
       updatedAt: now,
       snapshot,
     };
     setDrafts((prev) => [draft, ...prev]);
-  }, [activeWorkspaceId, activeWorkspaceMeta, workspaceMetas]);
+  }, [activeWorkspaceMeta, t.ff_draft_default_name_prefix]);
 
   useEffect(() => {
     if (draftWorkspaceFilter === 'all') return;
@@ -2314,17 +2344,11 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
 
   const draftFilterOptions = useMemo(() => [
     { value: 'all', label: t.ff_draft_all_workspaces },
-    ...[...workspaceMetas]
-      .sort((a, b) => {
-        const orderDiff = a.order - b.order;
-        if (orderDiff !== 0) return orderDiff;
-        return workspaceLabel(a).localeCompare(workspaceLabel(b), 'zh-Hans-CN');
-      })
-      .map((workspace) => ({
-        value: workspace.id,
-        label: workspaceLabel(workspace),
-      })),
-  ], [workspaceLabel, workspaceMetas]);
+    ...workspaceMetas.map((workspace) => ({
+      value: workspace.id,
+      label: workspaceLabel(workspace),
+    })),
+  ], [t.ff_draft_all_workspaces, workspaceLabel, workspaceMetas]);
 
   const normalizedDraftQuery = draftQuery.trim().toLowerCase();
   const groupedDrafts = useMemo(() => {
@@ -2370,7 +2394,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
       setWorkspaceMetas((prev) => [
         {
           id: draft.workspaceId,
-          order: draft.workspaceOrder,
+          name: '',
           createdAt: now,
           updatedAt: now,
         },
@@ -2476,6 +2500,18 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
+                    openRenameWorkspaceDialog(option.value);
+                  }}
+                  className="shrink-0 rounded-full p-0.5 text-zinc-400 opacity-0 transition hover:text-zinc-200 group-hover:opacity-100"
+                  aria-label={`${t.ff_draft_rename} ${optionTitle}`}
+                  title={`${t.ff_draft_rename} ${optionTitle}`}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
                     deleteWorkspace(option.value);
                   }}
                   disabled={!canDelete}
@@ -2498,7 +2534,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
       </div>
       <button
         type="button"
-        onClick={createWorkspace}
+        onClick={openCreateWorkspaceDialog}
         className="px-3 py-2 rounded-xl text-xs font-semibold bg-orange-500/10 border border-orange-500/40 text-orange-300 hover:bg-orange-500/20 transition inline-flex items-center gap-1.5"
       >
         <Plus className="w-3.5 h-3.5" />
@@ -2537,6 +2573,50 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
         )}
 
         {embedded && headerActionsContainer ? createPortal(workspaceActions, headerActionsContainer) : null}
+
+        <AppDialog
+          isOpen={isWorkspaceNameDialogOpen}
+          title={workspaceNameDialogMode === 'create' ? t.ff_new_workspace : t.ff_draft_rename}
+          onClose={closeWorkspaceNameDialog}
+          widthClassName="max-w-md"
+          footer={(
+            <>
+              <button
+                type="button"
+                onClick={closeWorkspaceNameDialog}
+                className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white/10"
+              >
+                {t.ff_draft_cancel}
+              </button>
+              <button
+                type="button"
+                onClick={confirmWorkspaceName}
+                className="rounded-lg border border-orange-500/40 bg-orange-500/15 px-4 py-2 text-sm font-semibold text-orange-200 transition hover:bg-orange-500/25"
+              >
+                {t.ff_draft_save}
+              </button>
+            </>
+          )}
+        >
+          <label className="mb-2 block text-xs font-semibold text-zinc-500">
+            {t.ff_workspace_name}
+          </label>
+          <input
+            value={workspaceNameDraft}
+            onChange={(event) => {
+              setWorkspaceNameDraft(event.target.value);
+              if (workspaceNameError) setWorkspaceNameError('');
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') confirmWorkspaceName();
+              if (event.key === 'Escape') closeWorkspaceNameDialog();
+            }}
+            className="w-full rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-orange-500/50"
+            placeholder=""
+            autoFocus
+          />
+          {workspaceNameError ? <div className="mt-2 text-xs text-red-300">{workspaceNameError}</div> : null}
+        </AppDialog>
 
         <AppDialog
           isOpen={isDraftManagerOpen}
@@ -2695,7 +2775,6 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
           >
             <FirstFrameWorkspacePane
               workspaceId={workspace.id}
-              workspaceOrder={workspace.order}
               workspaceLabel={workspaceLabel(workspace)}
               projectId={projectId}
               isVisible={isVisible && workspace.id === activeWorkspaceId}

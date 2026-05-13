@@ -193,7 +193,6 @@ async function generateFirstFrameOnce(options: {
   holdingStyle?: string;
   textWhitespace?: string;
   workspaceId?: string;
-  workspaceOrder?: number;
   clientHistoryId?: string;
 }): Promise<{ imagePath: string; projectId?: string }> {
   const payload: Record<string, unknown> = {
@@ -214,9 +213,6 @@ async function generateFirstFrameOnce(options: {
   }
   if (options.workspaceId) {
     payload.workspace_id = options.workspaceId;
-  }
-  if (Number.isFinite(options.workspaceOrder)) {
-    payload.workspace_order = options.workspaceOrder;
   }
   if (options.clientHistoryId) {
     payload.client_history_id = options.clientHistoryId;
@@ -288,7 +284,6 @@ async function createFirstFrameAsync(options: {
   textWhitespace?: string;
   outputCount: number;
   workspaceId?: string;
-  workspaceOrder?: number;
   clientHistoryId?: string;
 }): Promise<GenerationStatusResponse> {
   const payload: Record<string, unknown> = {
@@ -307,7 +302,6 @@ async function createFirstFrameAsync(options: {
 
   if (options.projectId) payload.project_id = options.projectId;
   if (options.workspaceId) payload.workspace_id = options.workspaceId;
-  if (Number.isFinite(options.workspaceOrder)) payload.workspace_order = options.workspaceOrder;
   if (options.clientHistoryId) payload.client_history_id = options.clientHistoryId;
 
   const endpoint = `${PROJECTS_API_BASE}/generate_first_frame`;
@@ -383,7 +377,7 @@ export const productImagesApi = {
     images: File[],
     params: FirstFrameParams,
     projectId?: string,
-    workspaceMeta?: { workspaceId?: string; workspaceOrder?: number }
+    workspaceMeta?: { workspaceId?: string }
   ): Promise<GenerationStatusResponse> {
     if (!images || images.length === 0) {
       throw new Error('Please upload at least one product image');
@@ -414,7 +408,6 @@ export const productImagesApi = {
         textWhitespace: params.textWhitespace,
         outputCount,
         workspaceId: workspaceMeta?.workspaceId,
-        workspaceOrder: workspaceMeta?.workspaceOrder,
         clientHistoryId,
       });
     }
@@ -432,7 +425,6 @@ export const productImagesApi = {
         holdingStyle: params.holdingStyle,
         textWhitespace: params.textWhitespace,
         workspaceId: workspaceMeta?.workspaceId,
-        workspaceOrder: workspaceMeta?.workspaceOrder,
         clientHistoryId,
       });
 

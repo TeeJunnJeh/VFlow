@@ -323,6 +323,18 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
 
   const runInpaint = async (options: ImageInpaintRunOptions): Promise<string> => {
     const apiBase = (import.meta as any).env?.VITE_API_BASE || '/api';
+    const requestInpaintRefund = async (requestId: string, reason: string, message: string) => {
+      try {
+        await fetch(`${apiBase}/projects/inpaint_image_refund`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ request_id: requestId, reason, message }),
+        });
+      } catch (err) {
+        console.warn('[first-frame] inpaint refund request failed', err);
+      }
+    };
     const resp = await fetch(`${apiBase}/projects/inpaint_image`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -341,16 +353,29 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
     const requestId = String(data?.data?.request_id || '').trim();
     if (!requestId) throw new Error('Create task failed');
 
-    for (let i = 0; i < 40; i += 1) {
-      const res = await videoApi.getProductGalleryResult(requestId);
-      const status = String((res as any)?.data?.status || (res as any)?.status || '').toLowerCase();
-      const outputs = (res as any)?.data?.outputs || (res as any)?.outputs || [];
-      const list = Array.isArray(outputs) ? outputs : [];
-      const outputUrl = String(list[0] || '').trim();
-      if (outputUrl) return outputUrl;
-      if (status && ['failed', 'canceled', 'cancelled', 'error'].includes(status)) break;
-      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+    let terminalFailureHandledByBackend = false;
+    try {
+      for (let i = 0; i < 40; i += 1) {
+        const res = await videoApi.getProductGalleryResult(requestId);
+        const status = String((res as any)?.data?.status || (res as any)?.status || '').toLowerCase();
+        const outputs = (res as any)?.data?.outputs || (res as any)?.outputs || [];
+        const list = Array.isArray(outputs) ? outputs : [];
+        const outputUrl = String(list[0] || '').trim();
+        if (outputUrl) return outputUrl;
+        if (status && ['failed', 'canceled', 'cancelled', 'error', 'rejected'].includes(status)) {
+          terminalFailureHandledByBackend = true;
+          throw new Error(t.pg_main_toast_generation_failed_retry || 'Generation failed');
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'inpaint polling failed';
+      if (!terminalFailureHandledByBackend) {
+        await requestInpaintRefund(requestId, 'poll_error', message);
+      }
+      throw err;
     }
+    await requestInpaintRefund(requestId, 'client_timeout', 'inpaint polling timed out');
     throw new Error(t.pg_main_toast_generation_failed_retry || 'Generation failed');
   };
 

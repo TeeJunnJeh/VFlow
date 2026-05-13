@@ -17,6 +17,11 @@ export interface TextNodeData extends BaseNodeData {
   kind: 'text';
   content: string;
   role: 'prompt' | 'note' | 'product_info';
+  // When true (default), this node's content flows into downstream prompts via
+  // `collectUpstreamInputs` along incoming-edge paths. When false, the node is
+  // skipped AND its upstream beyond this point is also pruned (the path is cut
+  // here). Older snapshots without this field fall back to `true` at read time.
+  useAsInput?: boolean;
 }
 
 // --- Image Node ---
@@ -44,6 +49,14 @@ export interface ImageNodeData extends BaseNodeData {
   imageUrl: string | null;
   assetId: string | null;
   source: 'upload' | 'generated' | 'library';
+
+  // Same semantics as TextNodeData.useAsInput — controls whether this image
+  // (its url and optional caption) flows into downstream prompts. Default true.
+  useAsInput?: boolean;
+  // Optional short caption appended to downstream prompt text when this image
+  // is collected as input (e.g. "[Reference: 冰丝 T 恤实拍]"). The imageUrl
+  // is always passed as a reference path regardless of this field.
+  inputCaption?: string;
 
   // Mode switcher (default 'upload' if absent for backward compat)
   mode?: ImageNodeMode;
@@ -126,12 +139,45 @@ export interface VideoAnalysisNodeData extends BaseNodeData {
   styleTags: string[];
 }
 
+// --- Upload Resource Node ---
+// Pure source — no target handle. Lets users drop in a single image / video /
+// audio asset that downstream nodes consume via edges. The user picks the
+// resource kind on first use (hover reveals 3 buttons), after which the node
+// renders the relevant uploader. Path-walking semantics in `canvasInputs.ts`:
+// resourceKind='image' behaves like an ImageNode (hard wall, contributes
+// imageUrl + caption); 'video' and 'audio' are stored on the node but not yet
+// folded into prompt collection (kept for visual graph + future generators).
+export type UploadResourceKind = 'image' | 'video' | 'audio';
+
+export interface UploadResourceNodeData extends BaseNodeData {
+  kind: 'upload';
+  resourceKind: UploadResourceKind | null;
+  useAsInput?: boolean;
+  // resourceKind === 'image'
+  imageUrl?: string | null;
+  imageCaption?: string;
+  // resourceKind === 'video'
+  videoUrl?: string | null;
+  videoName?: string;
+  videoDurationSec?: number;
+  // resourceKind === 'audio'
+  audioUrl?: string | null;
+  audioName?: string;
+  audioDurationSec?: number;
+}
+
 // --- Union ---
-export type CanvasNodeData = TextNodeData | ImageNodeData | VideoNodeData | ScriptNodeData | VideoAnalysisNodeData;
+export type CanvasNodeData =
+  | TextNodeData
+  | ImageNodeData
+  | VideoNodeData
+  | ScriptNodeData
+  | VideoAnalysisNodeData
+  | UploadResourceNodeData;
 
 // --- Edge Data ---
 export interface CanvasEdgeData {
-  dataType: 'image' | 'video' | 'text' | 'script';
+  dataType: 'image' | 'video' | 'text' | 'script' | 'upload';
   [key: string]: unknown;
 }
 
@@ -149,10 +195,18 @@ export interface CanvasSnapshot {
 }
 
 // --- Connection validation ---
+// text/image can chain into each other (text→text, text→image, image→text,
+// image→image) so that "upstream prompt collection" walks (see
+// `canvasInputs.ts`) can express the V←T←P example. text→image is also
+// allowed because image generation modes (first_frame / smart_repair /
+// clothing_swap / ai_model) carry their own prompt fields that benefit from
+// upstream text context. The new `upload` kind is a pure source that can
+// feed any prompt-aware downstream.
 export const VALID_CONNECTIONS: Record<string, string[]> = {
-  text: ['video', 'script'],
-  image: ['video', 'script'],
+  text: ['video', 'script', 'text', 'image'],
+  image: ['video', 'script', 'text', 'image'],
   video: ['video'],
   script: ['video'],
   audio: ['video'],
+  upload: ['video', 'script', 'text', 'image'],
 };

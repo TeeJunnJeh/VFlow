@@ -19,10 +19,38 @@
  */
 import { productImagesApi } from '../../../../../services/productImagesApi';
 import { useCanvasStore } from '../../canvasStore';
+import { collectUpstreamInputs } from '../../canvasInputs';
 import type {
   ImageNodeData,
   ImageNodeOutput,
 } from '../../canvasTypes';
+
+// ---------------------------------------------------------------------------
+// Shared utility — fold path-walked upstream inputs into a prompt + ref list.
+// All `run*` entries for prompt-aware modes (first_frame / smart_repair /
+// ai_model virtual + real) call this so a downstream ImageNode generates with
+// the same effective prompt as a Video node would along the same canvas chain.
+// ---------------------------------------------------------------------------
+
+function buildPromptWithUpstream(
+  nodeId: string,
+  ownPrompt: string | undefined,
+): { prompt: string; addedImageUrls: string[] } {
+  const state = useCanvasStore.getState();
+  const collected = collectUpstreamInputs(nodeId, state.nodes, state.edges);
+  const captionParts = collected.images
+    .filter((img) => img.caption)
+    .map((img) => `[Reference: ${img.caption}]`);
+  const parts = [
+    (ownPrompt || '').trim(),
+    ...collected.texts.map((t) => t.content),
+    ...captionParts,
+  ].filter(Boolean);
+  return {
+    prompt: parts.join('\n\n'),
+    addedImageUrls: collected.images.map((img) => img.imageUrl).filter(Boolean),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -135,7 +163,10 @@ export async function runSmartRepair(
     deps.updateNodeData(nodeId, { status: 'failed', error: 'Source image required' });
     return;
   }
-  if (!data.smartRepairPrompt || !data.smartRepairPrompt.trim()) {
+  // Fold upstream text into the repair prompt. Smart repair has a single fixed
+  // source image, so we don't merge walked images into refs.
+  const { prompt: effectivePrompt } = buildPromptWithUpstream(nodeId, data.smartRepairPrompt);
+  if (!effectivePrompt.trim()) {
     deps.updateNodeData(nodeId, { status: 'failed', error: 'Repair instructions required' });
     return;
   }
@@ -154,7 +185,7 @@ export async function runSmartRepair(
       submission = await productImagesApi.submitSmartRepair(
         null,
         {
-          prompt: data.smartRepairPrompt,
+          prompt: effectivePrompt,
           model: data.smartRepairModel || 'flux-2-pro',
           strength: data.smartRepairStrength || 'medium',
           outputCount: data.outputCount || 1,
@@ -164,7 +195,7 @@ export async function runSmartRepair(
     } else {
       const file = await urlToFile(sourceUrl, 'smart_repair_source.jpg');
       submission = await productImagesApi.submitSmartRepair(file, {
-        prompt: data.smartRepairPrompt,
+        prompt: effectivePrompt,
         model: data.smartRepairModel || 'flux-2-pro',
         strength: data.smartRepairStrength || 'medium',
         outputCount: data.outputCount || 1,
@@ -306,13 +337,13 @@ export async function runAIModel(
   try {
     let submission;
     if (mode === 'virtual') {
-      const prompt = (data.aiModelPrompt || '').trim();
-      if (!prompt) {
+      const { prompt: effectivePrompt } = buildPromptWithUpstream(nodeId, data.aiModelPrompt);
+      if (!effectivePrompt.trim()) {
         deps.updateNodeData(nodeId, { status: 'failed', error: 'Prompt required' });
         return;
       }
       submission = await productImagesApi.submitAIModel({
-        prompt,
+        prompt: effectivePrompt,
         gender: data.aiModelGender || 'no_limit',
         style: data.aiModelStyle || 'commercial',
         outputCount: data.outputCount || 1,
@@ -323,14 +354,15 @@ export async function runAIModel(
         deps.updateNodeData(nodeId, { status: 'failed', error: 'Real person image required' });
         return;
       }
-      if (!data.aiModelRealBrief || !data.aiModelRealBrief.trim()) {
+      const { prompt: effectiveBrief } = buildPromptWithUpstream(nodeId, data.aiModelRealBrief);
+      if (!effectiveBrief.trim()) {
         deps.updateNodeData(nodeId, { status: 'failed', error: 'Edit brief required' });
         return;
       }
       const realFile = await urlToFile(data.aiModelRealSourceUrl, 'ai_real_person.jpg');
       submission = await productImagesApi.submitAIRealPerson({
         image: realFile,
-        prompt: data.aiModelRealBrief,
+        prompt: effectiveBrief,
         outputCount: data.outputCount || 1,
         aspectRatio: '3:4',
         bodyFraming: 'full_body',
@@ -394,12 +426,22 @@ export async function runFirstFrame(
   data: ImageNodeData,
   deps: ImageGenDeps,
 ): Promise<void> {
-  const refs = data.firstFrameReferenceUrls || [];
-  if (refs.length === 0) {
+  // Fold upstream chain into both the prompt and the reference list — lets a
+  // FirstFrame ImageNode driven by an upstream TextNode + product ImageNode
+  // chain "just work" without manual ref/prompt configuration.
+  const { prompt: effectivePrompt, addedImageUrls } = buildPromptWithUpstream(
+    nodeId,
+    data.firstFramePrompt,
+  );
+  const mergedRefs: string[] = [];
+  for (const u of [...(data.firstFrameReferenceUrls || []), ...addedImageUrls]) {
+    if (u && !mergedRefs.includes(u)) mergedRefs.push(u);
+  }
+  if (mergedRefs.length === 0) {
     deps.updateNodeData(nodeId, { status: 'failed', error: 'At least one reference product image is required' });
     return;
   }
-  if (!data.firstFramePrompt || !data.firstFramePrompt.trim()) {
+  if (!effectivePrompt.trim()) {
     deps.updateNodeData(nodeId, { status: 'failed', error: 'Prompt required' });
     return;
   }
@@ -412,9 +454,9 @@ export async function runFirstFrame(
   });
 
   try {
-    const files = await Promise.all(refs.map((url, idx) => urlToFile(url, `firstframe_ref_${idx}.jpg`)));
+    const files = await Promise.all(mergedRefs.map((url, idx) => urlToFile(url, `firstframe_ref_${idx}.jpg`)));
     const submission = await productImagesApi.generateFirstFrame(files, {
-      prompt: data.firstFramePrompt,
+      prompt: effectivePrompt,
       model: data.firstFrameModel || 'nano-banana-pro',
       aspectRatio: '9:16',
       outputCount: data.outputCount || 1,

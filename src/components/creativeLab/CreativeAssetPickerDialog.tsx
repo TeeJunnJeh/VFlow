@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Image as ImageIcon, Loader2, UploadCloud, UserRound, Video, X } from 'lucide-react';
+import { Check, Image as ImageIcon, Loader2, Music2, Plus, UploadCloud, UserRound, Video } from 'lucide-react';
 import { AppDialog } from '../common/AppDialog';
 import { assetsApi, type Asset, type LibraryAssetType } from '../../services/assets';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 
-export type CreativeAssetPickerKind = 'product' | 'motion' | 'model';
+export type CreativeAssetPickerKind = 'product' | 'motion' | 'model' | 'audio';
 
 interface CreativeAssetPickerDialogProps {
   isOpen: boolean;
@@ -18,7 +18,9 @@ interface CreativeAssetPickerDialogProps {
   requireSeedanceId?: boolean;
   imageOnly?: boolean;
   autoSelectUploaded?: boolean;
-  /** Override AppDialog's max-width (default 'max-w-5xl'). Use 'max-w-7xl' for wider. */
+  /** Override AppDialog's max-width. Defaults to the workbench-style
+   * `max-w-[min(92vw,980px)]` so the picker matches the main Workbench
+   * "从素材库选择" dialog visually. */
   widthClassName?: string;
   onConfirm: (assets: Asset[]) => void;
   onClose: () => void;
@@ -28,6 +30,7 @@ const KIND_CONFIG: Record<CreativeAssetPickerKind, { type: LibraryAssetType; acc
   product: { type: 'product', accept: '.jpg,.jpeg,.png,.webp', icon: ImageIcon, title: '选择商品图片', empty: '素材库里还没有商品图片' },
   motion: { type: 'motion', accept: '.mp4,.mov,.mkv,.webm,.avi', icon: Video, title: '选择参考广告视频', empty: '素材库里还没有视频素材' },
   model: { type: 'model', accept: '.jpg,.jpeg,.png,.webp', icon: UserRound, title: '选择虚拟模特', empty: '当前没有可用于 Seedance 的虚拟模特' },
+  audio: { type: 'audio', accept: '.mp3,.wav,.m4a,.flac,.ogg', icon: Music2, title: '选择音频素材', empty: '素材库里还没有音频素材' },
 };
 
 const hasSeedanceId = (asset: Asset) => Boolean(String(asset.meta_data?.seedance_asset_id || '').trim());
@@ -71,7 +74,7 @@ export const CreativeAssetPickerDialog: React.FC<CreativeAssetPickerDialogProps>
   requireSeedanceId,
   imageOnly = false,
   autoSelectUploaded = false,
-  widthClassName = 'max-w-5xl',
+  widthClassName = 'max-w-[min(92vw,980px)]',
   onConfirm,
   onClose,
 }) => {
@@ -85,10 +88,21 @@ export const CreativeAssetPickerDialog: React.FC<CreativeAssetPickerDialogProps>
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState('');
+  // Mirror Workbench hover behavior: dark overlay + Plus icon on hover; flips
+  // to Check on the just-clicked card so users see the selection register.
+  const [hoverAssetId, setHoverAssetId] = useState<string | null>(null);
+  const [hoverClickedAssetId, setHoverClickedAssetId] = useState<string | null>(null);
 
+  // Reset internal `selected` only when the dialog flips from closed → open.
+  // We intentionally don't depend on `selectedIds`: callers (e.g. UploadResourceNode)
+  // commonly omit it, which makes JS create a brand-new `[]` every render. Including
+  // it in deps would re-fire the effect after every internal `setSelected`, blowing
+  // away the user's just-made click and causing the "选择 N" footer button to flicker
+  // between 0 and the picked count.
   useEffect(() => {
     if (isOpen) setSelected(new Set(selectedIds));
-  }, [isOpen, selectedIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const shouldRequireSeedanceId = requireSeedanceId ?? kind === 'model';
 
@@ -105,6 +119,8 @@ export const CreativeAssetPickerDialog: React.FC<CreativeAssetPickerDialogProps>
         if (imageOnly) return asset.media_kind === 'image' || /\.(jpg|jpeg|png|webp|gif)$/i.test(asset.file_url || '');
         if (kind === 'product') return asset.media_kind === 'image' || asset.type === 'product';
         if (kind === 'motion') return asset.media_kind === 'video';
+        if (kind === 'audio')
+          return asset.media_kind === 'audio' || /\.(mp3|wav|m4a|flac|ogg)$/i.test(asset.file_url || '');
         return asset.type === 'model' && (!shouldRequireSeedanceId || hasSeedanceId(asset));
       });
       setItems(filtered);
@@ -213,80 +229,144 @@ export const CreativeAssetPickerDialog: React.FC<CreativeAssetPickerDialogProps>
     <AppDialog
       isOpen={isOpen}
       title={title || config.title}
+      titleClassName="text-lg"
       subtitle={subtitle || (kind === 'model' && shouldRequireSeedanceId ? '仅显示带 Seedance asset id 的模特素材' : '可先本地上传保存，再从素材库选择')}
       onClose={onClose}
       widthClassName={widthClassName}
-      contentClassName="overflow-y-auto pr-1"
+      contentClassName="overflow-hidden"
       footer={(
         <>
-          <button type="button" onClick={onClose} className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold text-zinc-300 hover:bg-white/5">
+          <button type="button" onClick={onClose} className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-bold text-white hover:bg-zinc-700">
             {(t as any).ui_cancel || '取消'}
           </button>
           <button
             type="button"
             onClick={() => onConfirm(selectedAssets)}
             disabled={selectedAssets.length === 0}
-            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-black text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-black text-black hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             选择 {selectedAssets.length > 0 ? selectedAssets.length : ''}
           </button>
         </>
       )}
     >
-      <input ref={inputRef} type="file" accept={config.accept} multiple={multiple} className="hidden" onChange={handleUpload} />
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10 disabled:opacity-50"
-        >
-          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-          {(t as any).wb_btn_upload_to_library || '本地上传并保存'}
-        </button>
-        <button type="button" onClick={() => void loadItems()} className="rounded-xl px-3 py-2 text-xs font-bold text-zinc-400 hover:bg-white/5 hover:text-zinc-200">
-          刷新
-        </button>
+      {/* Matches Workbench `从素材库选择` dialog: tall flex column, header row,
+          notice toast, scrollable 6-col grid with 3:4 thumbnails. */}
+      <div className="w-full h-[62vh] max-h-[600px] min-h-[440px] flex flex-col gap-2.5">
+        <input ref={inputRef} type="file" accept={config.accept} multiple={multiple} className="hidden" onChange={handleUpload} />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            <span className="shrink-0 rounded-full border border-orange-500/70 bg-orange-500/20 px-5 py-2 text-[14px] font-bold text-orange-300">
+              {config.title.replace('选择', '')}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                uploading
+                  ? 'cursor-not-allowed border-white/10 bg-white/5 text-zinc-200/70'
+                  : 'border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 hover:border-white/20'
+              }`}
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+              {uploading
+                ? ((t as any).wb_uploading || '上传中...')
+                : ((t as any).wb_btn_upload_to_library || '上传素材')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadItems()}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-white/10 hover:border-white/20 hover:text-zinc-100"
+            >
+              刷新
+            </button>
+          </div>
+        </div>
+
+        {notice ? (
+          <div className="rounded-md border border-orange-500/20 bg-orange-500/5 px-3 py-2.5 text-xs text-orange-200 whitespace-pre-wrap">
+            {notice}
+          </div>
+        ) : null}
+
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
+          {loading ? (
+            <div className="h-52 flex items-center justify-center text-zinc-400">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载中...
+            </div>
+          ) : items.length === 0 ? (
+            <div className="h-52 flex flex-col items-center justify-center gap-3 text-zinc-500 text-sm">
+              <Icon className="h-8 w-8" />
+              <div>{emptyLabel || config.empty}</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-6 gap-2">
+              {items.map((asset) => {
+                const active = selected.has(asset.id);
+                return (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    onMouseEnter={() => {
+                      setHoverAssetId(asset.id);
+                      setHoverClickedAssetId(null);
+                    }}
+                    onMouseLeave={() => {
+                      setHoverAssetId((prev) => (prev === asset.id ? null : prev));
+                      setHoverClickedAssetId((prev) => (prev === asset.id ? null : prev));
+                    }}
+                    onClick={() => {
+                      toggle(asset);
+                      setHoverClickedAssetId(asset.id);
+                    }}
+                    className={`group text-left rounded-lg border bg-black/30 p-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 ${active
+                      ? 'border-orange-500/70 ring-1 ring-orange-500/40'
+                      : 'border-white/10 hover:border-orange-500/50 hover:bg-white/5'
+                      }`}
+                  >
+                    <div className="w-full aspect-[3/4] rounded-lg overflow-hidden bg-zinc-800 relative">
+                      {asset.media_kind === 'video' ? (
+                        <video src={asset.file_url} className="w-full h-full object-cover" muted playsInline />
+                      ) : asset.media_kind === 'audio' ? (
+                        <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-200">
+                          <Music2 className="w-5 h-5" />
+                        </div>
+                      ) : (
+                        <img src={asset.thumbnail || asset.file_url} alt={asset.name} className="w-full h-full object-cover" />
+                      )}
+
+                      {/* Hover overlay: dark + Plus icon → Check on click (matches Workbench dialog) */}
+                      <div
+                        className={`pointer-events-none absolute inset-0 bg-black/45 transition-opacity duration-200 ${
+                          hoverAssetId === asset.id || active ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                      <div
+                        className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${
+                          hoverAssetId === asset.id || active ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      >
+                        {active || hoverClickedAssetId === asset.id ? (
+                          <Check className="h-7 w-7 text-white" />
+                        ) : (
+                          <Plus className="h-8 w-8 text-white" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-[11px] font-bold text-zinc-200 truncate">{asset.name}</div>
+                    {kind === 'model' && shouldRequireSeedanceId ? (
+                      <div className="text-[10px] text-orange-300 truncate">asset://{String(asset.meta_data?.seedance_asset_id || '').trim()}</div>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-
-      {notice ? <div className="mb-4 whitespace-pre-wrap rounded-xl border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">{notice}</div> : null}
-
-      {loading ? (
-        <div className="flex h-60 items-center justify-center text-zinc-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />加载中</div>
-      ) : items.length === 0 ? (
-        <div className="flex h-60 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 text-zinc-500">
-          <Icon className="mb-3 h-8 w-8" />
-          <div className="text-sm font-bold">{emptyLabel || config.empty}</div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          {items.map((asset) => {
-            const active = selected.has(asset.id);
-            return (
-              <button
-                key={asset.id}
-                type="button"
-                onClick={() => toggle(asset)}
-                className={`group relative overflow-hidden rounded-2xl border bg-black/30 text-left transition ${active ? 'border-orange-500 ring-2 ring-orange-500/25' : 'border-white/10 hover:border-white/25'}`}
-              >
-                <div className="aspect-video bg-zinc-950">
-                  {asset.media_kind === 'video' ? (
-                    <video src={asset.file_url} className="h-full w-full object-cover" muted preload="metadata" />
-                  ) : (
-                    <img src={asset.thumbnail || asset.file_url} alt={asset.name} className="h-full w-full object-cover" />
-                  )}
-                </div>
-                <div className="p-3">
-                  <div className="truncate text-xs font-bold text-zinc-200">{asset.name}</div>
-                  {kind === 'model' && shouldRequireSeedanceId ? <div className="mt-1 truncate text-[10px] text-orange-300">asset://{String(asset.meta_data?.seedance_asset_id || '').trim()}</div> : null}
-                </div>
-                {active ? <span className="absolute right-2 top-2 rounded-full bg-orange-500 p-1 text-black"><Check className="h-3.5 w-3.5" /></span> : null}
-                {active ? <span className="absolute left-2 top-2 rounded-full bg-black/60 p-1 text-zinc-200"><X className="h-3.5 w-3.5" /></span> : null}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </AppDialog>
   );
 };

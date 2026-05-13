@@ -12,6 +12,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { Wallet } from 'lucide-react';
 
 import { useCanvasStore } from './canvasStore';
 import { TextNode } from './nodes/TextNode';
@@ -19,12 +20,15 @@ import { ImageNode } from './nodes/ImageNode';
 import { VideoNode } from './nodes/VideoNode';
 import { ScriptNode } from './nodes/ScriptNode';
 import { VideoAnalysisNode } from './nodes/VideoAnalysisNode';
+import { UploadResourceNode } from './nodes/UploadResourceNode';
 import { DataEdge } from './edges/DataEdge';
 import { CanvasToolbar } from './panels/CanvasToolbar';
 import { SelectionActionBar } from './panels/SelectionActionBar';
 import { ContextMenu, type ContextMenuPosition } from './panels/ContextMenu';
 import { MagicComposeDialog } from './panels/MagicComposeDialog';
 import { AgentSidebar } from './panels/AgentSidebar';
+import { BottomInputPanel } from './panels/BottomInputPanel';
+import { runGeneration as runImageGeneration } from './nodes/imageModes/imageGenHandlers';
 import type { CanvasAgentAction } from '../../../services/canvasAgent';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -32,7 +36,15 @@ import { useTasks } from '../../../context/TaskContext';
 import { videoApi } from '../../../services/video';
 import { assetsApi } from '../../../services/assets';
 import { productImagesApi } from '../../../services/productImagesApi';
+import { billingApi } from '../../../services/billing';
 import { generateScriptForCanvas } from './canvasScriptService';
+import { formatCreditAmount } from '../../../utils/credits';
+import {
+  collectUpstreamInputs,
+  collectFromStartNodes,
+  buildEffectivePrompt,
+  mergeReferenceImagePaths,
+} from './canvasInputs';
 import type { CanvasSnapshot, CanvasNode, CanvasNodeData, ImageNodeData, VideoNodeData, TextNodeData, ScriptNodeData, VideoAnalysisNodeData } from './canvasTypes';
 
 // Register custom node/edge types
@@ -42,6 +54,7 @@ const nodeTypes = {
   video: VideoNode,
   script: ScriptNode,
   video_analysis: VideoAnalysisNode,
+  upload: UploadResourceNode,
 };
 
 const edgeTypes = {
@@ -147,12 +160,41 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
   } = useCanvasStore();
 
   const { t, language } = useLanguage();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { addTask, tasks } = useTasks();
   const { screenToFlowPosition } = useReactFlow();
   const [isSaving, setIsSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Refresh balance once on mount so the top-right badge reflects the current
+  // backend value (in case the user landed on the canvas without going through
+  // Workbench/Billing first). Pricing is already cached by useCanvasPricing,
+  // but balance is volatile so we re-fetch every time the canvas opens.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await billingApi.getOverview();
+        if (!alive) return;
+        // BillingView reads `overview.balance` straight (see BillingView.tsx:170);
+        // accept either shape for resilience.
+        const nextBalance = Number(
+          (res as { balance?: number; data?: { balance?: number } })?.balance
+          ?? (res as { data?: { balance?: number } })?.data?.balance
+          ?? NaN,
+        );
+        if (Number.isFinite(nextBalance)) {
+          updateUser({ credits: nextBalance });
+        }
+      } catch {
+        // silently skip; badge falls back to local cached credits
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [updateUser]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -167,6 +209,9 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
 
   // Agent Sidebar
   const [agentOpen, setAgentOpen] = useState(false);
+
+  // Bottom input panel state — driven by single-selection node click
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
 
   // Load canvas state on mount
   useEffect(() => {
@@ -219,13 +264,29 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
     [setViewport]
   );
 
-  // Selection change handler
+  // Selection change handler — also drives the bottom panel: 1 node → active,
+  // 0 or 2+ → closed. The panel is for single-node configuration; multi-select
+  // batch ops still flow through SelectionActionBar.
   const onSelectionChange = useCallback(
     (params: OnSelectionChangeParams) => {
-      setSelection(params.nodes as CanvasNode[], params.edges as unknown as import('./canvasTypes').CanvasEdge[]);
+      const selNodes = params.nodes as CanvasNode[];
+      setSelection(selNodes, params.edges as unknown as import('./canvasTypes').CanvasEdge[]);
+      if (selNodes.length === 1) setActiveNodeId(selNodes[0].id);
+      else setActiveNodeId(null);
     },
     [setSelection]
   );
+
+  // Node-click handler — opens the panel even when ReactFlow's selection state
+  // is already on this node (re-click should re-open if user closed it).
+  const onNodeClick: NodeMouseHandler<CanvasNode> = useCallback((_e, node) => {
+    setActiveNodeId(node.id);
+  }, []);
+
+  // Click on empty pane → close the panel (still keep selection state alone).
+  const onPaneClick = useCallback(() => {
+    setActiveNodeId(null);
+  }, []);
 
   // Keyboard shortcuts: Undo/Redo + Delete
   const onKeyDown = useCallback(
@@ -258,6 +319,11 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         if (selected.length > 0) {
           removeNodes(selected);
         }
+      }
+
+      // Esc closes the bottom panel without affecting selection.
+      if (e.key === 'Escape') {
+        setActiveNodeId(null);
       }
     },
     [nodes, removeNodes]
@@ -330,6 +396,13 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
       sourceVideoUrl: null, sourceVideoPath: null,
       extractedScript: '', seedancePrompt: '', styleTags: [],
     } as VideoAnalysisNodeData);
+  }, [createNodeAtMenuPos]);
+
+  const handleContextAddUpload = useCallback(() => {
+    createNodeAtMenuPos('upload', {
+      kind: 'upload', label: 'Upload', status: 'idle',
+      resourceKind: null,
+    } as CanvasNodeData);
   }, [createNodeAtMenuPos]);
 
   const handleContextDeleteNode = useCallback(() => {
@@ -431,15 +504,38 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         if (n.position.x > maxX) maxX = n.position.x;
         sumY += n.position.y;
       });
+      // Image Bar nodes terminal — collect their imageUrl + caption (toggle-aware).
+      const imageCaptionParts: string[] = [];
       imageNodes.forEach((n) => {
         const d = n.data as ImageNodeData;
+        if (d.useAsInput === false) return;
         if (d.imageUrl) imagePaths.push(d.imageUrl);
+        const cap = d.inputCaption?.trim();
+        if (cap) imageCaptionParts.push(`[Reference: ${cap}]`);
       });
       const avgY = sumY / allNodes.length;
 
-      // Collect text content from text nodes
-      const textContent = textNodes
-        .map((n) => (n.data as TextNodeData).content)
+      // Path-walk text Bar nodes (text is pass-through; any upstream image hits
+      // its own hard wall). Discovered images fold into the same path list.
+      const stateNow = useCanvasStore.getState();
+      const collected = collectFromStartNodes(
+        textNodes.map((n) => n.id),
+        stateNow.nodes,
+        stateNow.edges,
+      );
+      collected.images.forEach((img) => {
+        if (img.imageUrl && !imagePaths.includes(img.imageUrl)) {
+          imagePaths.push(img.imageUrl);
+        }
+        if (img.caption) imageCaptionParts.push(`[Reference: ${img.caption}]`);
+      });
+
+      // Combine all text content (collected.texts already includes the Bar's
+      // own text nodes, since they are start nodes).
+      const textContent = [
+        ...collected.texts.map((t) => t.content),
+        ...imageCaptionParts,
+      ]
         .filter(Boolean)
         .join('\n');
 
@@ -504,19 +600,52 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
       const allSourceNodes = [...imageNodes, ...scriptNodes, ...textNodes];
       let maxX = -Infinity;
       let sumY = 0;
-      const imagePaths: string[] = [];
       allSourceNodes.forEach((n) => {
         if (n.position.x > maxX) maxX = n.position.x;
         sumY += n.position.y;
       });
-      imageNodes.forEach((n) => {
-        const d = n.data as ImageNodeData;
-        if (d.imageUrl) imagePaths.push(d.imageUrl);
-      });
       const avgY = sumY / allSourceNodes.length;
 
-      // Combine prompt: script/text context + user input
-      const fullPrompt = [scriptTextContext, prompt].filter(Boolean).join('\n\n');
+      // Path-walk:
+      //   * Image Bar nodes are terminal — contribute imageUrl + (caption if any),
+      //     do NOT walk further upstream (matches "V←P" rule).
+      //   * Text Bar nodes are path starts — contribute their content AND walk
+      //     one step up, where any encountered image is hard-walled.
+      const stateNow = useCanvasStore.getState();
+      const collected = collectFromStartNodes(
+        textNodes.map((n) => n.id),
+        stateNow.nodes,
+        stateNow.edges,
+      );
+
+      // Image Bar inputs (terminal); honor `useAsInput` toggle.
+      const imagePaths: string[] = [];
+      const imageCaptionParts: string[] = [];
+      imageNodes.forEach((n) => {
+        const d = n.data as ImageNodeData;
+        if (d.useAsInput === false) return;
+        if (d.imageUrl) imagePaths.push(d.imageUrl);
+        const cap = d.inputCaption?.trim();
+        if (cap) imageCaptionParts.push(`[Reference: ${cap}]`);
+      });
+      // Fold upstream-discovered images into the same path/caption pools.
+      collected.images.forEach((img) => {
+        if (img.imageUrl && !imagePaths.includes(img.imageUrl)) {
+          imagePaths.push(img.imageUrl);
+        }
+        if (img.caption) imageCaptionParts.push(`[Reference: ${img.caption}]`);
+      });
+
+      // Combine prompt: script/text context + user input + collected text chain
+      // + any image captions discovered along the way.
+      const fullPrompt = [
+        scriptTextContext,
+        prompt,
+        ...collected.texts.map((t) => t.content),
+        ...imageCaptionParts,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
 
       // Create VideoNode in running state
       const videoData: VideoNodeData = {
@@ -693,23 +822,43 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
       });
       const baseY = sumY / allSourceNodes.length;
 
-      // Combine prompts from upstream text nodes + user input
-      const textContext = textNodes
-        .map((n) => (n.data as TextNodeData).content?.trim() || '')
-        .filter(Boolean)
-        .join('\n');
-      const fullPrompt = [textContext, prompt].filter(Boolean).join('\n\n');
+      // Path-walk: text Bar nodes are starts, image Bar nodes are terminals.
+      // Honors `useAsInput` toggle and "Image hard wall" rule.
+      const stateNow = useCanvasStore.getState();
+      const collected = collectFromStartNodes(
+        textNodes.map((n) => n.id),
+        stateNow.nodes,
+        stateNow.edges,
+      );
 
-      // Collect upstream image URLs as references
+      // Image Bar inputs (terminal); honor toggle and collect caption text.
       const referenceUrls: string[] = [];
+      const imageCaptionParts: string[] = [];
       imageNodes.forEach((n) => {
         const d = n.data as ImageNodeData;
+        if (d.useAsInput === false) return;
         if (d.imageUrl) referenceUrls.push(d.imageUrl);
+        const cap = d.inputCaption?.trim();
+        if (cap) imageCaptionParts.push(`[Reference: ${cap}]`);
+      });
+      collected.images.forEach((img) => {
+        if (img.imageUrl && !referenceUrls.includes(img.imageUrl)) {
+          referenceUrls.push(img.imageUrl);
+        }
+        if (img.caption) imageCaptionParts.push(`[Reference: ${img.caption}]`);
       });
       if (referenceUrls.length === 0) {
         // Cannot generate without at least one reference image (generateFirstFrame requires it)
         return;
       }
+
+      const fullPrompt = [
+        prompt,
+        ...collected.texts.map((t) => t.content),
+        ...imageCaptionParts,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
 
       // Convert blob/local URLs → uploadable Files via fetch
       const refFiles: File[] = [];
@@ -858,10 +1007,19 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
       const textNodes = upstreamNodes.filter((n) => (n.data as CanvasNodeData).kind === 'text');
       const scriptNodes = upstreamNodes.filter((n) => (n.data as CanvasNodeData).kind === 'script');
 
+      // Path-walk so V←T←P (image only reachable via text chain) still surfaces
+      // an effective image reference list. If direct upstream has images, prefer
+      // those; otherwise fall back to walked images.
+      const walked = collectUpstreamInputs(targetId, state.nodes, state.edges);
+      const walkedImageNodes = walked.images
+        .map((img) => state.nodes.find((n) => n.id === img.nodeId))
+        .filter((n): n is CanvasNode => !!n);
+
       if (node.type === 'video') {
         const d = node.data as VideoNodeData;
+        const effectiveImageNodes = imageNodes.length > 0 ? imageNodes : walkedImageNodes;
         handleBatchGenerate(
-          imageNodes,
+          effectiveImageNodes,
           scriptNodes,
           textNodes,
           d.prompt,
@@ -872,10 +1030,13 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
           ''
         );
       } else if (node.type === 'image') {
-        const d = node.data as ImageNodeData;
         // For regenerated image, use upstream image+text refs and current source's settings.
         // Source ImageNode itself can serve as an additional reference.
-        const refs = imageNodes.length > 0 ? imageNodes : [node];
+        const refs = imageNodes.length > 0
+          ? imageNodes
+          : walkedImageNodes.length > 0
+            ? walkedImageNodes
+            : [node];
         handleBatchGenerateImage(refs, textNodes, '', 'nano-banana-pro', '9:16', 1);
       } else if (node.type === 'script') {
         // Reuse the script handler with current node config — note: this re-runs generation
@@ -1007,21 +1168,23 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
       const targetNode = state.nodes.find((n) => n.id === targetId);
       if (!targetNode || targetNode.type !== 'video') return;
       const targetData = targetNode.data as VideoNodeData;
-      const prompt = (targetData.prompt || '').trim();
-      if (!prompt) return;
 
       const userId = user?.id;
       if (!userId) return;
 
-      // Collect upstream image refs from incoming edges (text refs are folded
-      // into prompt by the user; only images need to be passed as image_path).
-      const upstreamIds = state.edges
-        .filter((edge) => edge.target === targetId)
-        .map((edge) => edge.source);
-      const upstreamImageUrls: string[] = state.nodes
-        .filter((n) => upstreamIds.includes(n.id) && n.type === 'image')
-        .map((n) => (n.data as ImageNodeData).imageUrl || '')
-        .filter(Boolean);
+      // Collect upstream inputs along each incoming-edge path (Image is hard wall,
+      // Text passes through; honors per-node `useAsInput`). Used to build the
+      // final prompt and reference-image list.
+      const collected = collectUpstreamInputs(targetId, state.nodes, state.edges);
+      const prompt = buildEffectivePrompt(targetData.prompt, collected);
+
+      // Require either an own prompt or at least some upstream content; otherwise
+      // there's nothing to generate from.
+      if (!prompt && collected.images.length === 0) {
+        return;
+      }
+
+      const upstreamImageUrls: string[] = mergeReferenceImagePaths([], collected);
 
       // Mark running immediately so the button flips to 生成中
       updateNodeData(targetId, { status: 'running', error: undefined } as Partial<VideoNodeData>);
@@ -1272,6 +1435,29 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
 
   return (
     <div className="w-full h-full relative" onKeyDown={onKeyDown} tabIndex={0}>
+      {/* Dev-notice banner — fixed at the very top of the canvas surface */}
+      <div className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex justify-center">
+        <div className="mt-0 w-full text-center py-1.5 bg-amber-500/10 border-b border-amber-500/30 text-amber-300 text-[11px] font-medium tracking-wide">
+          {t.canvas_banner_dev_notice}
+        </div>
+      </div>
+      {/* Balance badge — top-right corner, sits above the banner so it stays
+          legible on the amber background. Reads `user.credits` from AuthContext
+          which is refreshed at canvas mount and after each generation. */}
+      <div className="absolute top-1 right-3 z-30 pointer-events-none">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-900/80 backdrop-blur-md border border-emerald-500/30 text-emerald-300 text-[11px] font-medium shadow-lg">
+          <Wallet className="w-3.5 h-3.5" />
+          <span>
+            {(t as Record<string, string | undefined>).canvas_balance_label || 'Balance'}:
+            {' '}
+            <span className="text-emerald-200 font-semibold">
+              {user ? formatCreditAmount(user.credits ?? 0) : '—'}
+            </span>
+            {' '}
+            <span className="text-emerald-400/70">{(t as Record<string, string | undefined>).billing_credit_unit || 'V'}</span>
+          </span>
+        </div>
+      </div>
       <CanvasToolbar
         onSave={handleSave}
         isSaving={isSaving}
@@ -1297,6 +1483,8 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         onConnect={onConnect}
         onViewportChange={onViewportChange}
         onSelectionChange={onSelectionChange}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
         nodeTypes={nodeTypes}
@@ -1307,6 +1495,13 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         deleteKeyCode={null}
         className="bg-zinc-950"
         proOptions={{ hideAttribution: true }}
+        // Mildly wider zoom + pan range than ReactFlow defaults (0.5~2) so users
+        // can plan a longer pipeline without feeling cramped — but not so wide
+        // that nodes become tiny dots on first zoom-out.
+        minZoom={0.3}
+        maxZoom={2.5}
+        translateExtent={[[-8000, -8000], [8000, 8000]]}
+        nodeExtent={[[-8000, -8000], [8000, 8000]]}
         // Touchpad gestures
         panOnScroll={true}
         panOnScrollSpeed={0.8}
@@ -1325,7 +1520,35 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         />
       </ReactFlow>
 
-      {/* Selection action bar */}
+      {/* Bottom config panel (single-node selection) — see logic below. */}
+      <BottomInputPanelGate
+        activeNodeId={activeNodeId}
+        onClose={() => setActiveNodeId(null)}
+        onGenerateImage={(nodeId) => {
+          const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId);
+          if (!node) return;
+          void runImageGeneration(nodeId, node.data as ImageNodeData, { updateNodeData });
+        }}
+        onGenerateVideo={(nodeId) => {
+          window.dispatchEvent(new CustomEvent('canvas:generate-inline', { detail: { nodeId } }));
+        }}
+        onGenerateScript={(textNode, cfg) => {
+          void handleGenerateScript(
+            [],
+            [textNode],
+            {
+              category: '',
+              style: cfg.style,
+              shotCount: cfg.shotCount,
+              duration: cfg.duration,
+              aspectRatio: cfg.aspectRatio,
+              notes: '',
+            },
+          );
+        }}
+      />
+
+      {/* Selection action bar (multi-select batch ops) */}
       <SelectionActionBar
         onBatchGenerate={handleBatchGenerate}
         onGenerateScript={handleGenerateScript}
@@ -1345,6 +1568,7 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
           onAddImageNode={handleContextAddImage}
           onAddVideoNode={handleContextAddVideo}
           onAddVideoAnalysisNode={handleContextAddVideoAnalysis}
+          onAddUploadNode={handleContextAddUpload}
           onDeleteNode={handleContextDeleteNode}
           onCopyNode={handleContextCopyNode}
           onGenerateVideo={handleContextGenerateVideo}
@@ -1352,6 +1576,47 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Reactive gate around BottomInputPanel — subscribes to canvasStore so that
+ * (a) selection count changes flip panel visibility and (b) `nodes` mutations
+ * (status/imageUrl/outputs flips) reflow the panel's bound data.
+ */
+function BottomInputPanelGate({
+  activeNodeId,
+  onClose,
+  onGenerateImage,
+  onGenerateVideo,
+  onGenerateScript,
+}: {
+  activeNodeId: string | null;
+  onClose: () => void;
+  onGenerateImage: (nodeId: string) => void;
+  onGenerateVideo: (nodeId: string) => void;
+  onGenerateScript: (sourceTextNode: CanvasNode, cfg: {
+    withShots: boolean;
+    style: string;
+    shotCount: number;
+    duration: number;
+    aspectRatio: VideoNodeData['aspectRatio'];
+  }) => void;
+}) {
+  const selectedNodes = useCanvasStore((s) => s.selectedNodes);
+  const liveNodes = useCanvasStore((s) => s.nodes);
+  if (selectedNodes.length > 1) return null;
+  const activeNode = activeNodeId
+    ? liveNodes.find((n) => n.id === activeNodeId) || null
+    : null;
+  return (
+    <BottomInputPanel
+      activeNode={activeNode}
+      onClose={onClose}
+      onGenerateImage={onGenerateImage}
+      onGenerateVideo={onGenerateVideo}
+      onGenerateScript={onGenerateScript}
+    />
   );
 }
 

@@ -822,6 +822,176 @@ html.theme-light button[class*="bg-purple-500"]:not([class*="bg-purple-500/"])[c
   background-color: #c084fc !important;
   color: #ffffff !important;
 }
+button.wb-sidebar-nav-item {
+  position: relative;
+  display: flex !important;
+  height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  border: 0 !important;
+  border-radius: 0.375rem;
+  padding: 0 1rem;
+  cursor: pointer;
+  caret-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.wb-sidebar-nav-section {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wb-sidebar-nav-section-title {
+  padding: 0 1rem;
+  font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1rem;
+  color: #52525b;
+  letter-spacing: 0.08em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wb-sidebar-nav-icon {
+  flex-shrink: 0;
+  transition: color 160ms ease;
+}
+
+.wb-sidebar-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  caret-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.25rem;
+  font-weight: 570;
+}
+
+.wb-sidebar-nav-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 1.5rem;
+  width: 0.25rem;
+  transform: translateY(-50%);
+  border-radius: 0 9999px 9999px 0;
+  background-color: #f97316;
+}
+
+button.wb-sidebar-nav-item--inactive {
+  background-color: transparent !important;
+  color: #71717a !important;
+  box-shadow: none !important;
+}
+
+button.wb-sidebar-nav-item--inactive .wb-sidebar-nav-icon {
+  color: #71717a !important;
+}
+
+button.wb-sidebar-nav-item--inactive .wb-sidebar-nav-label {
+  color: #71717a !important;
+}
+
+button.wb-sidebar-nav-item--inactive:hover {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  color: #d4d4d8 !important;
+}
+
+button.wb-sidebar-nav-item--inactive:hover .wb-sidebar-nav-icon {
+  color: #d4d4d8 !important;
+}
+
+button.wb-sidebar-nav-item--inactive:hover .wb-sidebar-nav-label {
+  color: #d4d4d8 !important;
+}
+
+button.wb-sidebar-nav-item--active {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #71717a !important;
+  box-shadow: none !important;
+}
+
+button.wb-sidebar-nav-item--active .wb-sidebar-nav-icon {
+  color: #f97316 !important;
+}
+
+button.wb-sidebar-nav-item--active .wb-sidebar-nav-label {
+  color: #71717a !important;
+}
+
+button.wb-sidebar-nav-item--active:hover {
+  background-color: rgba(255, 255, 255, 0.11) !important;
+  color: #71717a !important;
+}
+
+button.wb-sidebar-nav-item--active:hover .wb-sidebar-nav-label {
+  color: #71717a !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--inactive {
+  background-color: transparent !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--inactive .wb-sidebar-nav-icon {
+  color: #64748b !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--inactive .wb-sidebar-nav-label {
+  color: #334155 !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--inactive:hover {
+  background-color: rgba(15, 23, 42, 0.06) !important;
+  color: #334155 !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--inactive:hover .wb-sidebar-nav-icon {
+  color: #64748b !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--inactive:hover .wb-sidebar-nav-label {
+  color: #334155 !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--active {
+  background-color: rgba(15, 23, 42, 0.08) !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--active .wb-sidebar-nav-icon {
+  color: #ea580c !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--active .wb-sidebar-nav-label {
+  color: #334155 !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--active:hover {
+  background-color: rgba(15, 23, 42, 0.11) !important;
+  color: #334155 !important;
+}
+
+html.theme-light button.wb-sidebar-nav-item--active:hover .wb-sidebar-nav-label {
+  color: #334155 !important;
+}
+
+html.theme-light .wb-sidebar-nav-section-title {
+  color: #94a3b8 !important;
+}
 .theme-light .wb-product-subnav-item {
   background-color: transparent !important;
   border-color: transparent !important;

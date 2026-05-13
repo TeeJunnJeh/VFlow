@@ -63,6 +63,15 @@ export const durToTenths = (dur: string | number | null | undefined): number =>
 
 export const tenthsToDur = (n: number): string => `${n / 10}s`;
 
+export function formatScriptDurationLabel(value: string | number | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const compact = raw.replace(/\s+/g, '');
+  const secondsMatch = compact.match(/^([0-9]+(?:\.[0-9]+)?)(?:s|秒)*$/i);
+  if (secondsMatch) return `${secondsMatch[1]}s`;
+  return /s$/i.test(compact) ? compact : `${compact}s`;
+}
+
 /**
  * 将 `total`（整数十分位）按 `weights` 的比例分配给 N 个桶，每个桶至少 `minEach` 十分位。
  * 使用「最大剩余法」保证 Σresult == max(total, minEach * N)。

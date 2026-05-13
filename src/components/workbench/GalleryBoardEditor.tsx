@@ -3057,7 +3057,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
   return (
     <>
-      <div className="grid h-[78vh] min-h-[78vh] grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[240px_minmax(0,1fr)_360px]">
+      <div className="grid h-[82vh] min-h-[82vh] grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[220px_minmax(0,1fr)_340px] 2xl:grid-cols-[240px_minmax(0,1fr)_360px]">
       <aside
         ref={leftPanelRef}
         className={`flex h-full min-h-0 flex-col rounded-2xl border p-3 ${
@@ -3214,7 +3214,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
       <section
         ref={canvasSectionRef}
-        className={`flex h-full min-h-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-4 ${getBoardGuideFocusClass('canvas')}`}
+        className={`relative z-0 flex h-full min-h-0 min-w-0 flex-col rounded-2xl border border-white/10 bg-black/20 p-4 ${getBoardGuideFocusClass('canvas')}`}
       >
         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -3314,12 +3314,12 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
 
         <div
           ref={viewportRef}
-          className="min-h-0 flex-1 overflow-auto rounded-2xl border border-dashed border-white/10 bg-zinc-950/60 p-4"
+          className="min-h-0 min-w-0 flex-1 overflow-auto rounded-2xl border border-dashed border-white/10 bg-zinc-950/60 p-4"
         >
-          <div className="flex min-h-full min-w-full items-start justify-center">
+          <div className="flex min-h-full min-w-full items-start">
             <div
               ref={boardRef}
-              className="relative shrink-0 overflow-hidden border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.35)]"
+              className="relative mx-auto shrink-0 overflow-hidden border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.35)]"
               style={{
                 width: board.canvasWidth * boardScale,
                 height: board.canvasHeight * boardScale,

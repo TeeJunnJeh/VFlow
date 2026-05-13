@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { authApi } from '../services/auth';
 import { videoApi } from '../services/video';
@@ -99,7 +99,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
+  const toDisplayUrl = useCallback((pathOrUrl: string | null | undefined): string => {
     if (!pathOrUrl) return '';
     const raw = String(pathOrUrl).trim();
     if (!raw) return '';
@@ -108,14 +108,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const mediaBaseUrl = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
     if (mediaBaseUrl && normalized.startsWith('/media/')) return `${mediaBaseUrl}${normalized}`;
     return normalized;
-  };
+  }, []);
 
-  const normalizeAvatar = (avatar: string | null | undefined): string => {
+  const normalizeAvatar = useCallback((avatar: string | null | undefined): string => {
     const raw = String(avatar || '').trim();
     if (!raw) return '';
     if (raw.includes('avatars/default.png')) return '';
     return toDisplayUrl(raw);
-  };
+  }, [toDisplayUrl]);
 
   // 1. Initialize Auth State (Modified)
   // Verify session with backend instead of trusting localStorage blindly
@@ -168,7 +168,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     };
     checkAuth();
-  }, []);
+  }, [normalizeAvatar]);
 
   // 2. Login Function (UPDATED)
   const login = async (identifier: string, serverData?: any) => {
@@ -277,7 +277,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     window.location.href = '/login';
   };
 
-  const updateUser = (patch: Partial<User>) => {
+  const updateUser = useCallback((patch: Partial<User>) => {
     setUser(prev => {
       if (!prev) return null;
 
@@ -292,6 +292,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if ('credits' in nextPatch && nextPatch.credits !== undefined) {
         nextPatch.credits = roundCreditTenths(Number(nextPatch.credits || 0));
       }
+
+      const hasChanges = Object.keys(nextPatch).some((key) => {
+        const userKey = key as keyof User;
+        return !Object.is(prev[userKey], nextPatch[userKey]);
+      });
+      if (!hasChanges) return prev;
+
       const updated = { ...prev, ...nextPatch } as User;
       try {
         localStorage.setItem('vflow_ai_user', JSON.stringify(updated));
@@ -300,7 +307,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
       return updated;
     });
-  };
+  }, [normalizeAvatar]);
 
   const updateCredits = (delta: number) => {
     setUser(prev => {

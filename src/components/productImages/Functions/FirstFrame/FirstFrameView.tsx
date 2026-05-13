@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, ChevronLeft, ChevronsDown, Minus, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronsDown, FileText, Filter, Minus, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
+import { AppDialog } from '../../../common/AppDialog';
 import { ImageUploader } from '../../Common/ImageUploader';
 import {
   AssetLibraryPickerDialog,
@@ -35,6 +36,27 @@ interface FirstFrameWorkspaceMeta {
   order: number;
   createdAt: number;
   updatedAt: number;
+}
+
+interface FirstFrameDraftImage {
+  name: string;
+  type: string;
+  dataUrl: string;
+}
+
+interface FirstFrameDraftSnapshot {
+  params: FirstFrameParams;
+  images: FirstFrameDraftImage[];
+}
+
+interface FirstFrameDraftItem {
+  id: string;
+  name: string;
+  workspaceId: string;
+  workspaceOrder: number;
+  createdAt: number;
+  updatedAt: number;
+  snapshot: FirstFrameDraftSnapshot;
 }
 
 interface FirstFrameHistoryItem {
@@ -72,6 +94,7 @@ interface FirstFrameViewProps {
 
 const FIRST_FRAME_WORKSPACE_META_KEY = 'vflow_first_frame_workspaces_v1';
 const FIRST_FRAME_ACTIVE_WORKSPACE_KEY = 'vflow_first_frame_active_workspace_v1';
+const FIRST_FRAME_DRAFTS_KEY = 'vflow_first_frame_drafts_v1';
 const FIRST_FRAME_EXAMPLES_COLLAPSED_KEY = 'vflow_first_frame_examples_collapsed_v1';
 const FIRST_FRAME_COUNTDOWN_SECONDS = 120;
 const FIRST_FRAME_PROGRESS_HOLD_MAX = 95;
@@ -210,6 +233,119 @@ const createDefaultWorkspaceMeta = (): FirstFrameWorkspaceMeta => ({
   createdAt: Date.now(),
   updatedAt: Date.now(),
 });
+
+const defaultFirstFrameDraftName = (prefix = 'My Draft') => {
+  const now = new Date();
+  const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return `${prefix}-${stamp}`;
+};
+
+const normalizeFirstFrameDraftParams = (params: Partial<FirstFrameParams> | undefined): FirstFrameParams => ({
+  prompt: String(params?.prompt || ''),
+  openingScene: (params?.openingScene || 'person_selling') as FirstFrameParams['openingScene'],
+  aspectRatio: (params?.aspectRatio || '9:16') as FirstFrameParams['aspectRatio'],
+  model: 'nano-banana-pro',
+  outputCount: Math.max(1, Math.min(4, Math.round(Number(params?.outputCount || 4)))) as FirstFrameParams['outputCount'],
+});
+
+const readFirstFrameDrafts = (): FirstFrameDraftItem[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(FIRST_FRAME_DRAFTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item: any) => {
+        const id = String(item?.id || '').trim();
+        const name = String(item?.name || '').trim();
+        const workspaceId = String(item?.workspaceId || '').trim();
+        const workspaceOrder = Math.max(1, Math.floor(Number(item?.workspaceOrder || 1)));
+        const createdAt = Number(item?.createdAt);
+        const updatedAt = Number(item?.updatedAt);
+        const rawImages = Array.isArray(item?.snapshot?.images) ? item.snapshot.images : [];
+        if (!id || !name || !workspaceId) return null;
+        return {
+          id,
+          name,
+          workspaceId,
+          workspaceOrder,
+          createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+          updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+          snapshot: {
+            params: normalizeFirstFrameDraftParams(item?.snapshot?.params),
+            images: rawImages
+              .map((image: any) => ({
+                name: String(image?.name || 'draft-image.jpg'),
+                type: String(image?.type || 'image/jpeg'),
+                dataUrl: String(image?.dataUrl || ''),
+              }))
+              .filter((image: FirstFrameDraftImage) => image.dataUrl.startsWith('data:image/'))
+              .slice(0, FIRST_FRAME_ASSET_PICKER_MAX_COUNT),
+          },
+        } satisfies FirstFrameDraftItem;
+      })
+      .filter(Boolean) as FirstFrameDraftItem[];
+  } catch {
+    return [];
+  }
+};
+
+const writeFirstFrameDrafts = (drafts: FirstFrameDraftItem[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(FIRST_FRAME_DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    // Ignore localStorage write failures.
+  }
+};
+
+const fileToDraftImage = (file: File) => new Promise<FirstFrameDraftImage>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result || '');
+    if (!dataUrl) {
+      reject(new Error('Failed to read image'));
+      return;
+    }
+    resolve({
+      name: file.name || 'draft-image.jpg',
+      type: file.type || 'image/jpeg',
+      dataUrl,
+    });
+  };
+  reader.onerror = () => reject(new Error('Failed to read image'));
+  reader.readAsDataURL(file);
+});
+
+const draftImageToFile = (image: FirstFrameDraftImage, index: number): File | null => {
+  try {
+    const [meta, payload] = image.dataUrl.split(',');
+    if (!payload) return null;
+    const mimeMatch = meta.match(/^data:([^;]+);base64$/);
+    const type = image.type || mimeMatch?.[1] || 'image/jpeg';
+    const binary = window.atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new File([bytes], image.name || `draft-image-${index + 1}.jpg`, { type });
+  } catch {
+    return null;
+  }
+};
+
+const formatDraftRelativeTime = (timestamp: number, t: ReturnType<typeof useLanguage>['t']) => {
+  const deltaSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (deltaSeconds < 60) return t.ff_draft_time_just_now;
+  const minutes = Math.floor(deltaSeconds / 60);
+  if (minutes < 60) return (t.ff_draft_time_minutes_ago || '{count} minutes ago').replace('{count}', String(minutes));
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return (t.ff_draft_time_hours_ago || '{count} hours ago').replace('{count}', String(hours));
+  const days = Math.floor(hours / 24);
+  if (days < 30) return (t.ff_draft_time_days_ago || '{count} days ago').replace('{count}', String(days));
+  return new Date(timestamp).toLocaleDateString();
+};
 
 const sanitizeHistoryImage = (item: any, index: number, historyId: string): ProductImageResult | null => {
   const imageUrl = String(item?.imageUrl || item?.downloadUrl || '').trim();
@@ -352,6 +488,9 @@ interface FirstFrameWorkspacePaneProps {
   projectId?: string;
   isVisible?: boolean;
   onApplyToWorkbench?: () => void;
+  draftToApply?: FirstFrameDraftItem | null;
+  onDraftApplied?: (draftId: string) => void;
+  onSaveDraft?: (name: string, snapshot: FirstFrameDraftSnapshot) => void;
 }
 
 const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
@@ -361,6 +500,9 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   projectId,
   isVisible = true,
   onApplyToWorkbench,
+  draftToApply,
+  onDraftApplied,
+  onSaveDraft,
 }) => {
   const { t } = useLanguage();
   const { requireAuth } = useRequireAuth();
@@ -404,6 +546,11 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [isSavingExampleSnapshot, setIsSavingExampleSnapshot] = useState(false);
   const [isDeletingExampleSnapshot, setIsDeletingExampleSnapshot] = useState(false);
   const [isExamplesCollapsed, setIsExamplesCollapsed] = useState(false);
+  const [isSaveDraftDialogOpen, setIsSaveDraftDialogOpen] = useState(false);
+  const [draftName, setDraftName] = useState(defaultFirstFrameDraftName);
+  const [draftError, setDraftError] = useState('');
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isDraftSavedDialogOpen, setIsDraftSavedDialogOpen] = useState(false);
 
   const generationSeqRef = useRef(0);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -553,6 +700,34 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       progressTimerRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    if (!draftToApply || draftToApply.workspaceId !== workspaceId) return;
+    const files = draftToApply.snapshot.images
+      .map((image, index) => draftImageToFile(image, index))
+      .filter(Boolean) as File[];
+    const params = normalizeFirstFrameDraftParams(draftToApply.snapshot.params);
+    generationSeqRef.current += 1;
+    clearProgressTimer();
+    progressStartedAtRef.current = null;
+    setImages(files);
+    setUploaderResetKey((prev) => prev + 1);
+    setExampleParams(params);
+    setCurrentFormParams(params);
+    setExampleApplyVersion((prev) => prev + 1);
+    setResults([]);
+    setResultSelectionKey('');
+    setResultAspectRatio(params.aspectRatio || '9:16');
+    setLastElapsedSeconds(null);
+    setResultCreatedAt('');
+    setResultParams(params);
+    setIsAsyncGenerating(false);
+    setProgress(0);
+    setError(null);
+    setRightPanel('preview');
+    setPhase(files.length > 0 ? 'form' : 'upload');
+    onDraftApplied?.(draftToApply.id);
+  }, [clearProgressTimer, draftToApply, onDraftApplied, workspaceId]);
 
   const startProgressSimulation = useCallback(() => {
     clearProgressTimer();
@@ -1200,6 +1375,35 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     setPhase('upload');
   }, [clearProgressTimer]);
 
+  const openSaveDraftDialog = () => {
+    setDraftName(defaultFirstFrameDraftName(t.ff_draft_default_name_prefix));
+    setDraftError('');
+    setIsSaveDraftDialogOpen(true);
+  };
+
+  const confirmSaveDraft = async () => {
+    const name = draftName.trim();
+    if (!name) {
+      setDraftError(t.ff_draft_name_required);
+      return;
+    }
+    setIsSavingDraft(true);
+    setDraftError('');
+    try {
+      const draftImages = await Promise.all(images.slice(0, FIRST_FRAME_ASSET_PICKER_MAX_COUNT).map(fileToDraftImage));
+      onSaveDraft?.(name, {
+        params: normalizeFirstFrameDraftParams(currentFormParams),
+        images: draftImages,
+      });
+      setIsSaveDraftDialogOpen(false);
+      setIsDraftSavedDialogOpen(true);
+    } catch {
+      setDraftError(t.ff_draft_save_failed);
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
   const buildFileName = useCallback((prefix: string, index: number) => {
     const safePrefix = prefix.trim() || 'ai_first_frame';
     return `${safePrefix}_${index + 1}.jpg`;
@@ -1643,21 +1847,6 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                   );
                 })}
 
-                <button
-                  type="button"
-                  onClick={() => void saveFirstFrameExampleSnapshot()}
-                  disabled={isGenerating || isApplyingExample || isSavingExampleSnapshot}
-                  className="group relative aspect-[4/3] w-[288px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/10 text-left transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-black/20 disabled:opacity-60 disabled:hover:border-white/10"
-                  title={isSavingExampleSnapshot ? (t.ff_saving || 'Saving...') : undefined}
-                >
-                  <div className="relative h-full flex items-center justify-center gap-2 px-4">
-                    <Save className="h-4 w-4 text-orange-300/90" />
-                    <div>
-                      <div className="text-sm font-extrabold text-zinc-200">{t.ff_save_as_example || 'Save Current Configuration'}</div>
-                      <div className="mt-0.5 text-[11px] text-zinc-500 line-clamp-2">{t.ff_save_as_example_desc || 'Restore materials and parameters quickly next time'}</div>
-                    </div>
-                  </div>
-                </button>
               </div>
             </div>
           </div>
@@ -1726,6 +1915,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                 onChange={setCurrentFormParams}
                 onSubmit={handleGenerateFormSubmit}
                 onReset={handleResetLayout}
+                onSaveDraft={openSaveDraftDialog}
               />
             </div>
           </section>
@@ -1863,6 +2053,66 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         </div>
       </div>
 
+      <AppDialog
+        isOpen={isSaveDraftDialogOpen}
+        title={t.ff_draft_save_as}
+        onClose={() => {
+          if (!isSavingDraft) setIsSaveDraftDialogOpen(false);
+        }}
+        widthClassName="max-w-md"
+        footer={(
+          <>
+            <button
+              type="button"
+              onClick={() => setIsSaveDraftDialogOpen(false)}
+              disabled={isSavingDraft}
+              className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white/10 disabled:opacity-50"
+            >
+              {t.ff_draft_cancel}
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmSaveDraft()}
+              disabled={isSavingDraft}
+              className="rounded-lg border border-orange-500/40 bg-orange-500/15 px-4 py-2 text-sm font-semibold text-orange-200 transition hover:bg-orange-500/25 disabled:opacity-50"
+            >
+              {isSavingDraft ? t.ff_draft_saving : t.ff_draft_save}
+            </button>
+          </>
+        )}
+      >
+        <label className="mb-2 block text-xs font-semibold text-zinc-500">{t.ff_draft_name_label}</label>
+        <input
+          value={draftName}
+          onChange={(event) => {
+            setDraftName(event.target.value);
+            if (draftError) setDraftError('');
+          }}
+          className="w-full rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-orange-500/50"
+          placeholder={defaultFirstFrameDraftName(t.ff_draft_default_name_prefix)}
+          autoFocus
+        />
+        {draftError ? <div className="mt-2 text-xs text-red-300">{draftError}</div> : null}
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isDraftSavedDialogOpen}
+        title={t.ff_draft_saved_title}
+        onClose={() => setIsDraftSavedDialogOpen(false)}
+        widthClassName="max-w-sm"
+        footer={(
+          <button
+            type="button"
+            onClick={() => setIsDraftSavedDialogOpen(false)}
+            className="rounded-lg border border-orange-500/40 bg-orange-500/15 px-4 py-2 text-sm font-semibold text-orange-200 transition hover:bg-orange-500/25"
+          >
+            {t.ff_draft_ok}
+          </button>
+        )}
+      >
+        <div className="text-sm text-zinc-300">{t.ff_draft_saved_message}</div>
+      </AppDialog>
+
       <AssetLibraryPickerDialog<FirstFramePickerTab>
         isOpen={isAssetPickerOpen}
         tabs={FIRST_FRAME_PICKER_TABS}
@@ -1906,7 +2156,23 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
 
   const initialWorkspaceMetas = useMemo(() => readWorkspaceMetas(), []);
   const [workspaceMetas, setWorkspaceMetas] = useState<FirstFrameWorkspaceMeta[]>(initialWorkspaceMetas);
+  const [drafts, setDrafts] = useState<FirstFrameDraftItem[]>(() => readFirstFrameDrafts());
+  const [isDraftManagerOpen, setIsDraftManagerOpen] = useState(false);
+  const [draftQuery, setDraftQuery] = useState('');
+  const [renamingDraftId, setRenamingDraftId] = useState('');
+  const [renamingDraftName, setRenamingDraftName] = useState('');
+  const [draftToApply, setDraftToApply] = useState<FirstFrameDraftItem | null>(null);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
+    if (typeof window === 'undefined') return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
+
+    const stored = String(window.localStorage.getItem(FIRST_FRAME_ACTIVE_WORKSPACE_KEY) || '').trim();
+    if (stored && initialWorkspaceMetas.some((ws) => ws.id === stored)) {
+      return stored;
+    }
+
+    return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
+  });
+  const [draftWorkspaceFilter, setDraftWorkspaceFilter] = useState<'all' | string>(() => {
     if (typeof window === 'undefined') return initialWorkspaceMetas[0]?.id || createDefaultWorkspaceMeta().id;
 
     const stored = String(window.localStorage.getItem(FIRST_FRAME_ACTIVE_WORKSPACE_KEY) || '').trim();
@@ -1925,6 +2191,10 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
       // Ignore localStorage write failures.
     }
   }, [workspaceMetas]);
+
+  useEffect(() => {
+    writeFirstFrameDrafts(drafts);
+  }, [drafts]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2014,6 +2284,148 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
       });
   }, [activeWorkspaceId, workspaceMetas]);
 
+  const activeWorkspaceMeta = useMemo(
+    () => workspaceMetas.find((workspace) => workspace.id === activeWorkspaceId) || workspaceMetas[0] || createDefaultWorkspaceMeta(),
+    [activeWorkspaceId, workspaceMetas]
+  );
+
+  const activeWorkspaceLabel = workspaceLabel(activeWorkspaceMeta);
+
+  const saveDraftForWorkspace = useCallback((name: string, snapshot: FirstFrameDraftSnapshot) => {
+    const workspace = workspaceMetas.find((item) => item.id === activeWorkspaceId) || activeWorkspaceMeta;
+    const now = Date.now();
+    const draft: FirstFrameDraftItem = {
+      id: `ff-draft-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name: name.trim() || defaultFirstFrameDraftName(t.ff_draft_default_name_prefix),
+      workspaceId: workspace.id,
+      workspaceOrder: workspace.order,
+      createdAt: now,
+      updatedAt: now,
+      snapshot,
+    };
+    setDrafts((prev) => [draft, ...prev]);
+  }, [activeWorkspaceId, activeWorkspaceMeta, workspaceMetas]);
+
+  useEffect(() => {
+    if (draftWorkspaceFilter === 'all') return;
+    if (workspaceMetas.some((workspace) => workspace.id === draftWorkspaceFilter)) return;
+    setDraftWorkspaceFilter(activeWorkspaceId);
+  }, [activeWorkspaceId, draftWorkspaceFilter, workspaceMetas]);
+
+  const draftFilterOptions = useMemo(() => [
+    { value: 'all', label: t.ff_draft_all_workspaces },
+    ...[...workspaceMetas]
+      .sort((a, b) => {
+        const orderDiff = a.order - b.order;
+        if (orderDiff !== 0) return orderDiff;
+        return workspaceLabel(a).localeCompare(workspaceLabel(b), 'zh-Hans-CN');
+      })
+      .map((workspace) => ({
+        value: workspace.id,
+        label: workspaceLabel(workspace),
+      })),
+  ], [workspaceLabel, workspaceMetas]);
+
+  const normalizedDraftQuery = draftQuery.trim().toLowerCase();
+  const groupedDrafts = useMemo(() => {
+    const targetWorkspaceId = draftWorkspaceFilter;
+    const matched = drafts
+      .filter((draft) => {
+        const matchesQuery = !normalizedDraftQuery || draft.name.toLowerCase().includes(normalizedDraftQuery);
+        if (!matchesQuery) return false;
+        if (targetWorkspaceId === 'all') return true;
+        return draft.workspaceId === targetWorkspaceId;
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+
+    if (targetWorkspaceId !== 'all') {
+      return [{
+        workspaceId: String(targetWorkspaceId),
+        workspaceLabel: draftFilterOptions.find((option) => option.value === draftWorkspaceFilter)?.label || activeWorkspaceLabel,
+        drafts: matched,
+      }];
+    }
+
+    return workspaceMetas
+      .map((workspace) => ({
+        workspaceId: workspace.id,
+        workspaceLabel: workspaceLabel(workspace),
+        drafts: matched.filter((draft) => draft.workspaceId === workspace.id).sort((a, b) => b.updatedAt - a.updatedAt),
+      }))
+      .filter((group) => group.drafts.length > 0);
+  }, [
+    activeWorkspaceId,
+    activeWorkspaceLabel,
+    draftFilterOptions,
+    draftWorkspaceFilter,
+    drafts,
+    normalizedDraftQuery,
+    workspaceLabel,
+    workspaceMetas,
+  ]);
+
+  const openDraft = (draft: FirstFrameDraftItem) => {
+    if (!workspaceMetas.some((workspace) => workspace.id === draft.workspaceId)) {
+      const now = Date.now();
+      setWorkspaceMetas((prev) => [
+        {
+          id: draft.workspaceId,
+          order: draft.workspaceOrder,
+          createdAt: now,
+          updatedAt: now,
+        },
+        ...prev,
+      ]);
+    }
+    setActiveWorkspaceId(draft.workspaceId);
+    setDraftToApply(draft);
+    setDrafts((prev) => prev.map((item) => (
+      item.id === draft.id ? { ...item, updatedAt: Date.now() } : item
+    )));
+    setIsDraftManagerOpen(false);
+  };
+
+  const deleteDraft = (draftId: string) => {
+    setDrafts((prev) => prev.filter((draft) => draft.id !== draftId));
+  };
+
+  const startRenameDraft = (draft: FirstFrameDraftItem) => {
+    setRenamingDraftId(draft.id);
+    setRenamingDraftName(draft.name);
+  };
+
+  const confirmRenameDraft = () => {
+    const name = renamingDraftName.trim();
+    if (!renamingDraftId || !name) return;
+    setDrafts((prev) => prev.map((draft) => (
+      draft.id === renamingDraftId
+        ? { ...draft, name, updatedAt: Date.now() }
+        : draft
+    )));
+    setRenamingDraftId('');
+    setRenamingDraftName('');
+  };
+
+  const draftOpeningSceneLabel = useCallback((scene: FirstFrameParams['openingScene']) => {
+    switch (scene) {
+      case 'product_showcase':
+        return t.ff_opening_scene_product_showcase;
+      case 'usage_demo':
+        return t.ff_opening_scene_usage_demo;
+      case 'brand_ad':
+        return t.ff_opening_scene_brand_ad;
+      case 'person_selling':
+      default:
+        return t.ff_opening_scene_person_selling;
+    }
+  }, [t]);
+
+  const draftPromptPreview = useCallback((prompt: string) => {
+    const normalized = String(prompt || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return t.ff_draft_prompt_empty;
+    return normalized.length > 34 ? `${normalized.slice(0, 34)}...` : normalized;
+  }, []);
+
   const shellClassName = useMemo(
     () => (embedded
       ? 'flex h-full min-h-0 flex-col'
@@ -2026,6 +2438,14 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
     : 'mx-auto max-w-[1600px] pb-10';
   const workspaceActions = (
     <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setIsDraftManagerOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/70 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800"
+      >
+        <FileText className="h-3.5 w-3.5 shrink-0" />
+        <span>{t.ff_draft_my_drafts}</span>
+      </button>
       <div className="w-48">
         <DropdownSelect
           value={activeWorkspaceId}
@@ -2118,6 +2538,155 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
 
         {embedded && headerActionsContainer ? createPortal(workspaceActions, headerActionsContainer) : null}
 
+        <AppDialog
+          isOpen={isDraftManagerOpen}
+          title={t.ff_draft_my_drafts}
+          onClose={() => {
+            setIsDraftManagerOpen(false);
+            setRenamingDraftId('');
+            setRenamingDraftName('');
+          }}
+          widthClassName="max-w-2xl"
+          contentClassName="overflow-y-auto pr-1 max-h-[65vh]"
+        >
+          <div className="mb-4 flex items-center gap-2">
+            <div className="w-44 shrink-0">
+              <div className="relative">
+                <Filter className="pointer-events-none absolute left-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                <DropdownSelect
+                  value={draftWorkspaceFilter}
+                  options={draftFilterOptions}
+                  onChange={(value) => setDraftWorkspaceFilter(String(value || 'current'))}
+                  buttonClassName="w-full bg-zinc-950/80 border border-white/10 rounded-xl py-2 pl-9 pr-3 text-xs text-zinc-200 hover:bg-zinc-900"
+                  labelClassName="pr-7"
+                  iconClassName="w-4 h-4 text-zinc-500"
+                  optionClassName="text-xs"
+                />
+              </div>
+            </div>
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+              <input
+                value={draftQuery}
+                onChange={(event) => setDraftQuery(event.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-zinc-950/80 py-2 pl-9 pr-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-orange-500/50"
+                placeholder={t.ff_draft_search_placeholder}
+              />
+            </div>
+          </div>
+
+          {groupedDrafts.every((group) => group.drafts.length === 0) ? (
+            <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/20 text-sm text-zinc-500">
+              {t.ff_draft_empty}
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {groupedDrafts.map((group) => (
+                <div key={group.workspaceId}>
+                  {draftWorkspaceFilter === 'all' ? (
+                    <div className="mb-2 text-xs font-bold text-zinc-400">{group.workspaceLabel}</div>
+                  ) : null}
+                  <div className="space-y-2">
+                    {group.drafts.map((draft) => {
+                      const isRenaming = renamingDraftId === draft.id;
+                      return (
+                        <div key={draft.id} className="rounded-xl border border-white/10 bg-black/25 p-3 transition hover:border-white/15 hover:bg-black/30">
+                          <div className="flex items-center gap-4">
+                            <button
+                              type="button"
+                              onClick={() => openDraft(draft)}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <div className="min-w-0">
+                                {isRenaming ? (
+                                  <input
+                                    value={renamingDraftName}
+                                    onChange={(event) => setRenamingDraftName(event.target.value)}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') confirmRenameDraft();
+                                      if (event.key === 'Escape') {
+                                        setRenamingDraftId('');
+                                        setRenamingDraftName('');
+                                      }
+                                    }}
+                                    className="w-full rounded-lg border border-white/10 bg-zinc-950 px-2 py-1 text-sm font-semibold text-zinc-100 outline-none focus:border-orange-500/50"
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <div className="flex min-w-0 items-baseline gap-2">
+                                    <span className="truncate text-sm font-semibold text-zinc-100">{draft.name}</span>
+                                    <span className="shrink-0 text-[11px] text-zinc-500">{formatDraftRelativeTime(draft.updatedAt, t)}</span>
+                                  </div>
+                                )}
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                                  <span>{draftOpeningSceneLabel(draft.snapshot.params.openingScene)}</span>
+                                  <span>{draft.snapshot.params.aspectRatio || '9:16'}</span>
+                                  <span>{(t.ff_draft_output_count || '{count} images').replace('{count}', String(Math.max(1, Number(draft.snapshot.params.outputCount || 1))))}</span>
+                                </div>
+                                <div className="mt-1 truncate text-xs text-zinc-400">
+                                  {draftPromptPreview(draft.snapshot.params.prompt || '')}
+                                </div>
+                                <div className="mt-2 grid w-36 grid-cols-4 gap-1">
+                                  {Array.from({ length: FIRST_FRAME_ASSET_PICKER_MAX_COUNT }).map((_, index) => {
+                                    const image = draft.snapshot.images[index];
+                                    return (
+                                      <div
+                                        key={`${draft.id}-thumb-${index}`}
+                                        className="aspect-square overflow-hidden rounded-md border border-white/10 bg-zinc-950/80"
+                                      >
+                                        {image ? (
+                                          <img
+                                            src={image.dataUrl}
+                                            alt=""
+                                            className="h-full w-full object-cover"
+                                          />
+                                        ) : (
+                                          <div className="h-full w-full bg-white/[0.03]" />
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </button>
+                            {isRenaming ? (
+                              <button
+                                type="button"
+                                onClick={confirmRenameDraft}
+                                className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/20"
+                              >
+                                {t.ff_draft_save}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => startRenameDraft(draft)}
+                                className="rounded-lg p-2 text-zinc-400 transition hover:bg-white/5 hover:text-zinc-100"
+                                title={t.ff_draft_rename}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => deleteDraft(draft.id)}
+                              className="rounded-lg p-2 text-zinc-400 transition hover:bg-red-500/10 hover:text-red-300"
+                              title={t.ff_draft_delete}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </AppDialog>
+
         {workspaceMetas.map((workspace) => (
           <div
             key={workspace.id}
@@ -2131,6 +2700,11 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
               projectId={projectId}
               isVisible={isVisible && workspace.id === activeWorkspaceId}
               onApplyToWorkbench={onApplyToWorkbench}
+              draftToApply={draftToApply && draftToApply.workspaceId === workspace.id ? draftToApply : null}
+              onDraftApplied={(draftId) => {
+                if (draftToApply?.id === draftId) setDraftToApply(null);
+              }}
+              onSaveDraft={saveDraftForWorkspace}
             />
           </div>
         ))}

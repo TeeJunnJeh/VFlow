@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eraser, Minus, Plus, Wand2 } from 'lucide-react';
+import { Eraser, Minus, Plus, Save, Wand2 } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
@@ -17,6 +17,7 @@ interface FirstFrameFormProps {
   applyVersion?: number;
   onChange?: (params: FirstFrameParams) => void;
   workspaceId?: string;
+  onSaveDraft?: () => void;
 }
 
 const buildStorageKey = (workspaceId?: string) => {
@@ -98,6 +99,7 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
   applyVersion = 0,
   onChange,
   workspaceId,
+  onSaveDraft,
 }) => {
   const { t, language } = useLanguage();
   const storageKey = useMemo(() => buildStorageKey(workspaceId), [workspaceId]);
@@ -412,6 +414,15 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
 
         <div className="flex gap-3 pt-4 border-t border-zinc-700">
           <button
+            type="button"
+            onClick={handleReset}
+            disabled={isSubmitting}
+            className="inline-flex items-center gap-1.5 px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 text-sm font-bold"
+          >
+            <Eraser className="h-4 w-4 shrink-0" />
+            {t.ff_reset}
+          </button>
+          <button
             type="submit"
             disabled={isSubmitting || images.length === 0}
             className={`flex-1 grid w-full grid-cols-[1fr_auto_1fr] items-center px-4 py-3 rounded-lg text-sm font-bold border transition ${isSubmitting || images.length === 0
@@ -433,12 +444,12 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
           </button>
           <button
             type="button"
-            onClick={handleReset}
+            onClick={onSaveDraft}
             disabled={isSubmitting}
             className="inline-flex items-center gap-1.5 px-4 py-3 bg-white/5 border border-white/10 text-zinc-300 rounded-lg hover:bg-white/10 transition disabled:opacity-50 text-sm font-bold"
           >
-            <Eraser className="h-4 w-4 shrink-0" />
-            {t.ff_reset}
+            <Save className="h-4 w-4 shrink-0" />
+            {t.ff_draft_save_as}
           </button>
         </div>
       </div>

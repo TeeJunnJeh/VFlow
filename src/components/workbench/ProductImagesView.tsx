@@ -6286,8 +6286,8 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           {t.wb_guide_button_label}
         </button>
       )}
-          <LanguageSwitcher />
           {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
+          <LanguageSwitcher />
         </div>
       </header>
 

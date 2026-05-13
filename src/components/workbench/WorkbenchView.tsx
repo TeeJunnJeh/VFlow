@@ -44,6 +44,7 @@ import {
   buildScriptsFromShots,
   distributeTenthsProportional,
   durToTenths,
+  formatScriptDurationLabel,
   formatScriptPageDisplayName,
   getScriptGenerationCooldownRemainingMs,
   hasCreativeCardContent,
@@ -293,6 +294,8 @@ type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done
 type GeneratePayload = {
   model: string;
   prompt: string;
+  prompt_is_final?: boolean;
+  disable_prompt_mutation?: boolean;
   duration: number;
   sound: 'on' | 'off';
   project_id?: string;
@@ -5223,6 +5226,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const activeFullScript = activeScriptPlan?.fullScript || '';
   const activeCreativeCard = activeScriptPlan?.creativeCard;
   const activeCreativeCardText = activeScriptPlan?.creativeCardText || '';
+  const buildVisibleScriptPromptForPage = useCallback((page?: ScriptPage, pageIndex = activeScriptPage) => {
+    if (!page) return '';
+    if (typeof page.creativeCardText === 'string') return page.creativeCardText;
+    const isActivePage = pageIndex === activeScriptPage;
+    const activeCardText = isActivePage ? buildCreativeCardEditorText(activeCreativeCard) : '';
+    if (activeCardText) return activeCardText;
+    return page.fullScript || '';
+  }, [activeCreativeCard, activeScriptPage]);
+  const activeVisibleScriptPrompt = buildVisibleScriptPromptForPage(activeScriptPlan, activeScriptPage);
   const activeGuideStep = isGuideOpen ? guideSteps[guideStepIndex] : null;
   const isGuideFocused = (key: GuideStepKey) => activeGuideStep?.key === key;
   const getGuideFocusClass = (key: GuideStepKey) => {
@@ -5308,10 +5320,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
 
-  const hasActiveScriptConcept =
-    Boolean((activeFullScript || '').trim())
-    || Boolean((activeCreativeCardText || '').trim())
-    || hasCreativeCardContent(activeCreativeCard);
+  const hasActiveScriptConcept = selectedModel === 'seedance2.0'
+    ? Boolean(activeVisibleScriptPrompt.trim())
+    : Boolean((activeFullScript || '').trim())
+      || Boolean((activeCreativeCardText || '').trim())
+      || hasCreativeCardContent(activeCreativeCard);
 
   const hasAnyScriptPlanGridContent = useMemo(() => {
     return scriptPages.some((page) => {
@@ -5359,7 +5372,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const shotPrompt = inputScripts.map((script, idx) => {
       const audioMarker = (soundSetting === 'on' && script.audio) ? `【音频|旁白】${script.audio}` : '';
       const typeLabel = script.type ? `(${script.type})` : '';
-      const durLabel = script.dur ? `${script.dur}s` : '';
+      const durLabel = formatScriptDurationLabel(script.dur);
       const meta = [durLabel, typeLabel].filter(Boolean).join(' ');
       return `[镜头${idx + 1}]${meta ? ` ${meta}` : ''} ${script.visual || ''} ${audioMarker}`.trim();
     }).join('\n');
@@ -5972,7 +5985,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const payload: GeneratePayload = {
       model: backendModel,
-      prompt: buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
+      prompt: selectedModel === 'seedance2.0'
+        ? activeVisibleScriptPrompt
+        : buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
+      ...(selectedModel === 'seedance2.0' ? { prompt_is_final: true, disable_prompt_mutation: true } : {}),
       product_name: productName,
       duration: genDuration,
       aspect_ratio: aspectRatio,
@@ -8971,9 +8987,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       issues.push(t.wb_gen_req_issue_login || 'Account: please sign in.');
     }
     items.forEach((item) => {
-      const hasScriptConcept = Boolean((item.page.fullScript || '').trim())
-        || Boolean((item.page.creativeCardText || '').trim())
-        || (item.page.scripts || []).some((script) => Boolean((script.visual || script.audio || '').trim()));
+      const hasScriptConcept = selectedModel === 'seedance2.0'
+        ? Boolean(buildVisibleScriptPromptForPage(item.page, item.pageIndex).trim())
+        : Boolean((item.page.fullScript || '').trim())
+          || Boolean((item.page.creativeCardText || '').trim())
+          || (item.page.scripts || []).some((script) => Boolean((script.visual || script.audio || '').trim()));
       if (!hasScriptConcept) {
         const name = formatScriptPageDisplayName(item.page.name, item.pageIndex, t.wb_script_page_prefix);
         issues.push(`${name}: ${t.wb_gen_req_issue_master_script_missing || 'Please generate or complete the script plan.'}`);
@@ -9037,16 +9055,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (!newProjectId) throw new Error('Failed to create project');
         }
 
-        const combinedScriptPrompt = buildCombinedScriptPrompt(
-          scriptPack.fullScript || '',
-          scriptPack.creativeCard,
-          scriptPack.scripts,
-          scriptPack.creativeCardText || ''
-        );
+        const combinedScriptPrompt = selectedModel === 'seedance2.0'
+          ? buildVisibleScriptPromptForPage(page, job.pageIndex)
+          : buildCombinedScriptPrompt(
+            scriptPack.fullScript || '',
+            scriptPack.creativeCard,
+            scriptPack.scripts,
+            scriptPack.creativeCardText || ''
+          );
 
         const requestPayload: GeneratePayload = {
           ...basePayload,
           prompt: combinedScriptPrompt,
+          ...(selectedModel === 'seedance2.0' ? { prompt_is_final: true, disable_prompt_mutation: true } : {}),
           duration: scriptPack.duration,
           project_id: String(newProjectId),
         };
@@ -9311,6 +9332,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           const requestPayload: GeneratePayload = {
             model: 'seedance-2.0',
             prompt: params.prompt,
+            prompt_is_final: true,
+            disable_prompt_mutation: true,
             product_name: productName,
             duration: Math.max(4, Math.min(15, Math.round(Number(genDuration) || 8))),
             aspect_ratio: aspectRatio,
@@ -13015,7 +13038,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             {scriptPages.map((page, index) => {
               const active = index === activeScriptPage;
               const pageScripts = active ? scripts : (page.scripts || []);
-              const pageText = (page.creativeCardText ?? (active ? buildCreativeCardEditorText(activeCreativeCard) : '')) || page.fullScript || '';
+              const pageText = buildVisibleScriptPromptForPage(page, index);
               const displayName = formatScriptPageDisplayName(page.name, index, t.wb_script_page_prefix);
               const storyboardEnabled = storyboardEditorEnabledByPage[page.id] ?? (active ? enableStoryboardEditor : false);
               const shotBreakdownOpen = shotBreakdownOpenByPage[page.id] ?? (active ? isShotBreakdownOpen : false);

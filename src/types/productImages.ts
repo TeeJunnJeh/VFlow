@@ -84,6 +84,8 @@ export type FirstFrameOpeningScene =
   | 'usage_demo'
   | 'brand_ad';
 
+export type FirstFrameResolution = '1k' | '2k' | '4k';
+
 export interface FirstFrameParams {
   prompt?: string;
   openingScene?: FirstFrameOpeningScene;
@@ -95,6 +97,7 @@ export interface FirstFrameParams {
   style?: FirstFrameStyle;
   textWhitespace?: FirstFrameWhitespace;
   outputCount?: 1 | 2 | 3 | 4;
+  resolution?: FirstFrameResolution;
 }
 
 // ==================== 智能修复相关类型 ====================

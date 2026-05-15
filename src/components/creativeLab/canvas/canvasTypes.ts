@@ -69,6 +69,7 @@ export interface ImageNodeData extends BaseNodeData {
   // -- mode === 'first_frame' --
   firstFramePrompt?: string;
   firstFrameModel?: 'nano-banana-pro' | 'flux-2-pro' | 'gpt-image-1.5';
+  firstFrameResolution?: '1k' | '2k' | '4k';
   firstFrameReferenceUrls?: string[];
 
   // -- mode === 'smart_repair' --

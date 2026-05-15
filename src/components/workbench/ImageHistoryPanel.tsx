@@ -47,6 +47,7 @@ interface GallerySettings {
 interface FirstFrameSettings {
   openingScene?: string;
   aspectRatio?: string;
+  resolution?: string;
   model?: string;
   prompt?: string;
 }
@@ -95,6 +96,7 @@ const readFirstFrameSettings = (item: ImageHistoryItem): FirstFrameSettings | un
   const settings: FirstFrameSettings = {
     openingScene: readString('openingScene', 'opening_scene'),
     aspectRatio: readString('aspectRatio', 'aspect_ratio', 'ratio'),
+    resolution: readString('resolution'),
     model: readString('model', 'generationModel', 'generation_model'),
     prompt: readString('prompt', 'promptOverride', 'prompt_override'),
   };
@@ -264,6 +266,11 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
       default:
         return key || '-';
     }
+  }, []);
+
+  const formatFirstFrameResolution = useCallback((value?: string) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized ? normalized.toUpperCase() : '-';
   }, []);
 
   const loadPage = useCallback(async (requestedPage: number) => {
@@ -583,6 +590,11 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                         {item.firstFrameSettings.aspectRatio}
                       </span>
                     ) : null}
+                    {item.firstFrameSettings.resolution ? (
+                      <span className="text-[10px] bg-white/5 text-zinc-400 px-2 py-0.5 rounded-md">
+                        {formatFirstFrameResolution(item.firstFrameSettings.resolution)}
+                      </span>
+                    ) : null}
                   </div>
                 )}
 
@@ -721,6 +733,10 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
               <div>
                 <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_setting_ratio}</div>
                 <div className="text-zinc-200">{settingsItem.firstFrameSettings.aspectRatio || '-'}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_img_setting_resolution || t.pg_main_resolution || 'Resolution'}</div>
+                <div className="text-zinc-200">{formatFirstFrameResolution(settingsItem.firstFrameSettings.resolution)}</div>
               </div>
               <div>
                 <div className="text-[11px] text-zinc-500 font-bold mb-1">{t.hist_prompt_field_model || 'Model'}</div>

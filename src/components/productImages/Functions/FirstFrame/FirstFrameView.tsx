@@ -243,8 +243,16 @@ const normalizeFirstFrameDraftParams = (params: Partial<FirstFrameParams> | unde
   openingScene: (params?.openingScene || 'person_selling') as FirstFrameParams['openingScene'],
   aspectRatio: (params?.aspectRatio || '9:16') as FirstFrameParams['aspectRatio'],
   model: 'nano-banana-pro',
+  resolution: (['1k', '2k', '4k'].includes(String(params?.resolution || '').trim().toLowerCase())
+    ? String(params?.resolution || '').trim().toLowerCase()
+    : '1k') as FirstFrameParams['resolution'],
   outputCount: Math.max(1, Math.min(4, Math.round(Number(params?.outputCount || 4)))) as FirstFrameParams['outputCount'],
 });
+
+const formatFirstFrameResolution = (value?: FirstFrameParams['resolution'] | string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized ? normalized.toUpperCase() : '1K';
+};
 
 const readFirstFrameDrafts = (): FirstFrameDraftItem[] => {
   if (typeof window === 'undefined') return [];
@@ -402,11 +410,13 @@ const readFirstFrameHistoryParams = (item: ImageHistoryItem): Partial<FirstFrame
   const openingScene = readString('openingScene', 'opening_scene');
   const aspectRatio = readString('aspectRatio', 'aspect_ratio', 'ratio');
   const model = readString('model', 'generationModel', 'generation_model');
+  const resolution = readString('resolution');
 
   if (prompt) params.prompt = prompt;
   if (openingScene) params.openingScene = openingScene as FirstFrameParams['openingScene'];
   if (aspectRatio) params.aspectRatio = aspectRatio as FirstFrameParams['aspectRatio'];
   if (model) params.model = model as FirstFrameParams['model'];
+  if (resolution) params.resolution = resolution.toLowerCase() as FirstFrameParams['resolution'];
   if (outputCount) params.outputCount = outputCount as FirstFrameParams['outputCount'];
 
   return Object.keys(params).length > 0 ? params : undefined;
@@ -530,6 +540,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     openingScene: 'person_selling',
     aspectRatio: '9:16',
     model: 'nano-banana-pro',
+    resolution: '1k',
     outputCount: 4,
   });
   const [exampleApplyVersion, setExampleApplyVersion] = useState(0);
@@ -1019,6 +1030,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
         openingScene: currentFormParams.openingScene || 'person_selling',
         prompt: String(currentFormParams.prompt || '').trim(),
         aspectRatio: currentFormParams.aspectRatio || resultAspectRatio as any || '9:16',
+        resolution: currentFormParams.resolution || '1k',
         outputCount: currentFormParams.outputCount || 1,
       };
       const now = new Date();
@@ -1349,6 +1361,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
       openingScene: 'person_selling',
       aspectRatio: '9:16',
       model: 'nano-banana-pro',
+      resolution: '1k',
       outputCount: 4,
     });
     setExampleApplyVersion((prev) => prev + 1);
@@ -1544,6 +1557,20 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString();
   };
+
+  const historyOpeningSceneLabel = useCallback((scene: FirstFrameParams['openingScene']) => {
+    switch (scene) {
+      case 'product_showcase':
+        return t.ff_opening_scene_product_showcase;
+      case 'usage_demo':
+        return t.ff_opening_scene_usage_demo;
+      case 'brand_ad':
+        return t.ff_opening_scene_brand_ad;
+      case 'person_selling':
+      default:
+        return t.ff_opening_scene_person_selling;
+    }
+  }, [t]);
 
   const clampPanelWidth = useCallback((requested: number, min: number, max: number) => (
     Math.min(Math.max(requested, min), max)
@@ -2011,6 +2038,28 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
                           <span>{workspaceLabel}</span>
                           <span>{formatHistoryTime(item.createdAt)}</span>
                         </div>
+                        {item.params ? (
+                          <div className="px-3 pt-3 flex flex-wrap gap-1.5 text-[10px]">
+                            {item.params.openingScene ? (
+                              <span className="rounded-md bg-white/5 px-2 py-0.5 text-zinc-400">
+                                {historyOpeningSceneLabel(item.params.openingScene)}
+                              </span>
+                            ) : null}
+                            {item.params.aspectRatio ? (
+                              <span className="rounded-md bg-white/5 px-2 py-0.5 text-zinc-400">
+                                {item.params.aspectRatio}
+                              </span>
+                            ) : null}
+                            <span className="rounded-md bg-white/5 px-2 py-0.5 text-zinc-400">
+                              {formatFirstFrameResolution(item.params.resolution)}
+                            </span>
+                            {item.params.outputCount ? (
+                              <span className="rounded-md bg-white/5 px-2 py-0.5 text-zinc-400">
+                                {(t.ff_draft_output_count || '{count} images').replace('{count}', String(Math.max(1, Number(item.params.outputCount || 1))))}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="p-3 grid grid-cols-4 gap-2">
                           {item.outputImages.slice(0, 4).map((img, idx) => (
                             <img
@@ -2702,6 +2751,7 @@ export const FirstFrameView: React.FC<FirstFrameViewProps> = ({
                                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
                                   <span>{draftOpeningSceneLabel(draft.snapshot.params.openingScene)}</span>
                                   <span>{draft.snapshot.params.aspectRatio || '9:16'}</span>
+                                  <span>{formatFirstFrameResolution(draft.snapshot.params.resolution)}</span>
                                   <span>{(t.ff_draft_output_count || '{count} images').replace('{count}', String(Math.max(1, Number(draft.snapshot.params.outputCount || 1))))}</span>
                                 </div>
                                 <div className="mt-1 truncate text-xs text-zinc-400">

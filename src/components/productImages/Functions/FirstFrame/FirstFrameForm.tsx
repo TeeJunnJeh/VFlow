@@ -4,7 +4,7 @@ import { useLanguage } from '../../../../context/LanguageContext';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { billingApi } from '../../../../services/billing';
 import { productImagesApi } from '../../../../services/productImagesApi';
-import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameOpeningScene, FirstFrameParams } from '../../../../types/productImages';
+import type { FirstFrameAspectRatio, FirstFrameModel, FirstFrameOpeningScene, FirstFrameParams, FirstFrameResolution } from '../../../../types/productImages';
 import { formatCreditAmount, roundCreditTenths } from '../../../../utils/credits';
 import { AspectRatioPicker, firstFrameRatiosForModel, ratioDescriptorsForLanguage } from '../../Common';
 
@@ -30,6 +30,7 @@ const FALLBACK_PARAMS: FirstFrameParams = {
   openingScene: 'person_selling',
   aspectRatio: '9:16',
   model: 'nano-banana-pro',
+  resolution: '1k',
   outputCount: 4,
 };
 
@@ -70,6 +71,13 @@ const normalizeFirstFrameOutputCount = (value: unknown): NonNullable<FirstFrameP
   return Math.max(1, Math.min(4, count)) as NonNullable<FirstFrameParams['outputCount']>;
 };
 
+const normalizeFirstFrameResolution = (value?: FirstFrameParams['resolution']): FirstFrameResolution => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return (['1k', '2k', '4k'] as FirstFrameResolution[]).includes(normalized as FirstFrameResolution)
+    ? normalized as FirstFrameResolution
+    : '1k';
+};
+
 const normalizeFirstFrameOpeningScene = (value?: FirstFrameParams['openingScene']): FirstFrameOpeningScene => {
   const allowed: FirstFrameOpeningScene[] = ['person_selling', 'product_showcase', 'usage_demo', 'brand_ad'];
   return allowed.includes(value as FirstFrameOpeningScene) ? value as FirstFrameOpeningScene : 'person_selling';
@@ -83,6 +91,7 @@ const normalizeFirstFrameParams = (params: FirstFrameParams): FirstFrameParams =
     openingScene: normalizeFirstFrameOpeningScene(params.openingScene),
     aspectRatio: normalizeFirstFrameAspectRatio(params.aspectRatio, model),
     outputCount: normalizeFirstFrameOutputCount(params.outputCount),
+    resolution: normalizeFirstFrameResolution(params.resolution),
   };
 };
 
@@ -128,6 +137,15 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
       { label: t.ff_opening_scene_brand_ad, value: 'brand_ad' },
     ],
     [t]
+  );
+
+  const resolutionOptions = useMemo(
+    () => [
+      { label: '1K', value: '1k' },
+      { label: '2K', value: '2k' },
+      { label: '4K', value: '4k' },
+    ],
+    [],
   );
 
   const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
@@ -383,7 +401,18 @@ export const FirstFrameForm: React.FC<FirstFrameFormProps> = ({
               {errors.aspectRatio && <p className="text-red-400 text-xs mt-1">{errors.aspectRatio}</p>}
             </div>
 
-            <div className="flex justify-start">
+            <div className="flex items-start gap-3">
+              <div className="w-32">
+                <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.pg_main_resolution || 'Resolution'}</label>
+                <DropdownSelect
+                  value={formData.resolution || '1k'}
+                  options={resolutionOptions}
+                  onChange={(value) => setFormData({ ...formData, resolution: normalizeFirstFrameResolution(value as FirstFrameResolution) })}
+                  buttonClassName="w-full h-10 bg-zinc-900/70 border border-white/10 rounded-xl px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  iconClassName="w-4 h-4 text-zinc-500"
+                  optionClassName="text-sm"
+                />
+              </div>
               <div className="w-32">
                 <label className="block text-sm text-zinc-300 mb-2 font-medium">{t.ff_output_count_label}</label>
                 <div className="flex h-10 w-full items-center">

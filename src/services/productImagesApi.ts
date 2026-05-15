@@ -192,6 +192,7 @@ async function generateFirstFrameOnce(options: {
   personType?: string;
   holdingStyle?: string;
   textWhitespace?: string;
+  resolution?: string;
   workspaceId?: string;
   clientHistoryId?: string;
 }): Promise<{ imagePath: string; projectId?: string }> {
@@ -206,6 +207,7 @@ async function generateFirstFrameOnce(options: {
     person_type: options.personType,
     holding_style: options.holdingStyle,
     text_whitespace: options.textWhitespace,
+    resolution: options.resolution,
   };
 
   if (options.projectId) {
@@ -282,6 +284,7 @@ async function createFirstFrameAsync(options: {
   personType?: string;
   holdingStyle?: string;
   textWhitespace?: string;
+  resolution?: string;
   outputCount: number;
   workspaceId?: string;
   clientHistoryId?: string;
@@ -297,6 +300,7 @@ async function createFirstFrameAsync(options: {
     person_type: options.personType,
     holding_style: options.holdingStyle,
     text_whitespace: options.textWhitespace,
+    resolution: options.resolution,
     output_count: options.outputCount,
   };
 
@@ -406,6 +410,7 @@ export const productImagesApi = {
         personType: params.personType,
         holdingStyle: params.holdingStyle,
         textWhitespace: params.textWhitespace,
+        resolution: params.resolution,
         outputCount,
         workspaceId: workspaceMeta?.workspaceId,
         clientHistoryId,
@@ -424,6 +429,7 @@ export const productImagesApi = {
         personType: params.personType,
         holdingStyle: params.holdingStyle,
         textWhitespace: params.textWhitespace,
+        resolution: params.resolution,
         workspaceId: workspaceMeta?.workspaceId,
         clientHistoryId,
       });

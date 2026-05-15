@@ -115,6 +115,19 @@ export const FirstFrameMode: React.FC<FirstFrameModeProps> = ({ id, data, update
       {/* Output count + Generate + cost preview */}
       <div className="flex items-center gap-2">
         <select
+          value={data.firstFrameResolution || '1k'}
+          onChange={(e) => {
+            const next = e.target.value === '2k' || e.target.value === '4k' ? e.target.value : '1k';
+            updateNodeData(id, { firstFrameResolution: next });
+          }}
+          className="px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
+          title={tt.pg_main_resolution || 'Resolution'}
+        >
+          {['1k', '2k', '4k'].map((value) => (
+            <option key={value} value={value}>{value.toUpperCase()}</option>
+          ))}
+        </select>
+        <select
           value={data.outputCount || 1}
           onChange={(e) => updateNodeData(id, { outputCount: Number(e.target.value) as 1 | 2 | 3 | 4 })}
           className="px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"

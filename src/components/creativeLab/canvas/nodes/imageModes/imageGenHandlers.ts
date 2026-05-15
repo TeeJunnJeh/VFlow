@@ -459,6 +459,7 @@ export async function runFirstFrame(
       prompt: effectivePrompt,
       model: data.firstFrameModel || 'nano-banana-pro',
       aspectRatio: '9:16',
+      resolution: data.firstFrameResolution || '1k',
       outputCount: data.outputCount || 1,
     } as Parameters<typeof productImagesApi.generateFirstFrame>[1]);
 

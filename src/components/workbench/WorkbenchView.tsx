@@ -14,7 +14,7 @@ import { useTasks } from '../../context/TaskContext';
 import { useWorkbenchModel } from '../../context/WorkbenchModelContext';
 import { videoApi, VideoApiError, type GeneratePreviewData } from '../../services/video';
 import { assetsApi, subjectGroupApi, type Asset as LibraryAsset, type AssetFolder, type SubjectGroup } from '../../services/assets';
-import { tiktokApi } from '../../services/tiktok';
+import { tiktokApi, type TikTokDirectPostInfo } from '../../services/tiktok';
 import { authApi } from '../../services/auth';
 import { billingApi } from '../../services/billing';
 import { formatCreditAmount, roundCreditTenths } from '../../utils/credits';
@@ -101,6 +101,30 @@ const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
 const TRANSFER_STATION_DRAG_MIME = 'application/x-vflow-transfer-station-item';
+
+type TikTokCreatorInfo = {
+  privacy_level_options?: string[];
+  comment_disabled?: boolean;
+  duet_disabled?: boolean;
+  stitch_disabled?: boolean;
+};
+
+const extractTikTokCreatorInfo = (payload: any): TikTokCreatorInfo => {
+  const data = payload?.data || {};
+  return (data.creator_info || data || {}) as TikTokCreatorInfo;
+};
+
+const buildTikTokDirectPostInfo = (creatorInfo: TikTokCreatorInfo, title = ''): TikTokDirectPostInfo => ({
+  title,
+  privacy_level: creatorInfo.privacy_level_options?.[0] || 'SELF_ONLY',
+  disable_duet: Boolean(creatorInfo.duet_disabled),
+  disable_comment: Boolean(creatorInfo.comment_disabled),
+  disable_stitch: Boolean(creatorInfo.stitch_disabled),
+  brand_content_toggle: false,
+  brand_organic_toggle: false,
+  is_aigc: true,
+});
+
 const revokeBlobUrl = (url: string | null | undefined) => {
   if (url && url.startsWith('blob:')) {
     URL.revokeObjectURL(url);
@@ -1476,6 +1500,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [waitProgressPhase, setWaitProgressPhase] = useState<WaitProgressPhase>('idle');
   const [waitingVideoFailed, setWaitingVideoFailed] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
+  const [isTikTokPublishModeOpen, setIsTikTokPublishModeOpen] = useState(false);
+  const [pendingTikTokProjectId, setPendingTikTokProjectId] = useState<string | null>(null);
+  const [isTikTokDirectOpen, setIsTikTokDirectOpen] = useState(false);
+  const [isLoadingTikTokCreatorInfo, setIsLoadingTikTokCreatorInfo] = useState(false);
+  const [isPostingTikTokDirect, setIsPostingTikTokDirect] = useState(false);
+  const [tiktokCreatorInfo, setTikTokCreatorInfo] = useState<TikTokCreatorInfo | null>(null);
+  const [tiktokDirectForm, setTikTokDirectForm] = useState<TikTokDirectPostInfo>(() => buildTikTokDirectPostInfo({}));
   const [isSavingScriptAsset, setIsSavingScriptAsset] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
   const [isSendingDebug, setIsSendingDebug] = useState(false);
@@ -9510,17 +9541,36 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       return;
     }
 
-    const authPopup = openTikTokAuthPopup({
-      loadingTitle: t.app_tiktok_popup_loading_title,
-      loadingDescription: t.app_tiktok_popup_loading_desc,
-    });
+    setIsPostingTikTok(true);
+    try {
+      const status = await tiktokApi.getStatus();
+      if (status?.data?.tiktok_unavailable) {
+        openInfo(popupTitles.notice, status?.data?.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+      setPendingTikTokProjectId(targetProjectId);
+      setIsTikTokPublishModeOpen(true);
+    } catch (err: any) {
+      openErrorModal(err, { category: 'upload_failed', onRetry: handlePublishToTikTok });
+    } finally {
+      setIsPostingTikTok(false);
+    }
+  };
 
+  const handlePublishDraftToTikTok = async (targetProjectId: string) => {
+    let authPopup: Window | null = null;
+    setIsTikTokPublishModeOpen(false);
     setIsPostingTikTok(true);
     try {
       let isAuthorized = false;
       let tiktokUserInfo = null;
       try {
         const status = await tiktokApi.getStatus();
+        if (status?.data?.tiktok_unavailable) {
+          closeTikTokAuthPopup(authPopup);
+          openInfo(popupTitles.notice, status?.data?.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
         isAuthorized = status?.data?.authorized || false;
         tiktokUserInfo = status?.data?.tiktok_user || null;
       } catch (err: any) {
@@ -9529,8 +9579,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       if (!isAuthorized) {
-        const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
-        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = await tiktokApi.getAuthUrl(targetProjectId);
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          openInfo(popupTitles.notice, auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
         if (!popupWindow) {
           openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
         }
@@ -9555,8 +9614,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         if (switchAccount) {
           try {
             await tiktokApi.revokeAuth();
-            const authUrl = await tiktokApi.getAuthUrl(targetProjectId);
-            const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+            authPopup = openTikTokAuthPopup({
+              loadingTitle: t.app_tiktok_popup_loading_title,
+              loadingDescription: t.app_tiktok_popup_loading_desc,
+            });
+            const auth = await tiktokApi.getAuthUrl(targetProjectId);
+            if (auth.unavailable || !auth.authUrl) {
+              closeTikTokAuthPopup(authPopup);
+              openInfo(popupTitles.notice, auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+              return;
+            }
+            const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
             if (!popupWindow) {
               openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
               return;
@@ -9574,9 +9642,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       const result = await tiktokApi.publishDraft(targetProjectId);
+      if (result.unavailable) {
+        closeTikTokAuthPopup(authPopup);
+        openInfo(popupTitles.notice, result.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
       if (result.requiresAuth) {
-        const authUrl = result.authUrl || await tiktokApi.getAuthUrl(targetProjectId);
-        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = result.authUrl
+          ? { authUrl: result.authUrl, unavailable: false, message: result.message }
+          : await tiktokApi.getAuthUrl(targetProjectId);
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          openInfo(popupTitles.notice, auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
         if (!popupWindow) {
           openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
         }
@@ -9587,9 +9671,100 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       openInfo(popupTitles.success, t.wb_popup_tiktok_upload_success);
     } catch (err: any) {
       closeTikTokAuthPopup(authPopup);
-      openErrorModal(err, { category: 'upload_failed', onRetry: handlePublishToTikTok });
+      openErrorModal(err, { category: 'upload_failed', onRetry: () => void handlePublishDraftToTikTok(targetProjectId) });
     } finally {
       setIsPostingTikTok(false);
+    }
+  };
+
+  const handlePrepareDirectPostToTikTok = async (targetProjectId: string) => {
+    let authPopup: Window | null = null;
+    setIsTikTokPublishModeOpen(false);
+    setIsLoadingTikTokCreatorInfo(true);
+    setIsPostingTikTok(true);
+    try {
+      const status = await tiktokApi.getStatus();
+      if (status?.data?.tiktok_unavailable) {
+        openInfo(popupTitles.notice, status?.data?.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+
+      if (!status?.data?.authorized) {
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = await tiktokApi.getAuthUrl();
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          openInfo(popupTitles.notice, auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
+        if (!popupWindow) {
+          openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+          return;
+        }
+        openInfo(popupTitles.notice, t.wb_tiktok_direct_auth_required || 'TikTok authorization is ready. Please choose direct post again after authorization completes.');
+        return;
+      }
+
+      const creatorPayload = await tiktokApi.getCreatorInfo();
+      const creatorInfo = extractTikTokCreatorInfo(creatorPayload);
+      setTikTokCreatorInfo(creatorInfo);
+      setTikTokDirectForm(buildTikTokDirectPostInfo(creatorInfo));
+      setPendingTikTokProjectId(targetProjectId);
+      setIsTikTokDirectOpen(true);
+    } catch (err: any) {
+      openErrorModal(err, { category: 'upload_failed', onRetry: () => void handlePrepareDirectPostToTikTok(targetProjectId) });
+    } finally {
+      setIsLoadingTikTokCreatorInfo(false);
+      setIsPostingTikTok(false);
+    }
+  };
+
+  const handleSubmitTikTokDirectPost = async () => {
+    const targetProjectId = pendingTikTokProjectId;
+    if (!targetProjectId) return;
+
+    let authPopup: Window | null = null;
+    setIsPostingTikTokDirect(true);
+    try {
+      const result = await tiktokApi.publishDirect(targetProjectId, tiktokDirectForm);
+      if (result.unavailable) {
+        openInfo(popupTitles.notice, result.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+      if (result.requiresAuth) {
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = result.authUrl
+          ? { authUrl: result.authUrl, unavailable: false, message: result.message }
+          : await tiktokApi.getAuthUrl();
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          openInfo(popupTitles.notice, auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
+        if (!popupWindow) {
+          openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+          return;
+        }
+        openInfo(popupTitles.notice, t.wb_tiktok_direct_auth_required || 'TikTok authorization is ready. Please choose direct post again after authorization completes.');
+        return;
+      }
+
+      closeTikTokAuthPopup(authPopup);
+      setIsTikTokDirectOpen(false);
+      openInfo(popupTitles.success, result.message || (language === 'zh' ? '已提交 TikTok 直接发布' : 'Submitted TikTok direct post'));
+    } catch (err: any) {
+      closeTikTokAuthPopup(authPopup);
+      openErrorModal(err, { category: 'upload_failed', onRetry: handleSubmitTikTokDirectPost });
+    } finally {
+      setIsPostingTikTokDirect(false);
     }
   };
 
@@ -11787,6 +11962,166 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="whitespace-pre-line text-sm text-zinc-300">{infoMessage}</div>
         </AppDialog>
       )}
+      <AppDialog
+        isOpen={isTikTokPublishModeOpen}
+        title={t.wb_tiktok_publish_mode_title || 'Publish to TikTok'}
+        onClose={() => setIsTikTokPublishModeOpen(false)}
+        footer={
+          <>
+            <button
+              className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+              onClick={() => setIsTikTokPublishModeOpen(false)}
+              disabled={isPostingTikTok || isLoadingTikTokCreatorInfo}
+              type="button"
+            >
+              {t.assets_move_cancel || t.wb_confirm_cancel || 'Cancel'}
+            </button>
+            <button
+              className="bg-white/10 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-white/15 disabled:opacity-60 flex items-center gap-2"
+              onClick={() => pendingTikTokProjectId && void handlePublishDraftToTikTok(pendingTikTokProjectId)}
+              disabled={!pendingTikTokProjectId || isPostingTikTok || isLoadingTikTokCreatorInfo}
+              type="button"
+            >
+              {isPostingTikTok ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t.wb_tiktok_publish_mode_draft || 'Send to TikTok drafts'}
+            </button>
+            <button
+              className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center gap-2"
+              onClick={() => pendingTikTokProjectId && void handlePrepareDirectPostToTikTok(pendingTikTokProjectId)}
+              disabled={!pendingTikTokProjectId || isPostingTikTok || isLoadingTikTokCreatorInfo}
+              type="button"
+            >
+              {isLoadingTikTokCreatorInfo ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t.wb_tiktok_publish_mode_direct || 'Direct post'}
+            </button>
+          </>
+        }
+      >
+        <div className="text-sm text-zinc-400">
+          {language === 'zh'
+            ? '选择上传到 TikTok 草稿，或填写发布设置后直接发布。'
+            : 'Choose TikTok drafts, or fill in publishing settings for a direct post.'}
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isTikTokDirectOpen}
+        title={t.wb_tiktok_direct_title || 'Direct post settings'}
+        onClose={() => {
+          if (isPostingTikTokDirect) return;
+          setIsTikTokDirectOpen(false);
+        }}
+        widthClassName="max-w-lg"
+        footer={
+          <>
+            <button
+              className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+              onClick={() => setIsTikTokDirectOpen(false)}
+              disabled={isPostingTikTokDirect}
+              type="button"
+            >
+              {t.assets_move_cancel || t.wb_confirm_cancel || 'Cancel'}
+            </button>
+            <button
+              className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center gap-2"
+              onClick={() => void handleSubmitTikTokDirectPost()}
+              disabled={isPostingTikTokDirect || !tiktokDirectForm.privacy_level}
+              type="button"
+            >
+              {isPostingTikTokDirect ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t.wb_tiktok_direct_submit || 'Post directly'}
+            </button>
+          </>
+        }
+      >
+        {(() => {
+          const privacyOptions = tiktokCreatorInfo?.privacy_level_options?.length
+            ? tiktokCreatorInfo.privacy_level_options
+            : ['SELF_ONLY'];
+          return (
+            <div className="space-y-4">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-bold text-zinc-400">{t.wb_tiktok_direct_caption || 'Caption'}</span>
+                <textarea
+                  value={tiktokDirectForm.title}
+                  onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, title: e.target.value.slice(0, 2200) }))}
+                  maxLength={2200}
+                  rows={4}
+                  className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500 resize-y"
+                />
+                <span className="block text-[11px] text-zinc-500 text-right">{tiktokDirectForm.title.length}/2200</span>
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-bold text-zinc-400">{t.wb_tiktok_direct_privacy || 'Visibility'}</span>
+                <select
+                  value={tiktokDirectForm.privacy_level}
+                  onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, privacy_level: e.target.value }))}
+                  className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500"
+                >
+                  {privacyOptions.map((option) => (
+                    <option key={option} value={option} className="bg-zinc-950 text-zinc-100">{option}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={!tiktokDirectForm.disable_comment}
+                    disabled={Boolean(tiktokCreatorInfo?.comment_disabled)}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, disable_comment: !e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_allow_comments || 'Allow comments'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={!tiktokDirectForm.disable_duet}
+                    disabled={Boolean(tiktokCreatorInfo?.duet_disabled)}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, disable_duet: !e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_allow_duet || 'Allow duet'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={!tiktokDirectForm.disable_stitch}
+                    disabled={Boolean(tiktokCreatorInfo?.stitch_disabled)}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, disable_stitch: !e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_allow_stitch || 'Allow stitch'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={tiktokDirectForm.is_aigc}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, is_aigc: e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_aigc || 'AI-generated content'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={tiktokDirectForm.brand_content_toggle}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, brand_content_toggle: e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_brand_content || 'Branded content'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={tiktokDirectForm.brand_organic_toggle}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, brand_organic_toggle: e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_brand_organic || 'Promotes your own brand'}
+                </label>
+              </div>
+            </div>
+          );
+        })()}
+      </AppDialog>
       {pendingGuestMigration && (
         <AppDialog
           isOpen={!!pendingGuestMigration}
@@ -13402,15 +13737,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         <div ref={previewSectionRef} style={{ flex: 1 - scriptPreviewRatio }} className={`flex flex-col gap-3 shrink-0 h-full ${getGuideFocusClass('preview')}`}>
           <div className="flex items-center justify-between gap-2 mb-1">
             <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2"><MonitorPlay className="w-4 h-4" /> {t.wb_col_preview}</h2>
-          <button
+            <button
               onClick={handlePublishToTikTok}
               disabled={!generatedVideoUrl || isPostingTikTok}
               className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-2 transition border border-white/10 ${(!generatedVideoUrl || isPostingTikTok) ? 'opacity-40 cursor-not-allowed text-zinc-500' : 'text-white bg-gradient-to-r from-purple-600 to-orange-500 hover:brightness-110'}`}
             >
               {isPostingTikTok ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               {isPostingTikTok ? t.wb_tiktok_uploading : t.wb_btn_tiktok_draft}
-          </button>
-        </div>
+            </button>
+          </div>
           {/* Video Player */}
           <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
             <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">

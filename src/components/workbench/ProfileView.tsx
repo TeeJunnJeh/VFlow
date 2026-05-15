@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { authApi, type InviteSummary } from '../../services/auth';
 import { billingApi } from '../../services/billing';
 import { videoApi } from '../../services/video';
+import { tiktokApi } from '../../services/tiktok';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
 import { AppDialog } from '../common/AppDialog';
@@ -12,6 +13,13 @@ import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPrefere
 import { isStrongPassword } from '../../utils/passwordRules';
 import { normalizeThemeMode, type ThemeMode } from '../../utils/theme';
 import { formatCreditAmount, formatSignedCreditAmount } from '../../utils/credits';
+import {
+  TIKTOK_AUTH_COMPLETE_EVENT,
+  closeTikTokAuthPopup,
+  navigateTikTokAuthPopup,
+  openTikTokAuthPopup,
+  type TikTokAuthResult,
+} from '../../utils/tiktokAuthPopup';
 
 interface ProfileViewProps {
   theme: ThemeMode;
@@ -40,6 +48,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   const [billingItems, setBillingItems] = useState<any[]>([]);
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
   const [isResettingVideoEstimate, setIsResettingVideoEstimate] = useState(false);
+  const [isBindingTikTok, setIsBindingTikTok] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [nextPassword, setNextPassword] = useState('');
   const [confirmNextPassword, setConfirmNextPassword] = useState('');
@@ -56,6 +65,43 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   });
   const requiresCurrentPassword = user?.hasPassword === true;
   const { isInfoOpen, setIsInfoOpen, infoTitle, infoMessage, openInfo } = useProfileInfo();
+  const formatTikTokMetric = (value: unknown) => (
+    typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '--'
+  );
+
+  const showTikTokBindingSummary = async () => {
+    const result = await tiktokApi.getAnalytics();
+    const userInfo = result?.data?.user || {};
+    const videos = Array.isArray(result?.data?.videos) ? result.data.videos : [];
+    const errors = result?.data?.errors || {};
+    const message = [
+      `${t.profile_tiktok_bound || 'TikTok account is already bound'}: ${userInfo.display_name || '-'}`,
+      `${t.profile_tiktok_scope_label || 'Scopes'}: ${result?.data?.scope || '-'}`,
+      `${t.profile_tiktok_followers || 'Followers'}: ${formatTikTokMetric(userInfo.follower_count)}`,
+      `${t.profile_tiktok_following || 'Following'}: ${formatTikTokMetric(userInfo.following_count)}`,
+      `${t.profile_tiktok_likes || 'Likes'}: ${formatTikTokMetric(userInfo.likes_count)}`,
+      `${t.profile_tiktok_videos || 'Videos'}: ${formatTikTokMetric(userInfo.video_count)}`,
+      `${t.profile_tiktok_public_videos || 'Public videos fetched'}: ${videos.length}`,
+      errors.user || errors.videos || errors.creator_info
+        ? `${t.profile_tiktok_partial_error || 'Some TikTok data could not be loaded'}`
+        : '',
+    ].filter(Boolean).join('\n');
+    openInfo(t.profile_success || 'Success', message);
+  };
+
+  useEffect(() => {
+    const onTikTokAuthComplete = (event: Event) => {
+      const detail = (event as CustomEvent<TikTokAuthResult>).detail;
+      if (detail?.status !== 'success') return;
+      void showTikTokBindingSummary().catch(() => {
+        openInfo(t.profile_success || 'Success', t.profile_tiktok_auth_complete || 'TikTok authorization completed.');
+      });
+    };
+
+    window.addEventListener(TIKTOK_AUTH_COMPLETE_EVENT, onTikTokAuthComplete);
+    return () => window.removeEventListener(TIKTOK_AUTH_COMPLETE_EVENT, onTikTokAuthComplete);
+  }, [t]);
+
   const freezeRemainingLabel = (() => {
     const total = Math.max(0, Number(user?.frozenRemainingSeconds || 0));
     if (!total) return '0 分钟';
@@ -289,6 +335,52 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     }
   };
 
+  const handleBindTikTok = async () => {
+    let authPopup: Window | null = null;
+    setIsBindingTikTok(true);
+    try {
+      const status = await tiktokApi.getStatus();
+      if (status?.data?.tiktok_unavailable) {
+        openInfo(
+          t.profile_notice || 'Notice',
+          status?.data?.message || t.profile_tiktok_unavailable || 'TikTok publishing is not available for this account yet.',
+        );
+        return;
+      }
+
+      if (status?.data?.authorized) {
+        await showTikTokBindingSummary();
+        return;
+      }
+
+      authPopup = openTikTokAuthPopup({
+        loadingTitle: t.app_tiktok_popup_loading_title,
+        loadingDescription: t.app_tiktok_popup_loading_desc,
+      });
+      const auth = await tiktokApi.getAuthUrl();
+      if (auth.unavailable || !auth.authUrl) {
+        closeTikTokAuthPopup(authPopup);
+        openInfo(
+          t.profile_notice || 'Notice',
+          auth.message || t.profile_tiktok_unavailable || 'TikTok publishing is not available for this account yet.',
+        );
+        return;
+      }
+
+      const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
+      if (!popupWindow) {
+        openInfo(t.profile_notice || 'Notice', t.app_tiktok_popup_blocked);
+        return;
+      }
+      openInfo(t.profile_notice || 'Notice', t.profile_tiktok_auth_opened || 'TikTok authorization opened. Return to VFlow after authorization.');
+    } catch (err: any) {
+      closeTikTokAuthPopup(authPopup);
+      openInfo(t.profile_error || 'Error', err?.message || t.profile_tiktok_bind_failed || 'Failed to open TikTok authorization');
+    } finally {
+      setIsBindingTikTok(false);
+    }
+  };
+
   const resetPasswordForm = () => {
     setCurrentPassword('');
     setNextPassword('');
@@ -482,6 +574,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                         <div className="mt-2 text-center">
                             <button onClick={handleUseDefaultAvatar} className="text-[10px] font-bold text-zinc-500 hover:text-orange-500 transition-colors uppercase tracking-widest py-1 border-b border-white/5">{t.profile_use_default_avatar}</button>
                         </div>
+                        <button
+                          type="button"
+                          onClick={handleBindTikTok}
+                          disabled={isBindingTikTok}
+                          className="mt-4 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-left transition hover:border-orange-500/40 hover:bg-orange-500/10 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <div className="flex items-center gap-2">
+                            {isBindingTikTok ? (
+                              <span className="h-4 w-4 rounded-full border-2 border-orange-300/40 border-t-orange-300 animate-spin shrink-0" />
+                            ) : (
+                              <KeyRound className="h-4 w-4 text-orange-300 shrink-0" />
+                            )}
+                            <span className="min-w-0">
+                              <span className="block text-[11px] font-black uppercase tracking-wider text-zinc-200">
+                                {isBindingTikTok ? (t.profile_tiktok_binding || 'Opening...') : (t.profile_tiktok_bind_action || 'Bind TikTok')}
+                              </span>
+                              <span className="mt-0.5 block text-[10px] leading-4 text-zinc-500">
+                                {t.profile_tiktok_bind_desc || 'Authorize publishing and analytics.'}
+                              </span>
+                            </span>
+                          </div>
+                        </button>
                      </div>
                   </div>
                   

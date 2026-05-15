@@ -4,7 +4,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { videoApi, type HistoryProject, type HistorySort } from '../../services/video';
-import { tiktokApi } from '../../services/tiktok';
+import { tiktokApi, type TikTokDirectPostInfo } from '../../services/tiktok';
 import { AppDialog } from '../common/AppDialog';
 import { ImageHistoryPanel } from './ImageHistoryPanel';
 import {
@@ -101,6 +101,29 @@ const formatI18n = (template: string | undefined, vars: Record<string, string | 
 
 const HISTORY_PAGE_SIZE = 16;
 
+type TikTokCreatorInfo = {
+  privacy_level_options?: string[];
+  comment_disabled?: boolean;
+  duet_disabled?: boolean;
+  stitch_disabled?: boolean;
+};
+
+const extractTikTokCreatorInfo = (payload: any): TikTokCreatorInfo => {
+  const data = payload?.data || {};
+  return (data.creator_info || data || {}) as TikTokCreatorInfo;
+};
+
+const buildTikTokDirectPostInfo = (creatorInfo: TikTokCreatorInfo, title = ''): TikTokDirectPostInfo => ({
+  title,
+  privacy_level: creatorInfo.privacy_level_options?.[0] || 'SELF_ONLY',
+  disable_duet: Boolean(creatorInfo.duet_disabled),
+  disable_comment: Boolean(creatorInfo.comment_disabled),
+  disable_stitch: Boolean(creatorInfo.stitch_disabled),
+  brand_content_toggle: false,
+  brand_organic_toggle: false,
+  is_aigc: true,
+});
+
 export const HistoryView = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -125,6 +148,13 @@ export const HistoryView = () => {
   const [togglingFavoriteId, setTogglingFavoriteId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [postingTikTokProjectId, setPostingTikTokProjectId] = useState<string | null>(null);
+  const [pendingTikTokProject, setPendingTikTokProject] = useState<HistoryProject | null>(null);
+  const [isTikTokPublishModeOpen, setIsTikTokPublishModeOpen] = useState(false);
+  const [isTikTokDirectOpen, setIsTikTokDirectOpen] = useState(false);
+  const [isLoadingTikTokCreatorInfo, setIsLoadingTikTokCreatorInfo] = useState(false);
+  const [isPostingTikTokDirect, setIsPostingTikTokDirect] = useState(false);
+  const [tiktokCreatorInfo, setTikTokCreatorInfo] = useState<TikTokCreatorInfo | null>(null);
+  const [tiktokDirectForm, setTikTokDirectForm] = useState<TikTokDirectPostInfo>(() => buildTikTokDirectPostInfo({}));
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -153,13 +183,41 @@ export const HistoryView = () => {
   const selectedCount = selectedIds.length;
   const allSelected = projects.length > 0 && projects.every((item) => Boolean(selectedProjects[item.id]));
 
-  const renderTikTokStatsPlaceholder = () => (
-    <div className="text-[11px] text-zinc-500/70 flex items-center gap-3">
-      <span>{t.hist_metric_views || 'Views'} --</span>
-      <span>{t.hist_metric_likes || 'Likes'} --</span>
-      <span>{t.hist_metric_revenue || 'Revenue'} --</span>
-    </div>
+  const formatTikTokMetric = (value: unknown) => (
+    typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '--'
   );
+
+  const renderTikTokStats = (proj: HistoryProject) => {
+    const stats = (proj.platform_stats || {}) as Record<string, unknown>;
+    const views = stats.tiktok_view_count;
+    const likes = stats.tiktok_like_count;
+    return (
+    <div className="text-[11px] text-zinc-500/70 flex items-center gap-3">
+        <span>{t.hist_metric_views || 'Views'} {formatTikTokMetric(views)}</span>
+        <span>{t.hist_metric_likes || 'Likes'} {formatTikTokMetric(likes)}</span>
+    </div>
+    );
+  };
+
+  const refreshTikTokMetrics = async (items: HistoryProject[]) => {
+    const projectIds = items
+      .filter((item) => Boolean((item.platform_stats as Record<string, unknown> | undefined)?.tiktok_publish_id))
+      .map((item) => item.id);
+    if (projectIds.length === 0) return;
+
+    try {
+      const result = await tiktokApi.refreshProjectMetrics(projectIds);
+      const nextStats = result?.data?.projects;
+      if (!nextStats || typeof nextStats !== 'object') return;
+      setProjects((prev) => prev.map((item) => {
+        const stats = (nextStats as Record<string, Record<string, unknown>>)[item.id];
+        return stats ? { ...item, platform_stats: stats } : item;
+      }));
+    } catch (err) {
+      // Metrics are best-effort; history itself should remain usable.
+      console.log('[TikTok] metrics refresh skipped:', err);
+    }
+  };
 
   const loadHistory = async () => {
     if (!user?.id) {
@@ -180,6 +238,7 @@ export const HistoryView = () => {
       const items = Array.isArray(data?.items) ? data.items : [];
       const pagination = data?.pagination;
       setProjects(items);
+      void refreshTikTokMetrics(items);
       setTotalResults(Number(pagination?.total || 0));
       setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
       if (pagination?.page && pagination.page !== currentPage) {
@@ -240,6 +299,7 @@ export const HistoryView = () => {
         const items = Array.isArray(data?.items) ? data.items : [];
         const pagination = data?.pagination;
         setProjects(items);
+        void refreshTikTokMetrics(items);
         setTotalResults(Number(pagination?.total || 0));
         setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
         if (pagination?.page && pagination.page !== currentPage) {
@@ -646,17 +706,46 @@ export const HistoryView = () => {
       return;
     }
 
-    const authPopup = openTikTokAuthPopup({
-      loadingTitle: t.app_tiktok_popup_loading_title,
-      loadingDescription: t.app_tiktok_popup_loading_desc,
-    });
+    setPostingTikTokProjectId(proj.id);
+    try {
+      const status = await tiktokApi.getStatus();
+      if (status?.data?.tiktok_unavailable) {
+        setFeedbackMessage(status?.data?.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+      setPendingTikTokProject(proj);
+      setIsTikTokPublishModeOpen(true);
+    } catch (err: unknown) {
+      setFeedbackMessage(getErrorMessage(err, '获取 TikTok 状态失败'));
+    } finally {
+      setPostingTikTokProjectId((prev) => (prev === proj.id ? null : prev));
+    }
+  };
 
+  const publishDraftToTikTok = async (proj: HistoryProject) => {
+    let authPopup: Window | null = null;
+    setIsTikTokPublishModeOpen(false);
     setPostingTikTokProjectId(proj.id);
     try {
       const result = await tiktokApi.publishDraft(proj.id);
+      if (result.unavailable) {
+        setFeedbackMessage(result.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
       if (result.requiresAuth) {
-        const authUrl = result.authUrl || await tiktokApi.getAuthUrl(proj.id);
-        const popupWindow = navigateTikTokAuthPopup(authPopup, authUrl);
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = result.authUrl
+          ? { authUrl: result.authUrl, unavailable: false, message: result.message }
+          : await tiktokApi.getAuthUrl(proj.id);
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          setFeedbackMessage(auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
         if (!popupWindow) {
           setFeedbackMessage(t.app_tiktok_popup_blocked);
         }
@@ -682,6 +771,109 @@ export const HistoryView = () => {
       closeTikTokAuthPopup(authPopup);
       setFeedbackMessage(getErrorMessage(err, '上传 TikTok 草稿失败'));
     } finally {
+      setPostingTikTokProjectId((prev) => (prev === proj.id ? null : prev));
+    }
+  };
+
+  const prepareDirectPostToTikTok = async (proj: HistoryProject) => {
+    let authPopup: Window | null = null;
+    setIsTikTokPublishModeOpen(false);
+    setIsLoadingTikTokCreatorInfo(true);
+    setPostingTikTokProjectId(proj.id);
+    try {
+      const status = await tiktokApi.getStatus();
+      if (status?.data?.tiktok_unavailable) {
+        setFeedbackMessage(status?.data?.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+
+      if (!status?.data?.authorized) {
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = await tiktokApi.getAuthUrl();
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          setFeedbackMessage(auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
+        if (!popupWindow) {
+          setFeedbackMessage(t.app_tiktok_popup_blocked);
+          return;
+        }
+        setFeedbackMessage(t.wb_tiktok_direct_auth_required || 'TikTok authorization is ready. Please choose direct post again after authorization completes.');
+        return;
+      }
+
+      const creatorPayload = await tiktokApi.getCreatorInfo();
+      const creatorInfo = extractTikTokCreatorInfo(creatorPayload);
+      setTikTokCreatorInfo(creatorInfo);
+      setTikTokDirectForm(buildTikTokDirectPostInfo(creatorInfo, proj.title || ''));
+      setPendingTikTokProject(proj);
+      setIsTikTokDirectOpen(true);
+    } catch (err: unknown) {
+      closeTikTokAuthPopup(authPopup);
+      setFeedbackMessage(getErrorMessage(err, '获取 TikTok 发布选项失败'));
+    } finally {
+      setIsLoadingTikTokCreatorInfo(false);
+      setPostingTikTokProjectId((prev) => (prev === proj.id ? null : prev));
+    }
+  };
+
+  const submitDirectPostToTikTok = async () => {
+    const proj = pendingTikTokProject;
+    if (!proj) return;
+
+    let authPopup: Window | null = null;
+    setIsPostingTikTokDirect(true);
+    setPostingTikTokProjectId(proj.id);
+    try {
+      const result = await tiktokApi.publishDirect(proj.id, tiktokDirectForm);
+      if (result.unavailable) {
+        setFeedbackMessage(result.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+      if (result.requiresAuth) {
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = result.authUrl
+          ? { authUrl: result.authUrl, unavailable: false, message: result.message }
+          : await tiktokApi.getAuthUrl();
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          setFeedbackMessage(auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
+        if (!popupWindow) {
+          setFeedbackMessage(t.app_tiktok_popup_blocked);
+          return;
+        }
+        setFeedbackMessage(t.wb_tiktok_direct_auth_required || 'TikTok authorization is ready. Please choose direct post again after authorization completes.');
+        return;
+      }
+
+      closeTikTokAuthPopup(authPopup);
+      setIsTikTokDirectOpen(false);
+      setProjects((prev) => prev.map((item) => {
+        if (item.id !== proj.id) return item;
+        const nextStats = { ...(item.platform_stats || {}) } as Record<string, unknown>;
+        if (result.publishId) {
+          nextStats.tiktok_publish_id = result.publishId;
+          nextStats.tiktok_publish_type = 'DIRECT_POST';
+        }
+        return { ...item, platform_stats: nextStats };
+      }));
+      setFeedbackMessage(result.message || '已提交 TikTok 直接发布');
+    } catch (err: unknown) {
+      closeTikTokAuthPopup(authPopup);
+      setFeedbackMessage(getErrorMessage(err, 'TikTok 直接发布失败'));
+    } finally {
+      setIsPostingTikTokDirect(false);
       setPostingTikTokProjectId((prev) => (prev === proj.id ? null : prev));
     }
   };
@@ -1180,7 +1372,7 @@ export const HistoryView = () => {
                               </h3>
                               <StatusBadge status={proj.status} label={statusLabels[proj.status] || ''} />
                             </div>
-                            {renderTikTokStatsPlaceholder()}
+                            {renderTikTokStats(proj)}
                           </div>
                           
                           <div className="text-[10px] text-zinc-600 whitespace-nowrap pt-1">
@@ -1390,7 +1582,7 @@ export const HistoryView = () => {
                         </div>
                       </div>
 
-                      {renderTikTokStatsPlaceholder()}
+                      {renderTikTokStats(proj)}
 
                       <div className="flex items-center justify-between mt-auto pt-4 opacity-60 group-hover:opacity-100 transition-opacity">
                         <div className="text-[11px] text-zinc-400 font-medium">
@@ -1467,6 +1659,165 @@ export const HistoryView = () => {
         </div>
       </div>
       )}
+
+      <AppDialog
+        isOpen={isTikTokPublishModeOpen}
+        title={t.wb_tiktok_publish_mode_title || 'Publish to TikTok'}
+        onClose={() => setIsTikTokPublishModeOpen(false)}
+        footer={
+          <>
+            <button
+              className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+              onClick={() => setIsTikTokPublishModeOpen(false)}
+              disabled={Boolean(postingTikTokProjectId) || isLoadingTikTokCreatorInfo}
+              type="button"
+            >
+              {t.assets_move_cancel || 'Cancel'}
+            </button>
+            <button
+              className="bg-white/10 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-white/15 disabled:opacity-60 flex items-center gap-2"
+              onClick={() => pendingTikTokProject && void publishDraftToTikTok(pendingTikTokProject)}
+              disabled={!pendingTikTokProject || Boolean(postingTikTokProjectId) || isLoadingTikTokCreatorInfo}
+              type="button"
+            >
+              {postingTikTokProjectId && !isLoadingTikTokCreatorInfo ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t.wb_tiktok_publish_mode_draft || 'Send to TikTok drafts'}
+            </button>
+            <button
+              className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center gap-2"
+              onClick={() => pendingTikTokProject && void prepareDirectPostToTikTok(pendingTikTokProject)}
+              disabled={!pendingTikTokProject || Boolean(postingTikTokProjectId) || isLoadingTikTokCreatorInfo}
+              type="button"
+            >
+              {isLoadingTikTokCreatorInfo ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t.wb_tiktok_publish_mode_direct || 'Direct post'}
+            </button>
+          </>
+        }
+      >
+        <div className="text-sm text-zinc-400">
+          {t.wb_tiktok_publish_mode_title || 'Publish to TikTok'}
+        </div>
+      </AppDialog>
+
+      <AppDialog
+        isOpen={isTikTokDirectOpen}
+        title={t.wb_tiktok_direct_title || 'Direct post settings'}
+        onClose={() => {
+          if (isPostingTikTokDirect) return;
+          setIsTikTokDirectOpen(false);
+        }}
+        widthClassName="max-w-lg"
+        footer={
+          <>
+            <button
+              className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+              onClick={() => setIsTikTokDirectOpen(false)}
+              disabled={isPostingTikTokDirect}
+              type="button"
+            >
+              {t.assets_move_cancel || 'Cancel'}
+            </button>
+            <button
+              className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center gap-2"
+              onClick={() => void submitDirectPostToTikTok()}
+              disabled={isPostingTikTokDirect || !tiktokDirectForm.privacy_level}
+              type="button"
+            >
+              {isPostingTikTokDirect ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t.wb_tiktok_direct_submit || 'Post directly'}
+            </button>
+          </>
+        }
+      >
+        {(() => {
+          const privacyOptions = tiktokCreatorInfo?.privacy_level_options?.length
+            ? tiktokCreatorInfo.privacy_level_options
+            : ['SELF_ONLY'];
+          return (
+            <div className="space-y-4">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-bold text-zinc-400">{t.wb_tiktok_direct_caption || 'Caption'}</span>
+                <textarea
+                  value={tiktokDirectForm.title}
+                  onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, title: e.target.value.slice(0, 2200) }))}
+                  maxLength={2200}
+                  rows={4}
+                  className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500 resize-y"
+                />
+                <span className="block text-[11px] text-zinc-500 text-right">{tiktokDirectForm.title.length}/2200</span>
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-bold text-zinc-400">{t.wb_tiktok_direct_privacy || 'Visibility'}</span>
+                <select
+                  value={tiktokDirectForm.privacy_level}
+                  onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, privacy_level: e.target.value }))}
+                  className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500"
+                >
+                  {privacyOptions.map((option) => (
+                    <option key={option} value={option} className="bg-zinc-950 text-zinc-100">{option}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={!tiktokDirectForm.disable_comment}
+                    disabled={Boolean(tiktokCreatorInfo?.comment_disabled)}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, disable_comment: !e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_allow_comments || 'Allow comments'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={!tiktokDirectForm.disable_duet}
+                    disabled={Boolean(tiktokCreatorInfo?.duet_disabled)}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, disable_duet: !e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_allow_duet || 'Allow duet'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={!tiktokDirectForm.disable_stitch}
+                    disabled={Boolean(tiktokCreatorInfo?.stitch_disabled)}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, disable_stitch: !e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_allow_stitch || 'Allow stitch'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={tiktokDirectForm.is_aigc}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, is_aigc: e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_aigc || 'AI-generated content'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={tiktokDirectForm.brand_content_toggle}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, brand_content_toggle: e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_brand_content || 'Branded content'}
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={tiktokDirectForm.brand_organic_toggle}
+                    onChange={(e) => setTikTokDirectForm((prev) => ({ ...prev, brand_organic_toggle: e.target.checked }))}
+                  />
+                  {t.wb_tiktok_direct_brand_organic || 'Promotes your own brand'}
+                </label>
+              </div>
+            </div>
+          );
+        })()}
+      </AppDialog>
 
       <AppDialog
         isOpen={isBulkDeleteOpen}

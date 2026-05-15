@@ -9710,6 +9710,31 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       const creatorPayload = await tiktokApi.getCreatorInfo();
+      if (creatorPayload?.unavailable) {
+        openInfo(popupTitles.notice, creatorPayload.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+      if (creatorPayload?.requiresAuth) {
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = creatorPayload.authUrl
+          ? { authUrl: creatorPayload.authUrl, unavailable: false, message: creatorPayload.message }
+          : await tiktokApi.getAuthUrl();
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          openInfo(popupTitles.notice, auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
+        if (!popupWindow) {
+          openInfo(popupTitles.notice, t.app_tiktok_popup_blocked);
+          return;
+        }
+        openInfo(popupTitles.notice, t.wb_tiktok_direct_auth_required || 'TikTok authorization is ready. Please choose direct post again after authorization completes.');
+        return;
+      }
       const creatorInfo = extractTikTokCreatorInfo(creatorPayload);
       setTikTokCreatorInfo(creatorInfo);
       setTikTokDirectForm(buildTikTokDirectPostInfo(creatorInfo));

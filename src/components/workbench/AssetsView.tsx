@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Eye, EyeOff, Layers3, Plus, Sparkles, AlertCircle, FileText, LayoutGrid, List, Music, ImageIcon, Video, Type, ArrowUpRight, Check
+  FolderPlus, Upload, Loader2, Folder, X, CheckCircle, Circle, ChevronDown, ChevronRight, Pencil, Search, Heart, Download, Library, Globe, Info, Settings, Layers3, Plus, Sparkles, AlertCircle, FileText, LayoutGrid, List, Music, ImageIcon, Video, Type, ArrowUpRight, Check
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext'
@@ -313,6 +313,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   // View mode: grid vs list
   const [assetViewLayout, setAssetViewLayout] = useState<'grid' | 'list'>('grid');
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [assetNameSearch, setAssetNameSearch] = useState('');
   
   // Auto-dismiss toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1651,17 +1652,27 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     });
   };
 
+  const normalizedAssetNameSearch = assetNameSearch.trim().toLowerCase();
+  const matchesAssetNameSearch = useCallback((name?: string | null) => {
+    if (!normalizedAssetNameSearch) return true;
+    return String(name || '').toLowerCase().includes(normalizedAssetNameSearch);
+  }, [normalizedAssetNameSearch]);
+
   const visibleAssets = useMemo(() => (
     assetList.filter((asset) => (
       asset.type === activeAssetTab
       && (!hideReferencedOtherViews || !referencedOtherViewIds.has(asset.id))
       && (!showOnlyFavorites || asset.is_favorited)
+      && matchesAssetNameSearch(asset.name)
     ))
-  ), [activeAssetTab, assetList, hideReferencedOtherViews, referencedOtherViewIds, showOnlyFavorites]);
+  ), [activeAssetTab, assetList, hideReferencedOtherViews, matchesAssetNameSearch, referencedOtherViewIds, showOnlyFavorites]);
 
   const visibleFolders = useMemo(() => (
-    showOnlyFavorites ? folderList.filter(f => f.is_favorited) : folderList
-  ), [folderList, showOnlyFavorites]);
+    folderList.filter((folder) => (
+      (!showOnlyFavorites || folder.is_favorited)
+      && matchesAssetNameSearch(folder.name)
+    ))
+  ), [folderList, matchesAssetNameSearch, showOnlyFavorites]);
 
   // Force list view for audio / script tabs
   const isListOnlyTab = activeAssetTab === 'audio' || activeAssetTab === 'script';
@@ -2754,16 +2765,16 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
 
               {!isSelectionMode && (
                 <div className="flex items-center gap-2 shrink-0">
-                  {(activeAssetTab === 'product' || activeAssetTab === 'model') && (
-                    <button
-                      type="button"
-                      onClick={() => setHideReferencedOtherViews((prev) => !prev)}
-                      title={hideReferencedOtherViews ? t.assets_show_referenced_other_views_tooltip : t.assets_hide_referenced_other_views_tooltip}
-                      className={`w-9 h-9 rounded-lg border transition flex items-center justify-center ${hideReferencedOtherViews ? 'border-orange-500/60 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'}`}
-                    >
-                      {hideReferencedOtherViews ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  )}
+                  <div className="relative w-44 xl:w-56">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                    <input
+                      type="search"
+                      value={assetNameSearch}
+                      onChange={(e) => setAssetNameSearch(e.target.value)}
+                      placeholder={(t as any).assets_search_by_name}
+                      className="h-9 w-full rounded-lg border border-white/10 bg-zinc-800 pl-8 pr-3 text-xs text-zinc-200 placeholder-zinc-500 outline-none transition focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => setShowOnlyFavorites((prev) => !prev)}
@@ -2990,6 +3001,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           draggingAsset && dragOverFolderId === folder.id ? 'ring-2 ring-orange-500/70 scale-[1.02] bg-zinc-900/50' : ''
                         }`}
                       >
+                         <div className="asset-folder-light-surface pointer-events-none absolute inset-0 z-0" />
                          {/* Selection checkbox */}
                          {isSelectionMode && (
                            <div className="absolute top-2 left-2 z-30">
@@ -3023,17 +3035,17 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                              ) : (
                                <img src={coverSrc} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                              )}
-                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                             <div className="absolute inset-x-0 bottom-0 h-24 asset-thumb-fade" />
                            </div>
                          ) : (
-                           <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/60">
+                           <div className="asset-folder-empty-preview absolute inset-0 flex items-center justify-center bg-zinc-900/60">
                              <Folder className="w-12 h-12 text-zinc-700 group-hover:text-orange-500/50 transition" />
                            </div>
                          )}
                          {/* Bottom info overlay */}
                          <div className="absolute bottom-0 inset-x-0 p-2.5 z-10">
-                           <div className="text-sm font-bold text-white truncate drop-shadow-lg">{folder.name}</div>
-                           <div className="mt-0.5 text-[10px] text-zinc-300/80 truncate">
+                           <div className="text-sm font-bold text-white truncate drop-shadow-lg asset-meta-name">{folder.name}</div>
+                           <div className="mt-0.5 text-[10px] text-zinc-300/80 truncate asset-meta-size">
                              {summary.assetCount} {(t as any).assets_folder_summary_assets || '素材'} · {summary.subfolderCount} {(t as any).assets_folder_summary_subfolders || '子文件夹'}
                            </div>
                          </div>

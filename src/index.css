@@ -276,6 +276,10 @@ body {
   color: #475569;
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
 }
+.theme-light .asset-folder-light-surface,
+.theme-light .asset-folder-empty-preview {
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,1)) !important;
+}
 .theme-light .text-zinc-400 { color: #475569; }
 .theme-light .text-zinc-300 { color: #64748b; }
 .theme-light .bg-zinc-800 { background-color: #f1f5f9; }

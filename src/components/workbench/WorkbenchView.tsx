@@ -1076,7 +1076,7 @@ interface WorkbenchViewProps {
   generatedVideoUrl: string | null;
   setGeneratedVideoUrl: (url: string | null) => void;
   onExportToServer?: (data: any) => Promise<void>;
-  onNavigateToAssetsLibrary?: () => void;
+  onNavigateToAssetsLibrary?: (tab?: AssetLibraryTab) => void;
 }
 
 export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
@@ -3682,6 +3682,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const openSubjectCreationLibrary = useCallback(() => {
     onNavigateToAssetsLibrary?.();
   }, [onNavigateToAssetsLibrary]);
+  const resolveAssetLibraryManageTab = useCallback((): AssetLibraryTab => {
+    if (assetLibraryPickMode === 'background_audio') return 'audio';
+    if (assetLibraryPickMode === 'script_import') return 'script';
+    if (seedanceReplayLibraryIntent) return seedanceReplayLibraryIntent.preferredTab;
+    if (assetLibraryTab === 'subject') return 'subject';
+    return 'product';
+  }, [assetLibraryPickMode, assetLibraryTab, seedanceReplayLibraryIntent]);
+  const handleManageAssetLibraryFromPicker = useCallback(() => {
+    const targetTab = resolveAssetLibraryManageTab();
+    setIsAssetLibraryOpen(false);
+    setAssetLibraryPickMode('default');
+    setSeedanceReplayLibraryIntent(null);
+    onNavigateToAssetsLibrary?.(targetTab);
+  }, [onNavigateToAssetsLibrary, resolveAssetLibraryManageTab]);
   const openKlingSubjectGuide = useCallback(() => {
     setIsKlingSubjectGuideOpen(true);
   }, []);
@@ -12731,7 +12745,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   )}
                   <button
                     type="button"
-                    onClick={openSubjectCreationLibrary}
+                    onClick={handleManageAssetLibraryFromPicker}
                     className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
                   >
                     {(t as any).wb_btn_manage_assets_library || '前往素材库'}
@@ -12773,7 +12787,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   )}
                   <button
                     type="button"
-                    onClick={openSubjectCreationLibrary}
+                    onClick={handleManageAssetLibraryFromPicker}
                     className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-200 transition hover:border-orange-500/50 hover:bg-orange-500/10 hover:text-orange-200"
                   >
                     {(t as any).wb_btn_manage_assets_library || '前往素材库'}

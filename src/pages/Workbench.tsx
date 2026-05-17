@@ -135,6 +135,7 @@ const isWorkbenchViewType = (value: string | null | undefined): value is ViewTyp
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
   | 'open_assets_for_subject_creation_first_time'
+  | { type: 'open_assets_tab'; tab: 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'subject' }
   | null;
 
 type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio' | 'script_import';
@@ -587,11 +588,14 @@ const Workbench = () => {
     setAssetsNavigationIntent(null);
   }, []);
 
-  const handleNavigateToAssetsLibrary = useCallback(() => {
-    setAssetsNavigationIntent(
-      hasSeenSubjectGuide()
-        ? 'open_assets_for_subject_creation'
-        : 'open_assets_for_subject_creation_first_time'
+  const handleNavigateToAssetsLibrary = useCallback((tab?: 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'subject') => {
+    setAssetsNavigationIntent(tab
+      ? { type: 'open_assets_tab', tab }
+      : (
+        hasSeenSubjectGuide()
+          ? 'open_assets_for_subject_creation'
+          : 'open_assets_for_subject_creation_first_time'
+      )
     );
     setActiveView('assets');
   }, [hasSeenSubjectGuide]);

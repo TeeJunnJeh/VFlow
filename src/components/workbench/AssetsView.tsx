@@ -16,7 +16,21 @@ type PlazaCategory = 'model' | 'product' | 'scene' | 'motion' | 'audio';
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
   | 'open_assets_for_subject_creation_first_time'
+  | { type: 'open_assets_tab'; tab: AssetType }
   | null;
+
+const getInitialAssetTabFromNavigationIntent = (intent?: AssetsNavigationIntent): AssetType => {
+  if (intent && typeof intent === 'object' && intent.type === 'open_assets_tab') {
+    return intent.tab;
+  }
+  if (
+    intent === 'open_assets_for_subject_creation' ||
+    intent === 'open_assets_for_subject_creation_first_time'
+  ) {
+    return 'subject';
+  }
+  return 'product';
+};
 
 interface AssetsViewProps {
   currentFolderId: string | null;
@@ -188,7 +202,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [allTypeFolders, setAllTypeFolders] = useState<AssetFolder[]>([]);
   const [folderBreadcrumb, setFolderBreadcrumb] = useState<AssetFolder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeAssetTab, setActiveAssetTab] = useState<AssetType>('product');
+  const [activeAssetTab, setActiveAssetTab] = useState<AssetType>(() => getInitialAssetTabFromNavigationIntent(navigationIntent));
 
   useEffect(() => {
     if (viewMode === 'plaza' && (activeAssetTab === 'script' || activeAssetTab === 'subject')) {
@@ -519,7 +533,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setIsSelectionMode(false);
     setOpenFolderMenuId(null);
 
-    if (
+    if (typeof navigationIntent === 'object' && navigationIntent.type === 'open_assets_tab') {
+      setActiveAssetTab(navigationIntent.tab);
+    } else if (
       navigationIntent === 'open_assets_for_subject_creation' ||
       navigationIntent === 'open_assets_for_subject_creation_first_time'
     ) {

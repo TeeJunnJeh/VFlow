@@ -29,6 +29,8 @@ import {
 } from './PromptLabWindow';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
+import { VideoTypePicker } from './VideoTypePicker';
+import { migrateVideoType, getVideoTypeDef } from './videoTypes';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
 import { AiOverwriteDialog, type AiOverwriteField } from './AiOverwriteDialog';
@@ -1287,7 +1289,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     audience: false,
   });
   const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
-  const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
+  const [videoType, setVideoType] = useState<string>(() => migrateVideoType(initialPrefs.videoType));
   const [aspectRatio, setAspectRatio] = useState<WorkbenchAspectRatio>(() => (
     normalizeWorkbenchAspectRatio(initialPrefs.aspectRatio)
   ));
@@ -2141,7 +2143,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setCoreSellingPoints(workspace.coreSellingPoints || '');
     setTargetAudience(workspace.targetAudience || '');
     setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
-    setVideoType(workspace.videoType || initialPrefs.videoType || '');
+    setVideoType(migrateVideoType(workspace.videoType || initialPrefs.videoType));
     setAspectRatio(normalizeWorkbenchAspectRatio(workspace.aspectRatio || initialPrefs.aspectRatio));
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setRecognizedProductSourceSignature(String(workspace.recognizedProductSourceSignature || ''));
@@ -5466,7 +5468,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     pushLine(t.wb_field_target_audience_label, targetAudience);
     pushLine(t.wb_field_delivery_region_label, deliveryRegion);
     pushLine(t.wb_field_video_language_label, targetLanguage);
-    pushLine(t.wb_field_video_type_label, videoType);
+    pushLine(t.wb_field_video_type_label, getVideoTypeDef(videoType)?.zhLabel || '');
     if (normalizedAdditionalRequirements && normalizedAdditionalRequirements !== normalizedReferenceScript) {
       pushLine(t.wb_field_additional_requirements_label, normalizedAdditionalRequirements);
     }
@@ -8705,7 +8707,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : {}),
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
-        ...(videoType === '趣味剧本' ? { video_type: 'creative_skit' } : {}),
+        ...(videoType ? { video_type: videoType } : {}),
       };
       const reportPayload = {
         script_count: 1,
@@ -10264,19 +10266,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   {t.wb_field_video_type_label}
                   <span className="ml-1 text-red-400">*</span>
                 </label>
-                <DropdownSelect
+                <VideoTypePicker
                   value={videoType}
                   placeholder={t.wb_select_placeholder}
-                  options={[
-                    { value: 'UGC种草', label: t.wb_video_type_ugc },
-                    { value: '产品口播', label: t.wb_video_type_talking },
-                    { value: '产品演示', label: t.wb_video_type_demo },
-                    { value: '痛点-解决', label: t.wb_video_type_problem_solution },
-                    { value: '前后对比', label: t.wb_video_type_before_after },
-                    { value: '反应展示', label: t.wb_video_type_reaction },
-                    { value: '故事讲述', label: t.wb_video_type_story },
-                    { value: '趣味剧本', label: t.wb_video_type_creative_skit, title: t.wb_video_type_creative_skit_tooltip },
-                  ]}
+                  t={t}
                   onChange={(v) => {
                     setVideoType(v);
                     if (requiredErrors.videoType && v.trim()) {
@@ -10286,7 +10279,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
-                  optionClassName="text-xs"
                 />
                 {requiredErrors.videoType && (
                   <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.videoType}</div>

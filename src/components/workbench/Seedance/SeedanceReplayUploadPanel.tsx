@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChevronDown,
   Eye,
@@ -38,7 +39,6 @@ import {
 
 type SourceType = 'library' | 'local';
 type MediaKind = 'image' | 'video' | 'audio' | 'model';
-type TooltipAlign = 'left' | 'center' | 'right';
 
 export type SeedanceReplayUploadAsset = {
   id: string;
@@ -65,7 +65,7 @@ type SeedanceReplayUploadPanelProps = {
 
 const noop = () => {};
 const FILE_SIZE_MB = 1024 * 1024;
-const tooltipBaseClass = 'pointer-events-none absolute top-full mt-2 w-[240px] rounded-2xl border border-white/20 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover:opacity-100 group-focus-visible:opacity-100 z-[80]';
+const tooltipBaseClass = 'pointer-events-none fixed w-[240px] rounded-2xl border border-white/20 bg-zinc-950/90 p-3 text-left shadow-2xl shadow-black/40 backdrop-blur z-[10000]';
 const normalizedFormatLabelMap: Record<string, string> = {
   jpg: 'jpeg',
   tif: 'tiff',
@@ -120,12 +120,6 @@ function getMediaTooltipItems(t: any): Record<MediaKind, string[]> {
         || 'Reference images containing recognizable real human faces cannot be uploaded directly. Choose materials from the virtual portrait library to create.',
     ],
   };
-}
-
-function tooltipAlignClass(align: TooltipAlign) {
-  if (align === 'left') return 'left-0 translate-x-0';
-  if (align === 'right') return 'right-0 left-auto translate-x-0';
-  return 'left-1/2 -translate-x-1/2';
 }
 
 const shakeAnimationStyle: React.CSSProperties = {
@@ -574,25 +568,56 @@ function IconTooltip({
   children: React.ReactNode;
   isLightTheme?: boolean;
 }) {
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties | null>(null);
+
   if (!items?.length) return <>{children}</>;
 
+  const showTooltip = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 240;
+    const margin = 12;
+    const viewportWidth = typeof window === 'undefined' ? width + margin * 2 : window.innerWidth;
+    const left = Math.min(
+      Math.max(rect.left, margin),
+      Math.max(margin, viewportWidth - width - margin),
+    );
+    setTooltipStyle({
+      left,
+      top: rect.bottom + 8,
+    });
+  };
+
+  const hideTooltip = () => setTooltipStyle(null);
+
   return (
-    <div className="group relative z-10">
+    <div
+      className="relative"
+      onMouseEnter={showTooltip}
+      onMouseLeave={hideTooltip}
+      onFocus={showTooltip}
+      onBlur={hideTooltip}
+    >
       <div
+        ref={triggerRef}
         className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-500 transition hover:text-zinc-200"
         tabIndex={0}
         aria-label={label}
       >
         {children}
       </div>
-      <div className={`${tooltipBaseClass} ${tooltipAlignClass('left')}`}>
-        <div className={`text-[11px] font-bold ${isLightTheme ? 'text-slate-900' : 'text-white/90'}`}>{label}</div>
-        <div className={`mt-1 space-y-1 text-[10px] leading-relaxed ${isLightTheme ? 'text-slate-700' : 'text-zinc-200/80'}`}>
-          {items.map((item) => (
-            <div key={item}>{item}</div>
-          ))}
-        </div>
-      </div>
+      {tooltipStyle && typeof document !== 'undefined' ? createPortal(
+        <div className={tooltipBaseClass} style={tooltipStyle}>
+          <div className={`text-[11px] font-bold ${isLightTheme ? 'text-slate-900' : 'text-white/90'}`}>{label}</div>
+          <div className={`mt-1 space-y-1 text-[10px] leading-relaxed ${isLightTheme ? 'text-slate-700' : 'text-zinc-200/80'}`}>
+            {items.map((item) => (
+              <div key={item}>{item}</div>
+            ))}
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }

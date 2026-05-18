@@ -197,6 +197,7 @@ export const translations = {
     wb_nav_billing: "Billing",
     wb_nav_ai_creator: "AI Creator",
     wb_nav_creative_canvas: "Canvas",
+    wb_canvas_coming_soon: "Infinite Canvas is under testing — coming soon",
 
     // --- CANVAS VIEW ---
     canvas_loading: "Loading canvas...",
@@ -2787,6 +2788,7 @@ export const translations = {
     wb_nav_billing: "计费",
     wb_nav_ai_creator: "AI 创作",
     wb_nav_creative_canvas: "无限画布",
+    wb_canvas_coming_soon: "无限画布功能测试中，待开放",
 
     // --- CANVAS VIEW ---
     canvas_loading: "加载画布中...",
@@ -5366,6 +5368,7 @@ export const translations = {
     wb_nav_billing: "Bil",
     wb_nav_ai_creator: "AI Creator",
     wb_nav_creative_canvas: "Kanvas",
+    wb_canvas_coming_soon: "Kanvas Tanpa Had sedang dalam ujian — akan dibuka",
 
     // --- CANVAS VIEW ---
     canvas_loading: "Memuatkan kanvas...",
@@ -7739,6 +7742,7 @@ export const translations = {
     wb_nav_billing: "Thanh toán",
     wb_nav_ai_creator: "AI Creator",
     wb_nav_creative_canvas: "Bảng vẽ",
+    wb_canvas_coming_soon: "Bảng vẽ vô hạn đang thử nghiệm — sắp mở",
 
     // --- CANVAS VIEW ---
     canvas_loading: "Đang tải bảng vẽ...",
@@ -10045,6 +10049,7 @@ export const translations = {
     wb_nav_billing: "결제",
     wb_nav_ai_creator: "AI Creator",
     wb_nav_creative_canvas: "캔버스",
+    wb_canvas_coming_soon: "무한 캔버스 기능 테스트 중 — 출시 예정",
 
     // --- CANVAS VIEW ---
     canvas_loading: "캔버스 로딩 중...",

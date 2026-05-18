@@ -187,10 +187,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     { view: 'product_images_ai_model', label: t.wb_nav_product_ai_model, icon: UserRound },
   ];
 
-  const creativeLabOptions: Array<{ view: ViewType; label: string; icon: any }> = [
+  const creativeLabOptions: Array<{ view: ViewType; label: string; icon: any; disabled?: boolean }> = [
     { view: 'creative_lab_replay', label: (t as any).wb_nav_creative_replay || '爆款复刻', icon: Flame },
     { view: 'creative_lab_script_extract', label: (t as any).wb_nav_creative_script_extract || '脚本提取', icon: Clapperboard },
-    { view: 'creative_lab_canvas', label: (t as any).wb_nav_creative_canvas || '无限画布', icon: LayoutDashboard },
+    { view: 'creative_lab_canvas', label: (t as any).wb_nav_creative_canvas || '无限画布', icon: LayoutDashboard, disabled: true },
   ];
 
   React.useLayoutEffect(() => {
@@ -555,7 +555,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                     setIsProductImagesSectionOpen(false);
                     setActiveView(opt.view);
                   }}
-                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm font-bold transition group ${
+                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm font-bold transition group ${opt.disabled ? 'opacity-40 ' : ''}${
                     selected
                       ? 'wb-product-subnav-item--active text-orange-300 bg-orange-500/10'
                       : 'wb-product-subnav-item--inactive text-zinc-500 hover:text-orange-300'

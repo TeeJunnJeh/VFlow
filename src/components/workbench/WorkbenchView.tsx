@@ -7008,7 +7008,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: '语调与节奏',
         camera: '镜头',
         lighting: '光线',
-        actions: '动作',
+        content: '内容',
         backgroundSound: '背景音',
         transitionEditing: '转场 / 剪辑',
         callToAction: '行动号召',
@@ -7022,7 +7022,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: '톤 & 페이싱',
         camera: '카메라',
         lighting: '조명',
-        actions: '액션',
+        content: '내용',
         backgroundSound: '배경음',
         transitionEditing: '전환 / 편집',
         callToAction: '콜 투 액션',
@@ -7036,7 +7036,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: 'Tông & Nhịp độ',
         camera: 'Máy quay',
         lighting: 'Ánh sáng',
-        actions: 'Hành động',
+        content: 'Nội dung',
         backgroundSound: 'Âm thanh nền',
         transitionEditing: 'Chuyển cảnh / Dựng',
         callToAction: 'Kêu gọi hành động',
@@ -7050,7 +7050,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: 'Nada & Rentak',
         camera: 'Kamera',
         lighting: 'Pencahayaan',
-        actions: 'Aksi',
+        content: 'Konten',
         backgroundSound: 'Bunyi Latar',
         transitionEditing: 'Peralihan / Suntingan',
         callToAction: 'Seruan Tindakan',
@@ -7063,7 +7063,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       tonePacing: 'Tone & Pacing',
       camera: 'Camera',
       lighting: 'Lighting',
-      actions: 'Actions',
+      content: 'Content',
       backgroundSound: 'Background Sound',
       transitionEditing: 'Transition / Editing',
       callToAction: 'Call to Action',
@@ -7840,7 +7840,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: normalizeScriptText(scriptContent?.creative_card?.tone_pacing || parsed?.creative_card?.tone_pacing),
         camera: normalizeScriptText(scriptContent?.creative_card?.camera || parsed?.creative_card?.camera),
         lighting: normalizeScriptText(scriptContent?.creative_card?.lighting || parsed?.creative_card?.lighting),
-        actions: parseScriptStringList(scriptContent?.creative_card?.actions || parsed?.creative_card?.actions, 8),
+        content: normalizeScriptText(
+          scriptContent?.creative_card?.content
+          || parsed?.creative_card?.content
+          || parseScriptStringList(scriptContent?.creative_card?.actions || parsed?.creative_card?.actions, 8).join(' ')
+        ),
         backgroundSound: normalizeScriptText(scriptContent?.creative_card?.background_sound || parsed?.creative_card?.background_sound),
         transitionEditing: normalizeScriptText(scriptContent?.creative_card?.transition_editing || parsed?.creative_card?.transition_editing),
         callToAction: normalizeScriptText(scriptContent?.creative_card?.call_to_action || parsed?.creative_card?.call_to_action),
@@ -8097,7 +8101,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       tonePacing: normalizeScriptText(creativeCard?.tone_pacing),
       camera: normalizeScriptText(creativeCard?.camera),
       lighting: normalizeScriptText(creativeCard?.lighting),
-      actions: parseScriptStringList(creativeCard?.actions, 8),
+      content: normalizeScriptText(
+        creativeCard?.content
+        || parseScriptStringList(creativeCard?.actions, 8).join(' ')
+      ),
       backgroundSound: normalizeScriptText(creativeCard?.background_sound),
       transitionEditing: normalizeScriptText(creativeCard?.transition_editing),
       callToAction: normalizeScriptText(creativeCard?.call_to_action),
@@ -8227,7 +8234,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tone_pacing: currentPage.creativeCard.tonePacing || '',
         camera: currentPage.creativeCard.camera || '',
         lighting: currentPage.creativeCard.lighting || '',
-        actions: currentPage.creativeCard.actions || [],
+        content: currentPage.creativeCard.content
+          || (currentPage.creativeCard.actions || []).map((item) => String(item || '').trim()).filter(Boolean).join(' '),
         background_sound: currentPage.creativeCard.backgroundSound || '',
         transition_editing: currentPage.creativeCard.transitionEditing || '',
         call_to_action: currentPage.creativeCard.callToAction || '',

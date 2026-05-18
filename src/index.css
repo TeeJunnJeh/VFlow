@@ -896,6 +896,24 @@ button.wb-sidebar-nav-item {
   pointer-events: none;
 }
 
+.wb-sidebar--collapsed .wb-sidebar-nav-section-title {
+  display: none;
+}
+
+.wb-sidebar--collapsed button.wb-sidebar-nav-item {
+  justify-content: center;
+  padding: 0 0.5rem;
+  gap: 0;
+}
+
+.wb-sidebar--collapsed .wb-sidebar-nav-label {
+  display: none;
+}
+
+.wb-sidebar--collapsed .wb-sidebar-nav-indicator {
+  display: none;
+}
+
 button.wb-sidebar-nav-item--inactive {
   background-color: transparent !important;
   color: #71717a !important;

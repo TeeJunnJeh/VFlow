@@ -16,6 +16,8 @@ import {
 const GALLERY_PANEL_MIN_WIDTH = 300;
 const GALLERY_PANEL_MAX_WIDTH = 500;
 const GALLERY_PANEL_DEFAULT_WIDTH = 320;
+const GALLERY_TITLE_PRIMARY = 'text-sm font-bold text-zinc-200';
+const GALLERY_TITLE_SECONDARY = 'text-xs font-bold text-zinc-500 uppercase tracking-widest';
 
 type GalleryOutputItemConfig = {
   id: string;
@@ -1025,11 +1027,8 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         <div className="mb-4">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-zinc-200">
+              <div className={GALLERY_TITLE_PRIMARY}>
                 {props.t.pg_img_examples_title || '示例案例'}
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">
-                {props.t.pg_img_examples_subtitle || '点击示例，自动填充参数与出图方案'}
               </div>
             </div>
           </div>
@@ -1176,7 +1175,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
       <div className="flex-1 min-h-[720px] flex overflow-hidden relative" id="gallery-container">
         <div
           ref={galleryLeftPanelRef}
-          className={`flex flex-col gap-3 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-colors duration-150 rounded-2xl border border-white/5 bg-white/2 hover:border-orange-500/20 ${getGuideFocusClass('left')}`}
+          className={`flex flex-col gap-0 min-h-0 overflow-y-auto custom-scroll pr-2 shrink-0 transition-colors duration-150 rounded-2xl border border-white/5 bg-white/2 hover:border-orange-500/20 ${getGuideFocusClass('left')}`}
           style={{ width: `${leftWidth}px`, minWidth: `${GALLERY_PANEL_MIN_WIDTH}px` }}
           data-testid="left-panel"
         >
@@ -1324,12 +1323,12 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
           <div className="p-5">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-bold text-zinc-200">{t.pg_img_product_info}</div>
+              <div className={GALLERY_TITLE_PRIMARY}>{t.pg_img_product_info}</div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3">
               <div className="space-y-2">
-                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_product}</div>
+                <div className={GALLERY_TITLE_SECONDARY}>{t.hist_img_setting_product}</div>
                 <input
                   value={galleryProductName}
                   onChange={(e) => setGalleryProductName(e.target.value)}
@@ -1339,7 +1338,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </div>
 
               <div className="space-y-2">
-                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_category}</div>
+                <div className={GALLERY_TITLE_SECONDARY}>{t.hist_img_setting_category}</div>
                 <input
                   value={galleryCategory}
                   onChange={(e) => setGalleryCategory(e.target.value)}
@@ -1350,7 +1349,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_selling_points_label}</div>
+                  <div className={GALLERY_TITLE_SECONDARY}>{t.pi_gallery_selling_points_label}</div>
                   <button
                     type="button"
                     onClick={() => setGallerySellingPoints((prev: string[]) => (prev.length >= 5 ? prev : [...prev, '']))}
@@ -1390,7 +1389,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </div>
 
           <div className="p-5">
-            <div className="text-sm font-bold text-zinc-200">{t.pg_img_hot_style_analysis}</div>
+            <div className={GALLERY_TITLE_PRIMARY}>{t.pg_img_hot_style_analysis}</div>
 
             {hotStyleLoading ? (
               <div className="mt-3 h-28 rounded-xl border border-white/10 bg-white/5 flex flex-col items-center justify-center gap-3 text-zinc-400">
@@ -1419,7 +1418,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
             ) : (
               <>
                 <div className="mt-3 flex items-center justify-between">
-                  <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_style_ideas}</div>
+                  <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_style_ideas}</div>
                   <button
                     type="button"
                     onClick={handleHotStyleAnalyze}
@@ -1471,10 +1470,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-bold text-zinc-200">{t.pg_img_model_resources}</div>
-                <div className="mt-1 text-[11px] text-zinc-500">
-                  {t.pg_img_model_resources_desc}
-                </div>
+                <div className={GALLERY_TITLE_PRIMARY}>{t.pg_img_model_resources}</div>
               </div>
               <button
                 type="button"
@@ -1610,10 +1606,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-bold text-zinc-200">{t.pg_img_scene_resources}</div>
-                <div className="mt-1 text-[11px] text-zinc-500">
-                  {t.pg_img_scene_resources_desc}
-                </div>
+                <div className={GALLERY_TITLE_PRIMARY}>{t.pg_img_scene_resources}</div>
               </div>
               <button
                 type="button"
@@ -1667,7 +1660,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     </div>
 
                     <div className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_preset_scene}</div>
+                      <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_preset_scene}</div>
                       <DropdownSelect
                         value={String(card.presetId || 'custom')}
                         options={[
@@ -1699,7 +1692,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
                     <div className="grid grid-cols-2 gap-3">
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_scene_theme}</div>
+                        <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_scene_theme}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.sceneTheme || '')}
@@ -1715,7 +1708,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         />
                       </label>
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_mood}</div>
+                        <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_mood}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.mood || '')}
@@ -1733,7 +1726,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                     </div>
 
                     <label className="space-y-1">
-                      <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_scene_description}</div>
+                      <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_scene_description}</div>
                       <textarea
                         value={String(card.sceneConfig?.sceneDescription || '')}
                         onChange={(e) =>
@@ -1751,7 +1744,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
                     <div className="grid grid-cols-2 gap-3">
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_props}</div>
+                        <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_props}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.sceneProps || '')}
@@ -1767,7 +1760,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                         />
                       </label>
                       <label className="space-y-1">
-                        <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_lighting}</div>
+                        <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_lighting}</div>
                         <input
                           type="text"
                           value={String(card.sceneConfig?.lighting || '')}
@@ -1805,7 +1798,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           data-testid="middle-panel"
         >
           <div className="rounded-2xl border border-white/5 bg-white/2 p-5 flex flex-col flex-1">
-            <div className="text-sm font-bold text-zinc-200 shrink-0">{t.hist_img_settings_title}</div>
+            <div className={`${GALLERY_TITLE_PRIMARY} shrink-0`}>{t.hist_img_settings_title}</div>
 
             <div className="mt-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-6 flex-1">
               <ModelSelectorChips
@@ -1818,7 +1811,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
               <div>
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs font-bold text-zinc-200">{t.pi_gallery_settings_section_basics}</div>
+                  <div className={GALLERY_TITLE_PRIMARY}>{t.pi_gallery_settings_section_basics}</div>
                   <button
                     type="button"
                     onClick={() => setIsBasicsCollapsed((prev) => !prev)}
@@ -1832,7 +1825,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 {!isBasicsCollapsed ? (
                 <div className="mt-3 grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_scene}</div>
+                    <div className={GALLERY_TITLE_SECONDARY}>{t.hist_img_setting_scene}</div>
                     <DropdownSelect
                       value={galleryTargetScene}
                       options={[
@@ -1850,7 +1843,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.hist_img_setting_style}</div>
+                    <div className={GALLERY_TITLE_SECONDARY}>{t.hist_img_setting_style}</div>
                     <DropdownSelect
                       value={galleryStyle}
                       options={[
@@ -1867,7 +1860,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pi_gallery_copy_language_label}</div>
+                    <div className={GALLERY_TITLE_SECONDARY}>{t.pi_gallery_copy_language_label}</div>
                     <DropdownSelect
                       value={galleryCopyLanguage}
                       options={GALLERY_COPY_LANGUAGE_OPTIONS.map((opt: any) => ({ value: opt.value, label: t[opt.labelKey] }))}
@@ -1895,9 +1888,9 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               </div>
 
               <div className="rounded-2xl border border-orange-500/20 bg-[linear-gradient(180deg,rgba(249,115,22,0.06),rgba(17,24,39,0.1))] p-4">
-                <div className="text-xs font-bold text-zinc-100">{t.pg_img_quick_batch_summary}</div>
+                <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_quick_batch_summary}</div>
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
-                  <div className="text-sm font-bold text-zinc-100">
+                  <div className={GALLERY_TITLE_PRIMARY}>
                     {galleryBulkSummaryPrimary}
                   </div>
                 </div>
@@ -1921,12 +1914,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               <div>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs font-bold text-zinc-200">{t.pg_img_advanced_editing}</div>
-                    <div className="mt-1 text-[11px] leading-5 text-zinc-500">
-                      {galleryAdvancedDirty
-                        ? t.pg_img_advanced_editing_dirty_desc
-                        : t.pg_img_advanced_editing_clean_desc}
-                    </div>
+                    <div className={GALLERY_TITLE_PRIMARY}>{t.pg_img_advanced_editing}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     {galleryAdvancedDirty ? (
@@ -2094,7 +2082,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                             <div className="hidden">{t.pg_img_resource_binding}</div>
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1">
-                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_model}</div>
+                                <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_model}</div>
                                 {galleryModelCards.length > 0 ? (
                                   <>
                                     <DropdownSelect
@@ -2131,7 +2119,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                               </div>
 
                               <div className="space-y-1">
-                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.pg_img_scene}</div>
+                                <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_scene}</div>
                                 {gallerySceneCards.length > 0 ? (
                                   <>
                                     <DropdownSelect
@@ -2215,7 +2203,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                           return (
                             <div className="space-y-1">
                               <div className="flex items-center justify-between gap-2">
-                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">
+                                <div className={GALLERY_TITLE_SECONDARY}>
                                   {t.pg_img_layout}
                                 </div>
                                 {totalVariants > 1 ? (
@@ -2264,7 +2252,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
 
                             return (
                               <label key={`${item.id}-${field.key}`} className="space-y-1">
-                                <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{field.label}</div>
+                                <div className={GALLERY_TITLE_SECONDARY}>{field.label}</div>
                                 {isLongText ? (
                                   <textarea
                                     value={value}
@@ -2465,7 +2453,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-bold text-zinc-100">{t.pg_img_board_example_title}</div>
+                      <div className={GALLERY_TITLE_PRIMARY}>{t.pg_img_board_example_title}</div>
                       <div className="mt-1 text-[11px] text-zinc-500">
                         {props.galleryProductName || t.pg_img_board_example_desc || '点击进入画板，继续微调成品效果'}
                       </div>
@@ -2720,7 +2708,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
       <div className="space-y-5">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <label className="space-y-1">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t.pg_img_batch_ratio}</div>
+            <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_batch_ratio}</div>
             <DropdownSelect
               value={galleryBulkDialogDraft.ratioStrategy}
               options={[
@@ -2742,7 +2730,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </label>
 
           <label className="space-y-1">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t.pg_img_batch_resolution}</div>
+            <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_batch_resolution}</div>
             <DropdownSelect
               value={galleryBulkDialogDraft.resolution}
               options={[
@@ -2765,7 +2753,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
           </label>
 
           <label className="space-y-1">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t.pg_img_binding}</div>
+            <div className={GALLERY_TITLE_SECONDARY}>{t.pg_img_binding}</div>
             <DropdownSelect
               value={galleryBulkDialogDraft.bindingStrategy}
               options={[
@@ -2887,7 +2875,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         </div>
 
         <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-3">
-          <div className="text-xs font-bold text-zinc-100">
+          <div className={GALLERY_TITLE_PRIMARY}>
             {String(t.pg_img_batch_total || '').replace('{count}', String(galleryBulkDialogPlannedCount))}
           </div>
           <div className="mt-1 text-[11px] leading-5 text-zinc-500">
@@ -2917,7 +2905,7 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-base font-bold text-white">{t.pg_img_guide_modal_title}</div>
+              <div className={GALLERY_TITLE_PRIMARY}>{t.pg_img_guide_modal_title}</div>
               <div className="mt-1 text-xs text-zinc-400">{t.wb_guide_step} {guideStepIndex + 1} / {guideSteps.length}</div>
             </div>
             <button

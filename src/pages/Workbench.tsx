@@ -162,6 +162,20 @@ const Workbench = () => {
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('vflow_sidebar_collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('vflow_sidebar_collapsed', isSidebarCollapsed ? '1' : '0');
+    } catch {
+    }
+  }, [isSidebarCollapsed]);
 
   // 限时活动包：默认点击 sidebar「计费」时若用户没买过且 24h 内没关掉，弹活动弹窗。
   // 调试模式（PROMO_DEBUG_ALWAYS_SHOW=true）下：挂载即弹，且不受 24h 去抖约束；
@@ -639,6 +653,8 @@ const Workbench = () => {
               isDebugModeEnabled={isDebugModeEnabled}
               theme={theme}
               setTheme={setTheme}
+              collapsed={isSidebarCollapsed}
+              onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
             />
         )}
 

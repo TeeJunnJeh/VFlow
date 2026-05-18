@@ -16,6 +16,8 @@ export type ScriptCreativeCard = {
   tonePacing?: string;
   camera?: string;
   lighting?: string;
+  content?: string;
+  // 兼容旧数据：历史项目仍把这一字段存为字符串列表（带「第一幕」等前缀）。
   actions?: string[];
   backgroundSound?: string;
   transitionEditing?: string;
@@ -158,10 +160,10 @@ export function buildCreativeCardPrompt(card?: ScriptCreativeCardLike): string {
   if (card.tonePacing) sections.push(`[语调与节奏]: ${card.tonePacing}`);
   if (card.camera) sections.push(`[镜头]: ${card.camera}`);
   if (card.lighting) sections.push(`[光线]: ${card.lighting}`);
-  if (Array.isArray(card.actions) && card.actions.length > 0) {
-    const actions = card.actions.map((item, idx) => `- ${idx + 1}. ${item}`).join('\n');
-    sections.push(`[动作]:\n${actions}`);
-  }
+  // 内容：新数据为单段连贯叙述字符串；旧数据无 content 时回退拼接旧 actions 列表。
+  const cardContent = (card.content || '').trim()
+    || (Array.isArray(card.actions) ? card.actions.map((item) => String(item || '').trim()).filter(Boolean).join(' ') : '');
+  if (cardContent) sections.push(`[内容]: ${cardContent}`);
   if (card.backgroundSound) sections.push(`[背景音]: ${card.backgroundSound}`);
   if (card.transitionEditing) sections.push(`[转场 / 剪辑]: ${card.transitionEditing}`);
   if (card.callToAction) sections.push(`[行动号召]: ${card.callToAction}`);
@@ -186,6 +188,7 @@ export function hasCreativeCardContent(card?: ScriptCreativeCardLike): boolean {
   if ((card.backgroundSound || '').trim()) return true;
   if ((card.transitionEditing || '').trim()) return true;
   if ((card.callToAction || '').trim()) return true;
+  if ((card.content || '').trim()) return true;
   if ((card.actions || []).some((item) => String(item || '').trim().length > 0)) return true;
   if ((card.subtitles || []).some((item) => String(item || '').trim().length > 0)) return true;
   return false;

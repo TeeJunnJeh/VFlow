@@ -53,7 +53,7 @@ import { BillingView } from '../components/workbench/BillingView';
 import { AICreatorView } from '../components/workbench/AICreatorView';
 import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
 import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
-import { CanvasEditor } from '../components/creativeLab/canvas/CanvasEditor';
+import { CanvasComingSoon } from '../components/creativeLab/CanvasComingSoon';
 import { Sidebar } from '../components/workbench/Sidebar';
 import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
@@ -701,11 +701,9 @@ const Workbench = () => {
           </div>
 
           {activeView === 'creative_lab_canvas' && (
-            <div className="flex-1 h-full min-h-0">
-              <ViewErrorBoundary label="CanvasEditor">
-                <CanvasEditor onNavigate={(view) => setActiveView(view as ViewType)} />
-              </ViewErrorBoundary>
-            </div>
+            <ViewErrorBoundary label="CanvasComingSoon">
+              <CanvasComingSoon />
+            </ViewErrorBoundary>
           )}
 
           {activeView === 'assets' && (

@@ -29,6 +29,8 @@ import {
 } from './PromptLabWindow';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
+import { VideoTypePicker } from './VideoTypePicker';
+import { migrateVideoType, getVideoTypeDef } from './videoTypes';
 import { type Template } from '../../services/templates';
 import { AppDialog } from '../common/AppDialog';
 import { AiOverwriteDialog, type AiOverwriteField } from './AiOverwriteDialog';
@@ -1287,7 +1289,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     audience: false,
   });
   const [deliveryRegion, setDeliveryRegion] = useState(() => initialPrefs.deliveryRegion || '中国');
-  const [videoType, setVideoType] = useState(() => initialPrefs.videoType || '');
+  const [videoType, setVideoType] = useState<string>(() => migrateVideoType(initialPrefs.videoType));
   const [aspectRatio, setAspectRatio] = useState<WorkbenchAspectRatio>(() => (
     normalizeWorkbenchAspectRatio(initialPrefs.aspectRatio)
   ));
@@ -2141,7 +2143,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setCoreSellingPoints(workspace.coreSellingPoints || '');
     setTargetAudience(workspace.targetAudience || '');
     setDeliveryRegion(workspace.deliveryRegion || initialPrefs.deliveryRegion || '中国');
-    setVideoType(workspace.videoType || initialPrefs.videoType || '');
+    setVideoType(migrateVideoType(workspace.videoType || initialPrefs.videoType));
     setAspectRatio(normalizeWorkbenchAspectRatio(workspace.aspectRatio || initialPrefs.aspectRatio));
     setHasAiRecognized(!!workspace.hasAiRecognized);
     setRecognizedProductSourceSignature(String(workspace.recognizedProductSourceSignature || ''));
@@ -5466,7 +5468,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     pushLine(t.wb_field_target_audience_label, targetAudience);
     pushLine(t.wb_field_delivery_region_label, deliveryRegion);
     pushLine(t.wb_field_video_language_label, targetLanguage);
-    pushLine(t.wb_field_video_type_label, videoType);
+    pushLine(t.wb_field_video_type_label, getVideoTypeDef(videoType)?.zhLabel || '');
     if (normalizedAdditionalRequirements && normalizedAdditionalRequirements !== normalizedReferenceScript) {
       pushLine(t.wb_field_additional_requirements_label, normalizedAdditionalRequirements);
     }
@@ -7006,7 +7008,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: '语调与节奏',
         camera: '镜头',
         lighting: '光线',
-        actions: '动作',
+        content: '内容',
         backgroundSound: '背景音',
         transitionEditing: '转场 / 剪辑',
         callToAction: '行动号召',
@@ -7020,7 +7022,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: '톤 & 페이싱',
         camera: '카메라',
         lighting: '조명',
-        actions: '액션',
+        content: '내용',
         backgroundSound: '배경음',
         transitionEditing: '전환 / 편집',
         callToAction: '콜 투 액션',
@@ -7034,7 +7036,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: 'Tông & Nhịp độ',
         camera: 'Máy quay',
         lighting: 'Ánh sáng',
-        actions: 'Hành động',
+        content: 'Nội dung',
         backgroundSound: 'Âm thanh nền',
         transitionEditing: 'Chuyển cảnh / Dựng',
         callToAction: 'Kêu gọi hành động',
@@ -7048,7 +7050,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: 'Nada & Rentak',
         camera: 'Kamera',
         lighting: 'Pencahayaan',
-        actions: 'Aksi',
+        content: 'Konten',
         backgroundSound: 'Bunyi Latar',
         transitionEditing: 'Peralihan / Suntingan',
         callToAction: 'Seruan Tindakan',
@@ -7061,7 +7063,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       tonePacing: 'Tone & Pacing',
       camera: 'Camera',
       lighting: 'Lighting',
-      actions: 'Actions',
+      content: 'Content',
       backgroundSound: 'Background Sound',
       transitionEditing: 'Transition / Editing',
       callToAction: 'Call to Action',
@@ -7838,7 +7840,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tonePacing: normalizeScriptText(scriptContent?.creative_card?.tone_pacing || parsed?.creative_card?.tone_pacing),
         camera: normalizeScriptText(scriptContent?.creative_card?.camera || parsed?.creative_card?.camera),
         lighting: normalizeScriptText(scriptContent?.creative_card?.lighting || parsed?.creative_card?.lighting),
-        actions: parseScriptStringList(scriptContent?.creative_card?.actions || parsed?.creative_card?.actions, 8),
+        content: normalizeScriptText(
+          scriptContent?.creative_card?.content
+          || parsed?.creative_card?.content
+          || parseScriptStringList(scriptContent?.creative_card?.actions || parsed?.creative_card?.actions, 8).join(' ')
+        ),
         backgroundSound: normalizeScriptText(scriptContent?.creative_card?.background_sound || parsed?.creative_card?.background_sound),
         transitionEditing: normalizeScriptText(scriptContent?.creative_card?.transition_editing || parsed?.creative_card?.transition_editing),
         callToAction: normalizeScriptText(scriptContent?.creative_card?.call_to_action || parsed?.creative_card?.call_to_action),
@@ -8095,7 +8101,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       tonePacing: normalizeScriptText(creativeCard?.tone_pacing),
       camera: normalizeScriptText(creativeCard?.camera),
       lighting: normalizeScriptText(creativeCard?.lighting),
-      actions: parseScriptStringList(creativeCard?.actions, 8),
+      content: normalizeScriptText(
+        creativeCard?.content
+        || parseScriptStringList(creativeCard?.actions, 8).join(' ')
+      ),
       backgroundSound: normalizeScriptText(creativeCard?.background_sound),
       transitionEditing: normalizeScriptText(creativeCard?.transition_editing),
       callToAction: normalizeScriptText(creativeCard?.call_to_action),
@@ -8225,7 +8234,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         tone_pacing: currentPage.creativeCard.tonePacing || '',
         camera: currentPage.creativeCard.camera || '',
         lighting: currentPage.creativeCard.lighting || '',
-        actions: currentPage.creativeCard.actions || [],
+        content: currentPage.creativeCard.content
+          || (currentPage.creativeCard.actions || []).map((item) => String(item || '').trim()).filter(Boolean).join(' '),
         background_sound: currentPage.creativeCard.backgroundSound || '',
         transition_editing: currentPage.creativeCard.transitionEditing || '',
         call_to_action: currentPage.creativeCard.callToAction || '',
@@ -8705,7 +8715,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : {}),
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
-        ...(videoType === '趣味剧本' ? { video_type: 'creative_skit' } : {}),
+        ...(videoType ? { video_type: videoType } : {}),
       };
       const reportPayload = {
         script_count: 1,
@@ -10264,19 +10274,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   {t.wb_field_video_type_label}
                   <span className="ml-1 text-red-400">*</span>
                 </label>
-                <DropdownSelect
+                <VideoTypePicker
                   value={videoType}
                   placeholder={t.wb_select_placeholder}
-                  options={[
-                    { value: 'UGC种草', label: t.wb_video_type_ugc },
-                    { value: '产品口播', label: t.wb_video_type_talking },
-                    { value: '产品演示', label: t.wb_video_type_demo },
-                    { value: '痛点-解决', label: t.wb_video_type_problem_solution },
-                    { value: '前后对比', label: t.wb_video_type_before_after },
-                    { value: '反应展示', label: t.wb_video_type_reaction },
-                    { value: '故事讲述', label: t.wb_video_type_story },
-                    { value: '趣味剧本', label: t.wb_video_type_creative_skit, title: t.wb_video_type_creative_skit_tooltip },
-                  ]}
+                  t={t}
                   onChange={(v) => {
                     setVideoType(v);
                     if (requiredErrors.videoType && v.trim()) {
@@ -10286,7 +10287,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   buttonClassName="wb-workbench-field cursor-pointer text-left"
                   labelClassName=""
                   iconClassName="w-3 h-3 text-zinc-500"
-                  optionClassName="text-xs"
                 />
                 {requiredErrors.videoType && (
                   <div className="mt-1 text-[12px] text-red-400 font-medium">{requiredErrors.videoType}</div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, Eye,
   Wand2, Loader2, Clapperboard, BookmarkPlus, FolderOpen,
@@ -103,6 +103,75 @@ const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
 const TRANSFER_STATION_DRAG_MIME = 'application/x-vflow-transfer-station-item';
+
+type KlingModeInfoTooltipProps = {
+  children: React.ReactNode;
+  align?: 'left' | 'center' | 'right';
+  width?: number;
+};
+
+function KlingModeInfoTooltip({ children, align = 'center', width = 208 }: KlingModeInfoTooltipProps) {
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties | null>(null);
+
+  const showTooltip = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger || typeof window === 'undefined') return;
+
+    const rect = trigger.getBoundingClientRect();
+    const margin = 12;
+    const preferredLeft =
+      align === 'left'
+        ? rect.left
+        : align === 'right'
+          ? rect.right - width
+          : rect.left + rect.width / 2 - width / 2;
+    const left = Math.max(margin, Math.min(window.innerWidth - width - margin, preferredLeft));
+    const top = rect.bottom + 8;
+    const arrowLeft = Math.max(12, Math.min(width - 12, rect.left + rect.width / 2 - left));
+
+    setTooltipStyle({
+      left,
+      top,
+      width,
+      ['--kling-mode-tooltip-arrow-left' as string]: `${arrowLeft}px`,
+    });
+  }, [align, width]);
+
+  const hideTooltip = useCallback(() => {
+    setTooltipStyle(null);
+  }, []);
+
+  return (
+    <span
+      ref={triggerRef}
+      tabIndex={0}
+      className="relative z-10 inline-flex items-center hover:z-20"
+      onMouseEnter={showTooltip}
+      onMouseLeave={hideTooltip}
+      onFocus={showTooltip}
+      onBlur={hideTooltip}
+    >
+      <Info className="h-3 w-3 text-zinc-400" />
+      {tooltipStyle && typeof document !== 'undefined'
+        ? createPortal(
+            <span
+              role="tooltip"
+              className="pointer-events-none fixed z-[10000] whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 shadow-xl backdrop-blur"
+              style={tooltipStyle}
+            >
+              <span
+                className="absolute -top-1 h-2 w-2 rotate-45 border-l border-t border-white/10 bg-zinc-900/95"
+                style={{ left: 'calc(var(--kling-mode-tooltip-arrow-left) - 4px)' }}
+              />
+              {children}
+            </span>,
+            document.body,
+          )
+        : null}
+    </span>
+  );
+}
 
 type TikTokCreatorInfo = {
   privacy_level_options?: string[];
@@ -10604,14 +10673,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_frame}</span>
-                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
-                        <Info className="h-3 w-3 text-zinc-400" />
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-40 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
-                          <span className="block">{t.wb_material_requirement_title}</span>
-                          <span className="block">{t.wb_kling_first_frame_requirement}</span>
-                          <span className="mt-1 block text-zinc-300">{t.wb_kling_first_frame_desc}</span>
-                        </span>
-                      </span>
+                      <KlingModeInfoTooltip width={160}>
+                        <span className="block">{t.wb_material_requirement_title}</span>
+                        <span className="block">{t.wb_kling_first_frame_requirement}</span>
+                        <span className="mt-1 block text-zinc-300">{t.wb_kling_first_frame_desc}</span>
+                      </KlingModeInfoTooltip>
                     </div>
                   </button>
                   <button
@@ -10622,15 +10688,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_subject}</span>
-                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
-                        <Info className="h-3 w-3 text-zinc-400" />
-                        <span className="pointer-events-none absolute bottom-full right-0 z-20 mb-1 w-52 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
-                          <span className="block">{t.wb_material_requirement_title}</span>
-                          <span className="block">{t.wb_kling_subject_requirement}</span>
-                          <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_requirement_note}</span>
-                          <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_desc}</span>
-                        </span>
-                      </span>
+                      <KlingModeInfoTooltip align="right" width={208}>
+                        <span className="block">{t.wb_material_requirement_title}</span>
+                        <span className="block">{t.wb_kling_subject_requirement}</span>
+                        <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_requirement_note}</span>
+                        <span className="mt-1 block text-zinc-300">{t.wb_kling_subject_desc}</span>
+                      </KlingModeInfoTooltip>
                     </div>
                   </button>
                   <button
@@ -10641,14 +10704,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   >
                     <div className="flex items-center justify-center gap-1 text-xs font-bold">
                       <span>{t.wb_kling_mode_first_last_frame || 'First + Last Frame Mode'}</span>
-                      <span className="relative z-10 inline-flex items-center group/info hover:z-20">
-                        <Info className="h-3 w-3 text-zinc-400" />
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 ml-6 w-44 -translate-x-1/2 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[12px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/info:opacity-100">
-                          <span className="block">{t.wb_material_requirement_title}</span>
-                          <span className="block">{t.wb_kling_first_last_frame_requirement || '1 first-frame image + 1 tail-frame image + 0-6 reference images'}</span>
-                          <span className="mt-1 block text-zinc-300">{t.wb_kling_first_last_frame_desc || 'Constrain the beginning and ending of the video with first and last keyframes'}</span>
-                        </span>
-                      </span>
+                      <KlingModeInfoTooltip width={176}>
+                        <span className="block">{t.wb_material_requirement_title}</span>
+                        <span className="block">{t.wb_kling_first_last_frame_requirement || '1 first-frame image + 1 tail-frame image + 0-6 reference images'}</span>
+                        <span className="mt-1 block text-zinc-300">{t.wb_kling_first_last_frame_desc || 'Constrain the beginning and ending of the video with first and last keyframes'}</span>
+                      </KlingModeInfoTooltip>
                     </div>
                   </button>
                 </div>

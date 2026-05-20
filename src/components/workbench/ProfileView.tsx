@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Edit3, User as UserIcon, Settings2, LogOut, Flame, Gem, Zap, KeyRound, Gift, Copy, Check, FileText } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -955,6 +955,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                                  { value: '美国', label: t.wb_region_us },
                                  { value: '东南亚', label: t.wb_region_sea },
                                  { value: '欧洲', label: t.wb_region_eu },
+                                 { value: '法国', label: t.wb_region_fr },
                                  { value: '日本', label: t.wb_region_jp },
                                  { value: '韩国', label: t.wb_region_kr },
                                  { value: '墨西哥', label: t.wb_region_mx },
@@ -974,6 +975,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                                  { value: 'en', label: t.lang_en },
                                  { value: 'zh', label: t.lang_zh },
                                  { value: 'es', label: t.lang_es },
+                                 { value: 'fr', label: t.lang_fr },
                                  { value: 'ja', label: t.lang_ja },
                                  { value: 'ko', label: t.lang_ko },
                                  { value: 'ms', label: t.lang_ms },

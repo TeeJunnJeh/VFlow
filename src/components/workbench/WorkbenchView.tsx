@@ -1088,6 +1088,7 @@ type LangLabelKey =
   | 'lang_en'
   | 'lang_zh'
   | 'lang_es'
+  | 'lang_fr'
   | 'lang_ja'
   | 'lang_ko'
   | 'lang_ms'
@@ -1098,6 +1099,7 @@ type RegionLabelKey =
   | 'wb_region_us'
   | 'wb_region_sea'
   | 'wb_region_eu'
+  | 'wb_region_fr'
   | 'wb_region_jp'
   | 'wb_region_kr'
   | 'wb_region_cn'
@@ -1109,6 +1111,7 @@ const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> 
   { value: 'en', labelKey: 'lang_en' },
   { value: 'zh', labelKey: 'lang_zh' },
   { value: 'es', labelKey: 'lang_es' },
+  { value: 'fr', labelKey: 'lang_fr' },
   { value: 'ja', labelKey: 'lang_ja' },
   { value: 'ko', labelKey: 'lang_ko' },
   { value: 'ms', labelKey: 'lang_ms' },
@@ -1121,6 +1124,7 @@ const DELIVERY_REGION_OPTIONS: Array<{ value: string; labelKey: RegionLabelKey }
   { value: '美国', labelKey: 'wb_region_us' },
   { value: '东南亚', labelKey: 'wb_region_sea' },
   { value: '欧洲', labelKey: 'wb_region_eu' },
+  { value: '法国', labelKey: 'wb_region_fr' },
   { value: '日本', labelKey: 'wb_region_jp' },
   { value: '韩国', labelKey: 'wb_region_kr' },
   { value: '墨西哥', labelKey: 'wb_region_mx' },

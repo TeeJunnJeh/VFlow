@@ -299,6 +299,39 @@ const AnimatedRoutes = () => {
         return () => window.removeEventListener('storage', onStorage);
     }, [showTikTokAuthResult]);
 
+    React.useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const tiktokResult = params.get('tiktok');
+        if (tiktokResult !== 'success' && tiktokResult !== 'error') return;
+
+        const payload: TikTokAuthResult = {
+            status: tiktokResult,
+            message: params.get('message') || (tiktokResult === 'success' ? t.app_tiktok_auth_success_default : t.app_tiktok_auth_failed),
+            ts: Date.now(),
+        };
+        const isPopupWindow = isTikTokAuthPopupWindow();
+
+        params.delete('tiktok');
+        params.delete('message');
+        const nextSearch = params.toString();
+        const nextUrl = nextSearch ? `${location.pathname}?${nextSearch}` : location.pathname;
+        window.history.replaceState({}, document.title, nextUrl);
+
+        if (isPopupWindow) {
+            broadcastTikTokAuthResult(payload);
+            window.setTimeout(() => window.close(), 80);
+            return;
+        }
+
+        showTikTokAuthResult(payload);
+    }, [
+        location.pathname,
+        location.search,
+        showTikTokAuthResult,
+        t.app_tiktok_auth_failed,
+        t.app_tiktok_auth_success_default,
+    ]);
+
     // 裂变：把 ?invite_code=XXXX 捕获到 sessionStorage，随后清掉 URL，
     // 避免刷新/分享时把邀请码暴露出去。登录/注册路径会从 sessionStorage 回读。
     React.useEffect(() => {

@@ -100,6 +100,8 @@ const formatI18n = (template: string | undefined, vars: Record<string, string | 
 };
 
 const HISTORY_PAGE_SIZE = 16;
+const TIKTOK_DIRECT_POST_ENABLED = false;
+const TIKTOK_ANALYTICS_ENABLED = false;
 
 type TikTokCreatorInfo = {
   privacy_level_options?: string[];
@@ -124,7 +126,11 @@ const buildTikTokDirectPostInfo = (creatorInfo: TikTokCreatorInfo, title = ''): 
   is_aigc: true,
 });
 
-export const HistoryView = () => {
+type HistoryViewProps = {
+  onNavigateToProfile?: () => void;
+};
+
+export const HistoryView = ({ onNavigateToProfile }: HistoryViewProps) => {
   const { t } = useLanguage();
   const { user } = useAuth();
   const [projects, setProjects] = useState<HistoryProject[]>([]);
@@ -150,6 +156,7 @@ export const HistoryView = () => {
   const [postingTikTokProjectId, setPostingTikTokProjectId] = useState<string | null>(null);
   const [pendingTikTokProject, setPendingTikTokProject] = useState<HistoryProject | null>(null);
   const [isTikTokPublishModeOpen, setIsTikTokPublishModeOpen] = useState(false);
+  const [isTikTokBindPromptOpen, setIsTikTokBindPromptOpen] = useState(false);
   const [isTikTokDirectOpen, setIsTikTokDirectOpen] = useState(false);
   const [isLoadingTikTokCreatorInfo, setIsLoadingTikTokCreatorInfo] = useState(false);
   const [isPostingTikTokDirect, setIsPostingTikTokDirect] = useState(false);
@@ -238,7 +245,9 @@ export const HistoryView = () => {
       const items = Array.isArray(data?.items) ? data.items : [];
       const pagination = data?.pagination;
       setProjects(items);
-      void refreshTikTokMetrics(items);
+      if (TIKTOK_ANALYTICS_ENABLED) {
+        void refreshTikTokMetrics(items);
+      }
       setTotalResults(Number(pagination?.total || 0));
       setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
       if (pagination?.page && pagination.page !== currentPage) {
@@ -299,7 +308,9 @@ export const HistoryView = () => {
         const items = Array.isArray(data?.items) ? data.items : [];
         const pagination = data?.pagination;
         setProjects(items);
-        void refreshTikTokMetrics(items);
+        if (TIKTOK_ANALYTICS_ENABLED) {
+          void refreshTikTokMetrics(items);
+        }
         setTotalResults(Number(pagination?.total || 0));
         setTotalPages(Math.max(1, Number(pagination?.total_pages || 1)));
         if (pagination?.page && pagination.page !== currentPage) {
@@ -713,8 +724,17 @@ export const HistoryView = () => {
         setFeedbackMessage(status?.data?.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
         return;
       }
+      if (!status?.data?.authorized) {
+        setPendingTikTokProject(proj);
+        setIsTikTokBindPromptOpen(true);
+        return;
+      }
       setPendingTikTokProject(proj);
-      setIsTikTokPublishModeOpen(true);
+      if (TIKTOK_DIRECT_POST_ENABLED) {
+        setIsTikTokPublishModeOpen(true);
+        return;
+      }
+      await publishDraftToTikTok(proj);
     } catch (err: unknown) {
       setFeedbackMessage(getErrorMessage(err, '获取 TikTok 状态失败'));
     } finally {
@@ -733,22 +753,8 @@ export const HistoryView = () => {
         return;
       }
       if (result.requiresAuth) {
-        authPopup = openTikTokAuthPopup({
-          loadingTitle: t.app_tiktok_popup_loading_title,
-          loadingDescription: t.app_tiktok_popup_loading_desc,
-        });
-        const auth = result.authUrl
-          ? { authUrl: result.authUrl, unavailable: false, message: result.message }
-          : await tiktokApi.getAuthUrl(proj.id);
-        if (auth.unavailable || !auth.authUrl) {
-          closeTikTokAuthPopup(authPopup);
-          setFeedbackMessage(auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
-          return;
-        }
-        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
-        if (!popupWindow) {
-          setFeedbackMessage(t.app_tiktok_popup_blocked);
-        }
+        setPendingTikTokProject(proj);
+        setIsTikTokBindPromptOpen(true);
         return;
       }
 
@@ -808,6 +814,31 @@ export const HistoryView = () => {
       }
 
       const creatorPayload = await tiktokApi.getCreatorInfo();
+      if (creatorPayload?.unavailable) {
+        setFeedbackMessage(creatorPayload.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+        return;
+      }
+      if (creatorPayload?.requiresAuth) {
+        authPopup = openTikTokAuthPopup({
+          loadingTitle: t.app_tiktok_popup_loading_title,
+          loadingDescription: t.app_tiktok_popup_loading_desc,
+        });
+        const auth = creatorPayload.authUrl
+          ? { authUrl: creatorPayload.authUrl, unavailable: false, message: creatorPayload.message }
+          : await tiktokApi.getAuthUrl();
+        if (auth.unavailable || !auth.authUrl) {
+          closeTikTokAuthPopup(authPopup);
+          setFeedbackMessage(auth.message || 'TikTok 一键发布功能正在接入中，暂未对当前账号开放');
+          return;
+        }
+        const popupWindow = navigateTikTokAuthPopup(authPopup, auth.authUrl);
+        if (!popupWindow) {
+          setFeedbackMessage(t.app_tiktok_popup_blocked);
+          return;
+        }
+        setFeedbackMessage(t.wb_tiktok_direct_auth_required || 'TikTok authorization is ready. Please choose direct post again after authorization completes.');
+        return;
+      }
       const creatorInfo = extractTikTokCreatorInfo(creatorPayload);
       setTikTokCreatorInfo(creatorInfo);
       setTikTokDirectForm(buildTikTokDirectPostInfo(creatorInfo, proj.title || ''));
@@ -1661,6 +1692,37 @@ export const HistoryView = () => {
       )}
 
       <AppDialog
+        isOpen={isTikTokBindPromptOpen}
+        title={t.profile_notice || 'Notice'}
+        onClose={() => setIsTikTokBindPromptOpen(false)}
+        footer={
+          <>
+            <button
+              className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+              onClick={() => setIsTikTokBindPromptOpen(false)}
+              type="button"
+            >
+              {t.assets_move_cancel || 'Cancel'}
+            </button>
+            <button
+              className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600"
+              onClick={() => {
+                setIsTikTokBindPromptOpen(false);
+                onNavigateToProfile?.();
+              }}
+              type="button"
+            >
+              {t.wb_tiktok_bind_prompt_action || 'Go to Profile'}
+            </button>
+          </>
+        }
+      >
+        <div className="whitespace-pre-line text-sm text-zinc-300">
+          {t.wb_tiktok_bind_prompt_message || 'Your TikTok account is not connected. Go to Profile to connect your TikTok account first.'}
+        </div>
+      </AppDialog>
+
+      <AppDialog
         isOpen={isTikTokPublishModeOpen}
         title={t.wb_tiktok_publish_mode_title || 'Publish to TikTok'}
         onClose={() => setIsTikTokPublishModeOpen(false)}
@@ -1683,20 +1745,22 @@ export const HistoryView = () => {
               {postingTikTokProjectId && !isLoadingTikTokCreatorInfo ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               {t.wb_tiktok_publish_mode_draft || 'Send to TikTok drafts'}
             </button>
-            <button
-              className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center gap-2"
-              onClick={() => pendingTikTokProject && void prepareDirectPostToTikTok(pendingTikTokProject)}
-              disabled={!pendingTikTokProject || Boolean(postingTikTokProjectId) || isLoadingTikTokCreatorInfo}
-              type="button"
-            >
-              {isLoadingTikTokCreatorInfo ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              {t.wb_tiktok_publish_mode_direct || 'Direct post'}
-            </button>
+            {TIKTOK_DIRECT_POST_ENABLED ? (
+              <button
+                className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center gap-2"
+                onClick={() => pendingTikTokProject && void prepareDirectPostToTikTok(pendingTikTokProject)}
+                disabled={!pendingTikTokProject || Boolean(postingTikTokProjectId) || isLoadingTikTokCreatorInfo}
+                type="button"
+              >
+                {isLoadingTikTokCreatorInfo ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {t.wb_tiktok_publish_mode_direct || 'Direct post'}
+              </button>
+            ) : null}
           </>
         }
       >
         <div className="text-sm text-zinc-400">
-          {t.wb_tiktok_publish_mode_title || 'Publish to TikTok'}
+          {t.wb_tiktok_publish_mode_draft || 'Send to TikTok drafts'}
         </div>
       </AppDialog>
 

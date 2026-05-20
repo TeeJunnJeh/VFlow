@@ -700,6 +700,7 @@ const Workbench = () => {
               setGeneratedVideoUrl={setGeneratedVideoUrl}
               onExportToServer={handleExportToServer}
               onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
+              onNavigateToProfile={() => setActiveView('profile')}
             />
             </ViewErrorBoundary>
           </div>
@@ -756,7 +757,7 @@ const Workbench = () => {
             />
           )}
 
-          {activeView === 'history' && <HistoryView />}
+          {activeView === 'history' && <HistoryView onNavigateToProfile={() => setActiveView('profile')} />}
 
           {activeView === 'agent' && isDebugModeEnabled && <AgentView />}
 

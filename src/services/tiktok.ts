@@ -63,9 +63,23 @@ export const tiktokApi = {
   },
 
   getCreatorInfo: async () => {
-    return apiRequest(`${API_BASE_URL}/creator-info/`, {
+    const json = await apiRequest(`${API_BASE_URL}/creator-info/`, {
       fallbackMessage: '获取 TikTok 发布选项失败',
     });
+    if (json?.code === 401) {
+      return {
+        requiresAuth: true,
+        authUrl: json?.data?.auth_url as string | undefined,
+        message: json?.message as string | undefined,
+      };
+    }
+    if (json?.data?.tiktok_unavailable) {
+      return {
+        unavailable: true,
+        message: (json?.data?.message || json?.message) as string | undefined,
+      };
+    }
+    return json;
   },
 
   getAnalytics: async () => {

@@ -2,6 +2,8 @@ import React from 'react';
 import {
   Clapperboard,
   CreditCard,
+  ChevronLeft,
+  ChevronRight,
   FlaskConical,
   Flame,
   Folder,
@@ -44,6 +46,8 @@ interface SidebarProps {
   isDebugModeEnabled: boolean;
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 const PRODUCT_IMAGE_VIEWS: ViewType[] = [
@@ -89,7 +93,15 @@ const readLastCreativeLabView = (): ViewType => {
   }
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isDebugModeEnabled, theme, setTheme }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeView,
+  setActiveView,
+  isDebugModeEnabled,
+  theme,
+  setTheme,
+  collapsed = false,
+  onToggleCollapse,
+}) => {
   const { t, language } = useLanguage();
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
@@ -172,6 +184,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     navigateToView(view);
   }, [navigateToView, suppressNextClick]);
 
+  const productSectionOpen = isProductImagesSectionOpen && !collapsed;
+  const creativeSectionOpen = isCreativeLabSectionOpen && !collapsed;
+
   React.useEffect(() => () => {
     if (suppressClickResetTimerRef.current) {
       window.clearTimeout(suppressClickResetTimerRef.current);
@@ -187,10 +202,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
     { view: 'product_images_ai_model', label: t.wb_nav_product_ai_model, icon: UserRound },
   ];
 
-  const creativeLabOptions: Array<{ view: ViewType; label: string; icon: any }> = [
+  const creativeLabOptions: Array<{ view: ViewType; label: string; icon: any; disabled?: boolean }> = [
     { view: 'creative_lab_replay', label: (t as any).wb_nav_creative_replay || '爆款复刻', icon: Flame },
     { view: 'creative_lab_script_extract', label: (t as any).wb_nav_creative_script_extract || '脚本提取', icon: Clapperboard },
-    { view: 'creative_lab_canvas', label: (t as any).wb_nav_creative_canvas || '无限画布', icon: LayoutDashboard },
+    { view: 'creative_lab_canvas', label: (t as any).wb_nav_creative_canvas || '无限画布', icon: LayoutDashboard, disabled: true },
   ];
 
   React.useLayoutEffect(() => {
@@ -270,7 +285,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         }}
         title={t.wb_nav_product_images}
         className={`wb-sidebar-nav-item group ${active ? 'wb-sidebar-nav-item--active' : 'wb-sidebar-nav-item--inactive'}`}
-        aria-expanded={isProductImagesSectionOpen}
+        aria-expanded={productSectionOpen}
         aria-controls="product-images-subnav"
       >
         <div className="wb-sidebar-nav-icon">
@@ -315,7 +330,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         }}
         title={(t as any).wb_nav_creative_lab || '创意实验室'}
         className={`wb-sidebar-nav-item group ${active ? 'wb-sidebar-nav-item--active' : 'wb-sidebar-nav-item--inactive'}`}
-        aria-expanded={isCreativeLabSectionOpen}
+        aria-expanded={creativeSectionOpen}
         aria-controls="creative-lab-subnav"
       >
         <div className="wb-sidebar-nav-icon">
@@ -328,12 +343,40 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
   };
 
   return (
-    <aside className="relative bg-zinc-950 border-r border-white/5 flex z-[300] shrink-0">
-      <div className="w-44 flex flex-col items-stretch py-6 gap-6 shrink-0">
-        <div className="flex h-10 items-center px-4 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex shrink-0 items-center justify-center font-bold italic text-black shadow-lg shadow-orange-500/20">
-            VF
+    <aside className={`relative bg-zinc-950 border-r border-white/5 flex z-[300] shrink-0 ${collapsed ? 'wb-sidebar--collapsed' : ''}`}>
+      <div className={`${collapsed ? 'w-16' : 'w-44'} flex flex-col items-stretch py-6 gap-6 shrink-0 transition-[width] duration-300 ease-out`}>
+        <div className={`flex flex-col mb-2 gap-2 ${collapsed ? 'items-center px-0' : 'px-4'}`}>
+          <div className={`flex h-10 w-full items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex shrink-0 items-center justify-center font-bold italic text-black shadow-lg shadow-orange-500/20">
+              VF
+            </div>
+            {!collapsed ? (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                disabled={!onToggleCollapse}
+                title={language.startsWith('zh') ? '收回侧边栏' : 'Collapse sidebar'}
+                aria-label={language.startsWith('zh') ? '收回侧边栏' : 'Collapse sidebar'}
+                aria-expanded={!collapsed}
+                className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-zinc-400 hover:text-zinc-200 hover:border-white/20 transition-colors disabled:opacity-40 disabled:hover:text-zinc-400 disabled:hover:border-white/10"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            ) : null}
           </div>
+          {collapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              disabled={!onToggleCollapse}
+              title={language.startsWith('zh') ? '展开侧边栏' : 'Expand sidebar'}
+              aria-label={language.startsWith('zh') ? '展开侧边栏' : 'Expand sidebar'}
+              aria-expanded={!collapsed}
+              className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-zinc-400 hover:text-zinc-200 hover:border-white/20 transition-colors disabled:opacity-40 disabled:hover:text-zinc-400 disabled:hover:border-white/10"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-5 w-full">
@@ -413,16 +456,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
       <div
         id="product-images-subnav"
         className={`shrink-0 overflow-hidden bg-zinc-960/100 transition-[width,opacity,border-color] ${
-          isProductImagesSectionOpen
+          productSectionOpen
             ? 'border-l border-white/5 opacity-100 pointer-events-auto'
             : 'border-l border-transparent opacity-0 pointer-events-none'
         }`}
         style={{
-          width: isProductImagesSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
+          width: productSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
           transitionDuration: `${PRODUCT_IMAGES_SECTION_ANIMATION_MS}ms`,
           transitionTimingFunction: PRODUCT_IMAGES_SECTION_EASING,
         }}
-        aria-hidden={!isProductImagesSectionOpen}
+        aria-hidden={!productSectionOpen}
       >
         <div
           className="px-3 py-6"
@@ -430,7 +473,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
         >
           <div
             className={`flex flex-col gap-1 transition-opacity ${
-              isProductImagesSectionOpen
+              productSectionOpen
                 ? 'opacity-100'
                 : 'opacity-0'
             }`}
@@ -488,7 +531,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                   }`}
                   role="menuitem"
                   aria-current={selected ? 'page' : undefined}
-                  tabIndex={isProductImagesSectionOpen ? 0 : -1}
+                  tabIndex={productSectionOpen ? 0 : -1}
                 >
                   <ItemIcon className={`mr-3 h-4 w-4 shrink-0 ${selected ? 'text-violet-300' : 'text-zinc-400 group-hover:text-violet-300'}`} />
                   {selected ? <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-violet-400" /> : null}
@@ -510,21 +553,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
       <div
         id="creative-lab-subnav"
         className={`shrink-0 overflow-hidden bg-zinc-950/70 transition-[width,opacity,border-color] ${
-          isCreativeLabSectionOpen
+          creativeSectionOpen
             ? 'border-l border-white/5 opacity-100 pointer-events-auto'
             : 'border-l border-transparent opacity-0 pointer-events-none'
         }`}
         style={{
-          width: isCreativeLabSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
+          width: creativeSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
           transitionDuration: `${PRODUCT_IMAGES_SECTION_ANIMATION_MS}ms`,
           transitionTimingFunction: PRODUCT_IMAGES_SECTION_EASING,
         }}
-        aria-hidden={!isCreativeLabSectionOpen}
+        aria-hidden={!creativeSectionOpen}
       >
         <div className="px-3 py-6" style={{ width: `${productImagesSubnavWidth}px` }}>
           <div
             className={`flex flex-col gap-1 transition-opacity ${
-              isCreativeLabSectionOpen ? 'opacity-100' : 'opacity-0'
+              creativeSectionOpen ? 'opacity-100' : 'opacity-0'
             }`}
             style={{
               transitionDuration: `${PRODUCT_IMAGES_SECTION_ANIMATION_MS}ms`,
@@ -555,14 +598,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isD
                     setIsProductImagesSectionOpen(false);
                     setActiveView(opt.view);
                   }}
-                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm font-bold transition group ${
+                  className={`wb-product-subnav-item relative h-12 w-full rounded-xl flex items-center px-4 pl-9 text-left text-sm font-bold transition group ${opt.disabled ? 'opacity-40 ' : ''}${
                     selected
                       ? 'wb-product-subnav-item--active text-orange-300 bg-orange-500/10'
                       : 'wb-product-subnav-item--inactive text-zinc-500 hover:text-orange-300'
                   }`}
                   role="menuitem"
                   aria-current={selected ? 'page' : undefined}
-                  tabIndex={isCreativeLabSectionOpen ? 0 : -1}
+                  tabIndex={creativeSectionOpen ? 0 : -1}
                 >
                   <ItemIcon className={`mr-3 h-4 w-4 shrink-0 ${selected ? 'text-orange-300' : 'text-zinc-400 group-hover:text-orange-300'}`} />
                   {selected ? <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-orange-400" /> : null}

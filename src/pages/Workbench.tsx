@@ -53,7 +53,7 @@ import { BillingView } from '../components/workbench/BillingView';
 import { AICreatorView } from '../components/workbench/AICreatorView';
 import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
 import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
-import { CanvasEditor } from '../components/creativeLab/canvas/CanvasEditor';
+import { CanvasComingSoon } from '../components/creativeLab/CanvasComingSoon';
 import { Sidebar } from '../components/workbench/Sidebar';
 import ProductImagesView from '../components/workbench/ProductImagesView';
 import type { ViewType } from '../components/workbench/types';
@@ -135,6 +135,7 @@ const isWorkbenchViewType = (value: string | null | undefined): value is ViewTyp
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
   | 'open_assets_for_subject_creation_first_time'
+  | { type: 'open_assets_tab'; tab: 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'subject' }
   | null;
 
 type WorkbenchAssetSelectionMode = 'library_asset' | 'background_audio' | 'script_import';
@@ -161,6 +162,20 @@ const Workbench = () => {
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('vflow_sidebar_collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('vflow_sidebar_collapsed', isSidebarCollapsed ? '1' : '0');
+    } catch {
+    }
+  }, [isSidebarCollapsed]);
 
   // 限时活动包：默认点击 sidebar「计费」时若用户没买过且 24h 内没关掉，弹活动弹窗。
   // 调试模式（PROMO_DEBUG_ALWAYS_SHOW=true）下：挂载即弹，且不受 24h 去抖约束；
@@ -587,11 +602,14 @@ const Workbench = () => {
     setAssetsNavigationIntent(null);
   }, []);
 
-  const handleNavigateToAssetsLibrary = useCallback(() => {
-    setAssetsNavigationIntent(
-      hasSeenSubjectGuide()
-        ? 'open_assets_for_subject_creation'
-        : 'open_assets_for_subject_creation_first_time'
+  const handleNavigateToAssetsLibrary = useCallback((tab?: 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'subject') => {
+    setAssetsNavigationIntent(tab
+      ? { type: 'open_assets_tab', tab }
+      : (
+        hasSeenSubjectGuide()
+          ? 'open_assets_for_subject_creation'
+          : 'open_assets_for_subject_creation_first_time'
+      )
     );
     setActiveView('assets');
   }, [hasSeenSubjectGuide]);
@@ -635,6 +653,8 @@ const Workbench = () => {
               isDebugModeEnabled={isDebugModeEnabled}
               theme={theme}
               setTheme={setTheme}
+              collapsed={isSidebarCollapsed}
+              onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
             />
         )}
 
@@ -698,11 +718,9 @@ const Workbench = () => {
           </div>
 
           {activeView === 'creative_lab_canvas' && (
-            <div className="flex-1 h-full min-h-0">
-              <ViewErrorBoundary label="CanvasEditor">
-                <CanvasEditor onNavigate={(view) => setActiveView(view as ViewType)} />
-              </ViewErrorBoundary>
-            </div>
+            <ViewErrorBoundary label="CanvasComingSoon">
+              <CanvasComingSoon />
+            </ViewErrorBoundary>
           )}
 
           {activeView === 'assets' && (

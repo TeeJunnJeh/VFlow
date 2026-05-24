@@ -152,7 +152,7 @@ const AnimatedRoutes = () => {
 
     React.useEffect(() => {
         const pathname = location.pathname || '/';
-        const base = 'VFLOW AI';
+        const base = 'VFLOW AI - GenViewTech';
         let suffix = '';
         let desc = '';
         if (pathname === '/') suffix = '首页';

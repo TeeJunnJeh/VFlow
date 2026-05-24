@@ -641,8 +641,6 @@ const createWorkspaceState = (params?: {
     selectedTemplateId: null,
     selectedModelId:
       prefs.selectedModelId === 'kling' ||
-        prefs.selectedModelId === 'sora2' ||
-        prefs.selectedModelId === 'sora2pro' ||
         prefs.selectedModelId === 'seedance2.0'
         ? prefs.selectedModelId
         : null,
@@ -2160,17 +2158,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
     const restoredModelId =
       workspace.selectedModelId === 'kling' ||
-        workspace.selectedModelId === 'sora2' ||
-        workspace.selectedModelId === 'sora2pro' ||
         workspace.selectedModelId === 'seedance2.0'
         ? workspace.selectedModelId
         : (
           initialPrefs.selectedModelId === 'kling' ||
-            initialPrefs.selectedModelId === 'sora2' ||
-            initialPrefs.selectedModelId === 'sora2pro' ||
             initialPrefs.selectedModelId === 'seedance2.0'
             ? initialPrefs.selectedModelId
-            : 'sora2'
+            : 'seedance2.0'
         );
 
     isApplyingProjectWorkspaceRef.current = true;
@@ -2700,7 +2694,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
       // 2a. Switch model (only Sora-family models are supported for transfer)
       if (initialTransferModel) {
-        setSelectedModel(initialTransferModel);
+        const nextModel = initialTransferModel === 'sora2' || initialTransferModel === 'sora2pro'
+          ? 'seedance2.0'
+          : initialTransferModel;
+        setSelectedModel(nextModel);
       }
 
       const finalizeTransfer = () => {
@@ -9955,6 +9952,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       'group/seg relative flex-1 py-2.5 rounded-lg text-[11px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
     const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
     const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
+    const soraOfflineLabel = language === 'zh' ? '已下线' : 'Discontinued';
+    const soraOfflineDesc = t.wb_model_sora_discontinued || (language === 'zh' ? 'Sora 系列产品已经下线' : 'Sora models are discontinued.');
+    const isSoraUnavailable = (id: string) => id === 'sora2' || id === 'sora2pro';
 
     const tooltipBase =
       'pointer-events-none absolute top-full mt-2 w-[250px] rounded-2xl border border-white/25 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
@@ -9993,21 +9993,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             </button>
             <button
               type="button"
-              aria-pressed={selectedModel === 'sora2'}
-              onClick={() => setSelectedModel('sora2')}
-              className={`${segmentBase} ${selectedModel === 'sora2' ? activeSegment : inactiveSegment}`}
+              aria-pressed={false}
+              onClick={() => undefined}
+              disabled
+              className={`${segmentBase} cursor-not-allowed opacity-55 ${inactiveSegment}`}
             >
               Sora 2
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
+              <span className="ml-1 text-[9px] font-black text-zinc-500">{soraOfflineLabel}</span>
+              {tooltip(soraOfflineDesc, 'center')}
             </button>
             <button
               type="button"
-              aria-pressed={selectedModel === 'sora2pro'}
-              onClick={() => setSelectedModel('sora2pro')}
-              className={`${segmentBase} ${selectedModel === 'sora2pro' ? activeSegment : inactiveSegment}`}
+              aria-pressed={false}
+              onClick={() => undefined}
+              disabled
+              className={`${segmentBase} cursor-not-allowed opacity-55 ${inactiveSegment}`}
             >
               Sora 2 Pro
-              {tooltip(t.wb_model_tip_sora_kling, 'center')}
+              <span className="ml-1 text-[9px] font-black text-zinc-500">{soraOfflineLabel}</span>
+              {tooltip(soraOfflineDesc, 'center')}
             </button>
             <button
               type="button"
@@ -10038,13 +10042,13 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         {
           id: 'sora2',
           title: 'Sora 2',
-          desc: t.wb_model_sora2_desc,
+          desc: soraOfflineDesc,
           Icon: SoraStarIcon,
         },
         {
           id: 'sora2pro',
           title: 'Sora 2 Pro',
-          desc: t.wb_model_sora2pro_desc,
+          desc: soraOfflineDesc,
           Icon: Sparkles,
         },
         {
@@ -10058,7 +10062,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const renderModelCard = (opt: typeof modelOptions[number]) => {
       const active = selectedModel === opt.id;
-      const locked = false;  // Seedance 2.0 backend ready — unlock fast mode
+      const locked = isSoraUnavailable(opt.id);
       const rateLabel = opt.id === 'seedance2.0'
         ? (t.wb_usage_based_billing || '按量付费')
         : formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
@@ -10077,7 +10081,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             active
               ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
               : 'border-white/10 bg-black/20 hover:bg-white/5',
-            locked ? 'cursor-not-allowed opacity-70' : '',
+            locked ? 'cursor-not-allowed opacity-55' : '',
           ].join(' ')}
           aria-pressed={active}
         >
@@ -10095,6 +10099,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
               <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
+              {locked ? (
+                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold tracking-wide text-zinc-400">
+                  {soraOfflineLabel}
+                </span>
+              ) : null}
               <span className="relative inline-flex items-center group/model-tip shrink-0">
                 <Info className="h-3.5 w-3.5 text-zinc-500" />
                 <span className="pointer-events-none absolute bottom-full left-full z-20 mb-1 ml-2 w-52 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">

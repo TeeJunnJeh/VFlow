@@ -7,7 +7,7 @@ import { setMetaDescription } from '../utils/seo';
 
 const TermsOfServicePage = () => {
   React.useEffect(() => {
-    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 服务条款';
+    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 服务条款 - GenViewTech';
     setMetaDescription(
       'Read VFLOW AI Terms of Service covering usage rules, payments, refunds, intellectual property, acceptable content, and account responsibilities for all users.'
     );

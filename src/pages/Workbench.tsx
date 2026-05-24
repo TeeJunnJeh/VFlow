@@ -68,24 +68,24 @@ import {
 } from '../components/productImages/Functions/FirstFrame/firstFrameToVideoTransfer';
 
 const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
-  workbench: 'VFLOW AI - 工作台',
-  assets: 'VFLOW AI - 素材库',
-  product_images_clothing_swap: 'VFLOW AI - 商品图 - 换装',
-  product_images_first_frame: 'VFLOW AI - 商品图 - 首帧图',
-  product_images_smart_repair: 'VFLOW AI - 商品图 - 智能修复',
-  product_images_gallery: 'VFLOW AI - 商品图 - 商品套图',
-  product_images_text_separation: 'VFLOW AI - 商品图 - 文本分离',
-  product_images_ai_model: 'VFLOW AI - 商品图 - AI 模特',
-  creative_lab_replay: 'VFLOW AI - 创意实验室 - 爆款复刻',
-  creative_lab_script_extract: 'VFLOW AI - 创意实验室 - 脚本提取',
-  creative_lab_canvas: 'VFLOW AI - 创意实验室 - 无限画布',
-  templates: 'VFLOW AI - 模板',
-  history: 'VFLOW AI - 历史记录',
-  agent: 'VFLOW AI - Agent',
-  editor: 'VFLOW AI - 模板编辑',
-  profile: 'VFLOW AI - 设置',
-  billing: 'VFLOW AI - 计费',
-  ai_creator: 'VFLOW AI - AI 创作',
+  workbench: 'VFLOW AI - 工作台 - GenViewTech',
+  assets: 'VFLOW AI - 素材库 - GenViewTech',
+  product_images_clothing_swap: 'VFLOW AI - 商品图 - 换装 - GenViewTech',
+  product_images_first_frame: 'VFLOW AI - 商品图 - 首帧图 - GenViewTech',
+  product_images_smart_repair: 'VFLOW AI - 商品图 - 智能修复 - GenViewTech',
+  product_images_gallery: 'VFLOW AI - 商品图 - 商品套图 - GenViewTech',
+  product_images_text_separation: 'VFLOW AI - 商品图 - 文本分离 - GenViewTech',
+  product_images_ai_model: 'VFLOW AI - 商品图 - AI 模特 - GenViewTech',
+  creative_lab_replay: 'VFLOW AI - 创意实验室 - 爆款复刻 - GenViewTech',
+  creative_lab_script_extract: 'VFLOW AI - 创意实验室 - 脚本提取 - GenViewTech',
+  creative_lab_canvas: 'VFLOW AI - 创意实验室 - 无限画布 - GenViewTech',
+  templates: 'VFLOW AI - 模板 - GenViewTech',
+  history: 'VFLOW AI - 历史记录 - GenViewTech',
+  agent: 'VFLOW AI - Agent - GenViewTech',
+  editor: 'VFLOW AI - 模板编辑 - GenViewTech',
+  profile: 'VFLOW AI - 设置 - GenViewTech',
+  billing: 'VFLOW AI - 计费 - GenViewTech',
+  ai_creator: 'VFLOW AI - AI 创作 - GenViewTech',
 };
 
 const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
@@ -190,7 +190,7 @@ const Workbench = () => {
   }, [activeView, user, promoEligibility.loading, promoEligibility.shouldShowModal]);
 
   useEffect(() => {
-    const nextTitle = WORKBENCH_VIEW_TITLES[activeView] || 'VFLOW AI - 工作台';
+    const nextTitle = WORKBENCH_VIEW_TITLES[activeView] || 'VFLOW AI - 工作台 - GenViewTech';
     if (typeof document !== 'undefined' && document.title !== nextTitle) {
       document.title = nextTitle;
     }

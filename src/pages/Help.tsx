@@ -505,7 +505,7 @@ const HelpPage = () => {
   const sections = sectionsByPage[activeTopPageKey];
 
   React.useEffect(() => {
-    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 帮助中心';
+    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 帮助中心 - GenViewTech';
     setMetaDescription('VFLOW AI 帮助中心：产品介绍、使用方式、定价说明与联系支持。');
   }, []);
 

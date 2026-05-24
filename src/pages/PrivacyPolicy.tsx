@@ -7,7 +7,7 @@ import { setMetaDescription } from '../utils/seo';
 
 const PrivacyPolicyPage = () => {
   React.useEffect(() => {
-    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 隐私政策';
+    if (typeof document !== 'undefined') document.title = 'VFLOW AI - 隐私政策 - GenViewTech';
     setMetaDescription(
       'Learn how VFLOW AI collects, uses, and protects your data. This Privacy Policy explains information we store, cookies, security measures, and your rights.'
     );

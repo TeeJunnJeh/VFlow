@@ -14,9 +14,8 @@ const WorkbenchModelContext = createContext<WorkbenchModelContextType | undefine
 
 const normalizeModel = (value: string | null): WorkbenchModel => {
   if (value === 'kling') return 'kling';
-  if (value === 'sora2pro') return 'sora2pro';
   if (value === 'seedance2.0') return 'seedance2.0';
-  return 'sora2';
+  return 'seedance2.0';
 };
 
 export const WorkbenchModelProvider = ({ children }: { children: React.ReactNode }) => {

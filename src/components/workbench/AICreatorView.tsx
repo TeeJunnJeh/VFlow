@@ -1565,10 +1565,13 @@ export const AICreatorView: React.FC = () => {
                       }}
                     >
                       <option value="kling">Kling</option>
-                      <option value="sora2">Sora 2</option>
-                      <option value="sora2pro">Sora 2 Pro</option>
+                      <option value="sora2" disabled>{isZh ? 'Sora 2（已下线）' : 'Sora 2 (Discontinued)'}</option>
+                      <option value="sora2pro" disabled>{isZh ? 'Sora 2 Pro（已下线）' : 'Sora 2 Pro (Discontinued)'}</option>
                       <option value="seedance2.0">Seedance 2.0</option>
                     </select>
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      {isZh ? 'Sora 系列产品已经下线。' : 'Sora models are discontinued.'}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs text-zinc-500 mb-1">{isZh ? '时长（秒）' : 'Duration (seconds)'}</label>

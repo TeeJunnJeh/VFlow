@@ -34,6 +34,7 @@ class ViewErrorBoundary extends React.Component<
 import { TaskQueueWidget } from '../components/workbench/TaskQueueWidget';
 import { AppDialog } from '../components/common/AppDialog';
 import { InviteRewardDialog } from '../components/common/InviteRewardDialog';
+import { SourceSurveyDialog } from '../components/auth/SourceSurveyDialog';
 import { PromoModal } from '../components/promo/PromoModal';
 import { PROMO_DEBUG_ALWAYS_SHOW, usePromoEligibility } from '../components/promo/usePromoEligibility';
 
@@ -162,6 +163,7 @@ const Workbench = () => {
   // --- Global State ---
   const [activeView, setActiveView] = useState<ViewType>('workbench');
   const [isInviteRewardOpen, setIsInviteRewardOpen] = useState(false);
+  const [isSourceSurveyOpen, setIsSourceSurveyOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('vflow_sidebar_collapsed') === '1';
@@ -228,6 +230,26 @@ const Workbench = () => {
       // best-effort: if storage fails, user will simply see the dialog again next login
     }
   };
+
+  // 新用户来源调查弹窗：用户首次进入工作台时弹一次。后端用 User.source_survey_responded_at
+  // 控制是否弹（无论提交还是跳过都设置）；存量老用户在迁移时已被标为已答过。
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { should_prompt } = await authApi.getSourceSurveyStatus();
+        if (!cancelled && should_prompt) {
+          setIsSourceSurveyOpen(true);
+        }
+      } catch {
+        // 静默失败：拿不到状态时不强弹，避免在网络抖动时打扰用户
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
 
 
@@ -781,6 +803,12 @@ const Workbench = () => {
             isOpen={isInviteRewardOpen}
             onClose={() => setIsInviteRewardOpen(false)}
             onDismissPermanent={handleInviteRewardDismissPermanent}
+          />
+
+          <SourceSurveyDialog
+            isOpen={isSourceSurveyOpen}
+            onSubmitted={() => setIsSourceSurveyOpen(false)}
+            onSkipped={() => setIsSourceSurveyOpen(false)}
           />
 
           {promoEligibility.campaign && (

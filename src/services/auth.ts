@@ -276,4 +276,39 @@ export const authApi = {
       // Best-effort logging — never block the UI on this.
     }
   },
+
+  // 新用户来源调查：进入工作台首次弹窗
+  getSourceSurveyStatus: async (): Promise<{ should_prompt: boolean }> => {
+    const json = await apiRequest<{ code: number; message: string; data: { should_prompt: boolean } }>(
+      `${API_BASE_URL}/source-survey/status/`,
+      { fallbackMessage: 'Failed to load source survey status' },
+    );
+    return json.data;
+  },
+
+  submitSourceSurvey: async (payload: { source: SourceSurveyCode; otherText?: string }): Promise<void> => {
+    await apiRequest(`${API_BASE_URL}/source-survey/`, {
+      method: 'POST',
+      body: {
+        source: payload.source,
+        other_text: payload.source === 'OTHER' ? (payload.otherText || '') : '',
+      },
+      fallbackMessage: 'Failed to submit source survey',
+    });
+  },
+
+  skipSourceSurvey: async (): Promise<void> => {
+    await apiRequest(`${API_BASE_URL}/source-survey/skip/`, {
+      method: 'POST',
+      fallbackMessage: 'Failed to skip source survey',
+    });
+  },
 };
+
+export type SourceSurveyCode =
+  | 'WEIXIN_OFFICIAL'
+  | 'XIAOHONGSHU'
+  | 'DOUYIN'
+  | 'WEIBO'
+  | 'FRIEND'
+  | 'OTHER';

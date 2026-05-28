@@ -40,11 +40,11 @@ export const BillingView: React.FC = () => {
     setIsDialogOpen(true);
   };
 
-  const loadData = async () => {
+  const loadData = async (options?: { forceOverview?: boolean }) => {
     try {
       setLoading(true);
       const [overviewRes, txRes] = await Promise.all([
-        billingApi.getOverview(),
+        billingApi.getOverview({ force: options?.forceOverview }),
         billingApi.listTransactions(20, 0),
       ]);
       setOverview(overviewRes?.data || null);
@@ -62,7 +62,7 @@ export const BillingView: React.FC = () => {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [user]);
+  }, [user?.id]);
 
   const startPolling = (outTradeNo: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -73,7 +73,7 @@ export const BillingView: React.FC = () => {
         if (res?.code === 0 && res.data.status === 'PAID') {
           if (pollingRef.current) clearInterval(pollingRef.current);
           setShowPayQR(false);
-          await loadData();
+          await loadData({ forceOverview: true });
           openInfo(t.billing_recharge_success || 'Payment received successfully!', '');
         } else if (res?.code === 0 && (res.data.status === 'CANCELLED' || res.data.status === 'FAILED')) {
           if (pollingRef.current) clearInterval(pollingRef.current);
@@ -122,7 +122,7 @@ export const BillingView: React.FC = () => {
       setRedeemLoading(true);
       await billingApi.redeemCode(code);
       setRedeemCodeInput('');
-      await loadData();
+      await loadData({ forceOverview: true });
       openInfo(t.billing_redeem_title || 'Redeem Code', t.billing_redeem_success || 'Redeem successful! Credits added.');
     } catch (err: any) {
       openInfo(t.billing_redeem_title || 'Redeem Code', err?.message || 'Redeem failed');

@@ -395,7 +395,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
   const modelImage = modelSource?.file ?? null;
   const garmentImage = garmentSource?.file ?? null;
   const generationSeqRef = useRef(0);
-  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressTimerRef = useRef<number | null>(null);
   const progressStartedAtRef = useRef<number | null>(null);
 
   const isGenerating = phase === 'generating';
@@ -865,7 +865,7 @@ const ClothingSwapWorkspacePane: React.FC<ClothingSwapWorkspacePaneProps> = ({
 
   useEffect(() => {
     if (!isVisible) return;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let timeoutId: number | null = null;
     const rafId = window.requestAnimationFrame(() => {
       resetPanelWidthsForVisibleLayout();
       timeoutId = window.setTimeout(() => {

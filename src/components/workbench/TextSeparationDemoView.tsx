@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Download, MoveDiagonal2, PanelRightClose, PanelRightOpen, Plus, RotateCcw, Sparkles, Trash2, Type, X, PencilLine } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
+import type { Layer, Psd } from 'ag-psd';
 import { AppDialog } from '../common/AppDialog';
 import { useLanguage } from '../../context/LanguageContext';
 import type { translations } from '../../i18n/translations';
@@ -107,6 +108,8 @@ const WEB_FONT_FAMILY =
   '"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Segoe UI", sans-serif';
 const PPT_FONT_FACE_ZH = 'Microsoft YaHei';
 const PPT_FONT_FACE_EN = 'Segoe UI';
+const PSD_FONT_FACE_ZH = 'MicrosoftYaHei';
+const PSD_FONT_FACE_EN = 'ArialMT';
 
 const blobToDataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
@@ -127,6 +130,29 @@ const hexToRgb = (hex: string) => {
   const normalized = String(hex || '').replace('#', '').trim();
   if (normalized.length !== 6) return '171717';
   return normalized.toUpperCase();
+};
+
+const hexToPsdRgb = (hex: string) => {
+  const normalized = hexToRgb(hex);
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+};
+
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 };
 
 const resolveOutline = (outline: TextSeparationBlock['outline']) => {
@@ -377,10 +403,12 @@ interface ExportMenuProps {
   isOpen: boolean;
   isExporting: boolean;
   isExportingPptx: boolean;
+  isExportingPsd: boolean;
   t: I18nTranslations;
   onToggle: () => void;
   onExportJson: () => void;
   onExportPptx: () => Promise<void>;
+  onExportPsd: () => Promise<void>;
   onExportPng: () => Promise<void>;
 }
 
@@ -388,10 +416,12 @@ const ExportMenu: React.FC<ExportMenuProps> = ({
   isOpen,
   isExporting,
   isExportingPptx,
+  isExportingPsd,
   t,
   onToggle,
   onExportJson,
   onExportPptx,
+  onExportPsd,
   onExportPng,
 }) => (
   <div className="relative">
@@ -407,6 +437,9 @@ const ExportMenu: React.FC<ExportMenuProps> = ({
           </button>
         <button type="button" onClick={() => void onExportPptx()} disabled={isExportingPptx} className={styles.menuButton}>
           {isExportingPptx ? t.tsep_exporting_pptx : t.tsep_export_pptx}
+        </button>
+        <button type="button" onClick={() => void onExportPsd()} disabled={isExportingPsd} className={styles.menuButton}>
+          {isExportingPsd ? t.tsep_exporting_psd : t.tsep_export_psd}
         </button>
         <button type="button" onClick={() => void onExportPng()} disabled={isExporting} className={styles.menuButton}>
           {isExporting ? t.tsep_exporting_png : t.tsep_export_png}
@@ -536,11 +569,13 @@ interface CanvasPanelProps {
   onStartResize: (id: string, e: React.PointerEvent<HTMLButtonElement>) => void;
   isExporting: boolean;
   isExportingPptx: boolean;
+  isExportingPsd: boolean;
   isExportMenuOpen: boolean;
   onReset: () => void;
   onToggleExportMenu: () => void;
   onExportJson: () => void;
   onExportPptx: () => Promise<void>;
+  onExportPsd: () => Promise<void>;
   onExportPng: () => Promise<void>;
 }
 
@@ -562,11 +597,13 @@ const CanvasPanel: React.FC<CanvasPanelProps> = ({
   onStartResize,
   isExporting,
   isExportingPptx,
+  isExportingPsd,
   isExportMenuOpen,
   onReset,
   onToggleExportMenu,
   onExportJson,
   onExportPptx,
+  onExportPsd,
   onExportPng,
   }) => (
     <div className="min-w-0 flex-1 self-start flex flex-col">
@@ -584,10 +621,12 @@ const CanvasPanel: React.FC<CanvasPanelProps> = ({
           isOpen={isExportMenuOpen}
           isExporting={isExporting}
           isExportingPptx={isExportingPptx}
+          isExportingPsd={isExportingPsd}
           t={t}
           onToggle={onToggleExportMenu}
           onExportJson={onExportJson}
           onExportPptx={onExportPptx}
+          onExportPsd={onExportPsd}
           onExportPng={onExportPng}
         />
         <button type="button" onClick={onAddTextElement} className={styles.secondaryButton}>
@@ -1051,6 +1090,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingPptx, setIsExportingPptx] = useState(false);
+  const [isExportingPsd, setIsExportingPsd] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [imageSize, setImageSize] = useState<{ width: number; height: number }>({ width: 1, height: 1 });
   const [surfaceViewport, setSurfaceViewport] = useState<{ width: number; height: number }>({ width: 560, height: 560 });
@@ -1473,6 +1513,165 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
     }
   };
 
+  const exportPsd = async () => {
+    setIsExportingPsd(true);
+    try {
+      const resp = await fetch(backgroundImageUrl, { method: 'GET' });
+      if (!resp.ok) throw new Error(t.tsep_error_download_background);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      try {
+        const image = new Image();
+        const loaded = new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error(t.tsep_error_load_background));
+        });
+        image.src = blobUrl;
+        await loaded;
+
+        const width = Math.max(1, image.naturalWidth || image.width || imageSize.width || 1);
+        const height = Math.max(1, image.naturalHeight || image.height || imageSize.height || 1);
+        const base = Math.min(width, height);
+
+        const backgroundCanvas = document.createElement('canvas');
+        backgroundCanvas.width = width;
+        backgroundCanvas.height = height;
+        const backgroundCtx = backgroundCanvas.getContext('2d');
+        if (!backgroundCtx) throw new Error(t.tsep_error_export_failed);
+        backgroundCtx.drawImage(image, 0, 0, width, height);
+        const backgroundImageData = backgroundCtx.getImageData(0, 0, width, height);
+
+        const compositeCanvas = document.createElement('canvas');
+        compositeCanvas.width = width;
+        compositeCanvas.height = height;
+        const compositeCtx = compositeCanvas.getContext('2d');
+        if (!compositeCtx) throw new Error(t.tsep_error_export_failed);
+        compositeCtx.drawImage(image, 0, 0, width, height);
+
+        for (const item of elements) {
+          const px = item.x * width;
+          const py = item.y * height;
+          const pw = item.w * width;
+          const ph = item.h * height;
+          const fontSize = Math.max(12, Math.round(item.fontSizePx * (width / imageSize.width)));
+          const lineHeight = Math.round(fontSize * 1.22);
+          const horizontalPadding = Math.max(8, Math.round(fontSize * 0.3));
+
+          compositeCtx.fillStyle = item.color;
+          compositeCtx.font = `${item.fontWeight} ${fontSize}px ${WEB_FONT_FAMILY}`;
+          compositeCtx.textBaseline = 'top';
+          compositeCtx.textAlign = item.align;
+          compositeCtx.shadowColor = item.shadowColor;
+          compositeCtx.shadowBlur = Math.max(0, item.shadowBlur * base);
+          compositeCtx.shadowOffsetX = item.shadowOffsetX * width;
+          compositeCtx.shadowOffsetY = item.shadowOffsetY * height;
+          compositeCtx.lineJoin = 'round';
+
+          const lines = wrapTextByWidth(compositeCtx, item.text, Math.max(10, pw - horizontalPadding * 2));
+          let cursorY = py + 4;
+          const drawX =
+            item.align === 'center'
+              ? px + pw / 2
+              : item.align === 'right'
+                ? px + pw - horizontalPadding
+                : px + horizontalPadding;
+
+          for (const line of lines) {
+            if (item.strokeWidth > 0) {
+              compositeCtx.lineWidth = Math.max(1, item.strokeWidth * base);
+              compositeCtx.strokeStyle = item.strokeColor;
+              compositeCtx.strokeText(line, drawX, cursorY);
+            }
+            compositeCtx.fillText(line, drawX, cursorY);
+            cursorY += lineHeight;
+            if (cursorY > py + ph - lineHeight) break;
+          }
+
+          compositeCtx.shadowColor = 'transparent';
+          compositeCtx.shadowBlur = 0;
+          compositeCtx.shadowOffsetX = 0;
+          compositeCtx.shadowOffsetY = 0;
+        }
+
+        const compositeImageData = compositeCtx.getImageData(0, 0, width, height);
+        const fontName = isZh ? PSD_FONT_FACE_ZH : PSD_FONT_FACE_EN;
+        const textLayers: Layer[] = [...elements].reverse().map((item, reversedIndex) => {
+          const px = Math.round(item.x * width);
+          const py = Math.round(item.y * height);
+          const pw = Math.max(1, Math.round(item.w * width));
+          const ph = Math.max(1, Math.round(item.h * height));
+          const fontSize = Math.max(6, Math.round(item.fontSizePx * (width / imageSize.width)));
+          const originalIndex = elements.length - reversedIndex;
+          const layerName = `Text ${originalIndex}: ${String(item.text || '').slice(0, 24)}`;
+
+          return {
+            name: layerName,
+            opacity: 1,
+            text: {
+              text: item.text || ' ',
+              transform: [1, 0, 0, 1, px, py],
+              left: px,
+              top: py,
+              right: px + pw,
+              bottom: py + ph,
+              shapeType: 'box',
+              boxBounds: [0, 0, ph, pw],
+              antiAlias: 'smooth',
+              orientation: 'horizontal',
+              style: {
+                font: { name: fontName },
+                fontSize,
+                fauxBold: item.fontWeight >= 600,
+                fillColor: hexToPsdRgb(item.color),
+                fillFlag: true,
+                strokeColor: hexToPsdRgb(item.strokeColor),
+                strokeFlag: item.strokeWidth > 0,
+                outlineWidth: item.strokeWidth > 0 ? Math.max(1, Math.round(item.strokeWidth * base)) : 0,
+              },
+              paragraphStyle: {
+                justification: item.align,
+              },
+            },
+          };
+        });
+
+        const backgroundLayer: Layer = {
+          name: 'Clean Background',
+          top: 0,
+          left: 0,
+          imageData: backgroundImageData,
+        };
+        const psd: Psd = {
+          width,
+          height,
+          imageData: compositeImageData,
+          children: [...textLayers, backgroundLayer],
+          imageResources: {
+            resolutionInfo: {
+              horizontalResolution: 72,
+              horizontalResolutionUnit: 'PPI',
+              widthUnit: 'Inches',
+              verticalResolution: 72,
+              verticalResolutionUnit: 'PPI',
+              heightUnit: 'Inches',
+            },
+          },
+        };
+
+        const { writePsdUint8Array } = await import('ag-psd');
+        const psdBytes = writePsdUint8Array(psd, { invalidateTextLayers: true, generateThumbnail: true });
+        const psdBlobData = new Uint8Array(psdBytes.byteLength);
+        psdBlobData.set(psdBytes);
+        downloadBlob(new Blob([psdBlobData.buffer], { type: 'image/vnd.adobe.photoshop' }), 'text-separation-editor.psd');
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+    } finally {
+      setIsExportingPsd(false);
+    }
+  };
+
   const handleExport = async () => {
     setIsExporting(true);
     try {
@@ -1721,6 +1920,7 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
           onStartResize={startResize}
           isExporting={isExporting}
           isExportingPptx={isExportingPptx}
+          isExportingPsd={isExportingPsd}
           isExportMenuOpen={isExportMenuOpen}
           onReset={() => {
             setElements(initialElements);
@@ -1735,6 +1935,10 @@ const TextSeparationDemoView: React.FC<TextSeparationDemoViewProps> = ({
           onExportPptx={async () => {
             setIsExportMenuOpen(false);
             await exportPptx();
+          }}
+          onExportPsd={async () => {
+            setIsExportMenuOpen(false);
+            await exportPsd();
           }}
           onExportPng={async () => {
             setIsExportMenuOpen(false);

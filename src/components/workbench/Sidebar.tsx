@@ -132,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [productImagesSubnavWidth, setProductImagesSubnavWidth] = React.useState(PRODUCT_IMAGES_SUBNAV_MIN_WIDTH);
   const productImageLabelRefs = React.useRef<Array<HTMLSpanElement | null>>([]);
   const suppressNextClickRef = React.useRef(false);
-  const suppressClickResetTimerRef = React.useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const suppressClickResetTimerRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     if (isProductImagesView) {

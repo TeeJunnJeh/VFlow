@@ -1309,7 +1309,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [assetLibraryLoading, setAssetLibraryLoading] = useState(false);
   const [isAssetLibraryUploading, setIsAssetLibraryUploading] = useState(false);
   const [assetLibraryUploadSummaryToast, setAssetLibraryUploadSummaryToast] = useState<{ uploadedCount: number; addedCount: number } | null>(null);
-  const assetLibraryUploadSummaryToastTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const assetLibraryUploadSummaryToastTimerRef = useRef<number | null>(null);
   const [assetLibraryHoverAssetId, setAssetLibraryHoverAssetId] = useState<string | null>(null);
   const [assetLibraryHoverClickedAssetId, setAssetLibraryHoverClickedAssetId] = useState<string | null>(null);
   const [assetLibraryError, setAssetLibraryError] = useState<string | null>(null);
@@ -1326,14 +1326,14 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
   const [wasDraftRestored, setWasDraftRestored] = useState(false);
   const hasAutoSelectedTemplateRef = useRef(false);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveTimerRef = useRef<number | null>(null);
   const latestSnapshotRef = useRef<WorkbenchSnapshot | null>(null);
   const canAutoSaveRef = useRef(false);
   const skipTemplateDurationSyncRef = useRef(false);
   const restoredDraftRef = useRef(false);
 
   const initialPrefs = useMemo(() => getWorkbenchPreferences(user?.id ?? null), [user?.id]);
-  const prefSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefSyncTimerRef = useRef<number | null>(null);
   const normalizeDurationForModel = useCallback((value: number | null | undefined, model: string) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return 10;
@@ -1815,11 +1815,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     };
   }, [language, replayBatchRun, replayTaskById]);
   const [taskQueueNowTs, setTaskQueueNowTs] = useState<number>(Date.now());
-  const taskQueueTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const taskQueueTimerRef = useRef<number | null>(null);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
   const waitProgressValueRef = useRef(0);
   const waitProgressPhaseRef = useRef<WaitProgressPhase>('idle');
-  const waitProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const waitProgressTimerRef = useRef<number | null>(null);
   const waitProgressRafRef = useRef<number | null>(null);
   const waitProgressStartedAtRef = useRef<number | null>(null);
   const waitProgressHoldValueRef = useRef<number | null>(null);
@@ -3086,19 +3086,19 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     if (taskQueueTimerRef.current) {
-      clearInterval(taskQueueTimerRef.current);
+      window.clearInterval(taskQueueTimerRef.current);
       taskQueueTimerRef.current = null;
     }
 
     if (isTaskQueueOpen || activeVideoTaskCount > 0) {
-      taskQueueTimerRef.current = setInterval(() => {
+      taskQueueTimerRef.current = window.setInterval(() => {
         setTaskQueueNowTs(Date.now());
       }, 1000);
     }
 
     return () => {
       if (taskQueueTimerRef.current) {
-        clearInterval(taskQueueTimerRef.current);
+        window.clearInterval(taskQueueTimerRef.current);
         taskQueueTimerRef.current = null;
       }
     };
@@ -3294,17 +3294,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
   useEffect(() => {
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    if (autoSaveTimerRef.current) window.clearTimeout(autoSaveTimerRef.current);
     if (!user?.id || isRestoring) return;
 
-    autoSaveTimerRef.current = setTimeout(() => {
+    autoSaveTimerRef.current = window.setTimeout(() => {
       const snapshot = latestSnapshotRef.current;
       if (!snapshot) return;
       videoApi.saveDraft(snapshot).catch((e) => console.warn("Auto-save draft failed:", e));
     }, 1500);
 
     return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      if (autoSaveTimerRef.current) window.clearTimeout(autoSaveTimerRef.current);
     };
   }, [user?.id, isRestoring, selectedTemplate?.id]);
 

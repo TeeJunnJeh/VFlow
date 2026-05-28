@@ -555,7 +555,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   const [isDraftSavedDialogOpen, setIsDraftSavedDialogOpen] = useState(false);
 
   const generationSeqRef = useRef(0);
-  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressTimerRef = useRef<number | null>(null);
   const progressStartedAtRef = useRef<number | null>(null);
 
   const isGenerating = phase === 'generating' || isAsyncGenerating;
@@ -1674,7 +1674,7 @@ const FirstFrameWorkspacePane: React.FC<FirstFrameWorkspacePaneProps> = ({
   useEffect(() => {
     if (!isVisible) return;
 
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let timeoutId: number | null = null;
     const rafId = window.requestAnimationFrame(() => {
       resetPanelWidthsForVisibleLayout();
       timeoutId = window.setTimeout(() => {

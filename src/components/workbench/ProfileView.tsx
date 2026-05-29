@@ -12,7 +12,7 @@ import { AppDialog } from '../common/AppDialog';
 import { getWorkbenchPreferences, setWorkbenchPreferences, type WorkbenchPreferences } from '../../utils/preferences';
 import { isStrongPassword } from '../../utils/passwordRules';
 import { normalizeThemeMode, type ThemeMode } from '../../utils/theme';
-import { formatCreditAmount, formatSignedCreditAmount } from '../../utils/credits';
+import { formatCreditAmount, formatSignedCreditAmount, roundCreditTenths } from '../../utils/credits';
 import {
   TIKTOK_AUTH_COMPLETE_EVENT,
   closeTikTokAuthPopup,
@@ -188,6 +188,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
   const [inviteError, setInviteError] = useState('');
   const [inviteCodeCopied, setInviteCodeCopied] = useState(false);
   const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
+  const [isGiftRedeemDialogOpen, setIsGiftRedeemDialogOpen] = useState(false);
+  const [giftRedeemCode, setGiftRedeemCode] = useState('');
+  const [isGiftRedeeming, setIsGiftRedeeming] = useState(false);
 
   useEffect(() => {
     if (!isInviteDialogOpen) return;
@@ -236,6 +239,51 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     } else {
       setInviteLinkCopied(true);
       setTimeout(() => setInviteLinkCopied(false), 1800);
+    }
+  };
+
+  const handleOpenGiftRedeem = () => {
+    if (!user?.id) {
+      openInfo(t.profile_notice || 'Notice', t.profile_gift_redeem_login_required || '请先登录后使用礼包兑换码');
+      return;
+    }
+    setGiftRedeemCode('');
+    setIsGiftRedeemDialogOpen(true);
+  };
+
+  const handleGiftRedeem = async () => {
+    if (isGiftRedeeming) return;
+    if (!user?.id) {
+      openInfo(t.profile_notice || 'Notice', t.profile_gift_redeem_login_required || '请先登录后使用礼包兑换码');
+      return;
+    }
+    const code = giftRedeemCode.trim();
+    if (!code) {
+      openInfo(t.profile_notice || 'Notice', t.profile_gift_redeem_empty || '请输入兑换码');
+      return;
+    }
+
+    setIsGiftRedeeming(true);
+    try {
+      const res: any = await billingApi.redeemCode(code);
+      const data = res?.data || {};
+      const nextBalance = Number(data.balance ?? user.credits ?? 0);
+      const nextTenths = Number(data.balance_credit_tenths ?? Math.round(nextBalance * 10));
+      updateUser({
+        credits: roundCreditTenths(nextBalance),
+        creditTenths: nextTenths,
+      });
+      setIsGiftRedeemDialogOpen(false);
+      setGiftRedeemCode('');
+      const amountLabel = formatCreditAmount(data.credits ?? 0);
+      openInfo(
+        t.profile_success || 'Success',
+        (t.profile_gift_redeem_success || '兑换成功，已到账 {amount} V 点').replace('{amount}', amountLabel),
+      );
+    } catch (err: any) {
+      openInfo(t.profile_error || 'Error', err?.message || t.profile_gift_redeem_failed || '兑换失败');
+    } finally {
+      setIsGiftRedeeming(false);
     }
   };
 
@@ -884,6 +932,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                </div>
                   
                <div className="mt-8 space-y-5 pb-12">
+                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenGiftRedeem}
+                    className="w-full flex items-center justify-between p-6 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition group/giftRedeem shadow-sm hover:shadow-orange-500/5"
+                  >
+                      <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-500 group-hover/giftRedeem:text-orange-500 transition-colors"><Gift className="w-6 h-6" /></div>
+                          <div className="text-left">
+                              <div className="text-base font-bold text-white">{t.profile_gift_redeem_button || '礼包兑换码'}</div>
+                              <div className="text-xs text-zinc-600 mt-0.5">{t.profile_gift_redeem_desc || '输入兑换码领取 V 点'}</div>
+                          </div>
+                      </div>
+                  </button>
+
                   <button onClick={logout} className="w-full flex items-center justify-between p-6 rounded-2xl bg-red-500/5 hover:bg-red-500/10 transition group/logout border border-red-500/10 hover:border-red-500/20">
                       <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500"><LogOut className="w-6 h-6" /></div>
@@ -893,6 +956,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                           </div>
                       </div>
                   </button>
+                 </div>
 
                   <div className="flex items-center justify-center gap-2 text-base font-semibold text-zinc-500">
                     <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500 transition-colors">{t.login_agreement_user}</a>
@@ -1119,6 +1183,53 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
             </div>
          </div>
       </div>
+
+       {isGiftRedeemDialogOpen && (
+         <AppDialog
+           isOpen={isGiftRedeemDialogOpen}
+           title={t.profile_gift_redeem_title || '礼包兑换码'}
+           onClose={() => {
+             if (isGiftRedeeming) return;
+             setIsGiftRedeemDialogOpen(false);
+             setGiftRedeemCode('');
+           }}
+           footer={
+             <>
+               <button
+                 className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700 disabled:opacity-60"
+                 onClick={() => {
+                   setIsGiftRedeemDialogOpen(false);
+                   setGiftRedeemCode('');
+                 }}
+                 disabled={isGiftRedeeming}
+               >
+                 {t.profile_password_cancel || 'Cancel'}
+               </button>
+               <button
+                 className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60"
+                 onClick={handleGiftRedeem}
+                 disabled={isGiftRedeeming}
+               >
+                 {isGiftRedeeming ? (t.profile_gift_redeem_submitting || '兑换中...') : (t.profile_gift_redeem_submit || '确认兑换')}
+               </button>
+             </>
+           }
+         >
+           <div className="space-y-3">
+             <p className="text-xs text-zinc-500">{t.profile_gift_redeem_desc || '输入兑换码领取 V 点'}</p>
+             <input
+               value={giftRedeemCode}
+               onChange={(e) => setGiftRedeemCode(e.target.value)}
+               onKeyDown={(e) => {
+                 if (e.key === 'Enter') handleGiftRedeem();
+               }}
+               placeholder={t.profile_gift_redeem_placeholder || '请输入兑换码'}
+               disabled={isGiftRedeeming}
+               className="w-full bg-zinc-900/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-orange-400/60 disabled:opacity-60"
+             />
+           </div>
+         </AppDialog>
+       )}
 
        {isInviteDialogOpen && (
          <AppDialog

@@ -401,24 +401,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </nav>
         </div>
 
-        <div className="mt-auto pb-6 w-full flex flex-col items-start gap-4 px-3">
+        <div className="mt-auto pb-6 w-full flex flex-col gap-1">
           <button
             type="button"
-            onClick={handleCycleTheme}
+            onPointerDown={(event) => {
+              if (event.pointerType === 'mouse' && event.button !== 0) return;
+              event.preventDefault();
+              suppressNextClick();
+              handleCycleTheme();
+            }}
+            onClick={() => {
+              if (suppressNextClickRef.current) {
+                suppressNextClickRef.current = false;
+                return;
+              }
+              handleCycleTheme();
+            }}
             title={themeButtonLabel}
-            className="w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative border-white/5 bg-zinc-900/50 hover:border-white/20"
+            className="wb-sidebar-nav-item group wb-sidebar-nav-item--inactive"
           >
-            <div className="text-zinc-500 group-hover:text-zinc-300 transition-colors">
+            <div className="wb-sidebar-nav-icon">
               <SunMoon className="w-5 h-5" />
             </div>
-            <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-              {themeButtonLabel}
-            </div>
+            <span className="wb-sidebar-nav-label">{themeButtonLabel}</span>
           </button>
 
           <button
             type="button"
+            onPointerDown={(event) => {
+              if (event.pointerType === 'mouse' && event.button !== 0) return;
+              event.preventDefault();
+              suppressNextClick();
+              if (!user) {
+                navigate('/login?returnUrl=/app');
+                return;
+              }
+              navigateToView('profile');
+            }}
             onClick={() => {
+              if (suppressNextClickRef.current) {
+                suppressNextClickRef.current = false;
+                return;
+              }
               if (!user) {
                 navigate('/login?returnUrl=/app');
                 return;
@@ -426,29 +450,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               navigateToView('profile');
             }}
             title={!user ? ((t as any).guest_login_button || 'Log In') : t.profile_title}
-            className={`w-10 h-10 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 border group relative ${
-              !user
-                ? 'border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/20'
-                : activeView === 'profile'
-                  ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]'
-                  : 'border-white/5 bg-zinc-900/50 hover:border-white/20'
-            }`}
+            className={`wb-sidebar-nav-item group ${user && activeView === 'profile' ? 'wb-sidebar-nav-item--active' : 'wb-sidebar-nav-item--inactive'}`}
           >
-            {!user ? (
-              <div className="text-orange-500 transition-colors">
+            <div className="wb-sidebar-nav-icon">
+              {!user ? (
                 <LogIn className="w-5 h-5" />
-              </div>
-            ) : user.avatar ? (
-              <img src={user.avatar} className="w-full h-full object-cover rounded-xl" alt="Profile" />
-            ) : (
-              <div className={`transition-colors ${activeView === 'profile' ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+              ) : user.avatar ? (
+                <img src={user.avatar} className="w-5 h-5 rounded-md object-cover" alt="Profile" />
+              ) : (
                 <UserIcon className="w-5 h-5" />
-              </div>
-            )}
-
-            <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-800 text-zinc-100 text-xs rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 pointer-events-none">
-              {!user ? ((t as any).guest_login_button || 'Log In') : t.profile_title}
+              )}
             </div>
+            <span className="wb-sidebar-nav-label">{!user ? ((t as any).guest_login_button || 'Log In') : t.profile_title}</span>
+            {user && activeView === 'profile' && <div className="wb-sidebar-nav-indicator" />}
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
+import { ArrowRight, ChevronLeft, Copy, Eye, Image as ImageIcon, LayoutGrid, Minus, Plus, RotateCw, Save, Sparkles, Upload, Wand2, X } from 'lucide-react';
 import Masonry from 'react-masonry-css';
 import { DropdownSelect } from '../../../common/DropdownSelect';
 import { AspectRatioPicker, GALLERY_RATIOS, LoadingCard as GalleryLoadingCard, ModelSelectorChips, ratioDescriptorsForLanguage } from '../../Common';
@@ -845,6 +845,28 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
     setGalleryOutputItems(updater);
   };
 
+  const [brokenPreviewImages, setBrokenPreviewImages] = useState<Record<string, boolean>>({});
+  const [copiedPreviewLinkId, setCopiedPreviewLinkId] = useState<string | null>(null);
+
+  const copyPreviewLink = useCallback(async (url: string, localId: string) => {
+    const value = String(url || '').trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(textarea);
+    }
+    setCopiedPreviewLinkId(localId);
+    window.setTimeout(() => setCopiedPreviewLinkId((current) => (current === localId ? null : current)), 1600);
+  }, []);
+
   const updateOutputItem = (itemId: string, updater: (item: GalleryOutputItemConfig) => GalleryOutputItemConfig) => {
     mutateAdvancedOutputItems((prev) => prev.map((item) => (item.id === itemId ? updater(item) : item)));
   };
@@ -900,7 +922,50 @@ const ImagesGalleryView: React.FC<ImagesGalleryViewProps> = (props) => {
               className="block w-full"
               title={t.pg_img_click_to_preview}
             >
-              <img src={item.imageUrl} className="block w-full h-auto" alt={item.requestId} />
+              {brokenPreviewImages[item.localId] ? (
+                <div className="p-4 text-left">
+                  <div className="text-xs font-bold text-red-200">图片加载失败</div>
+                  <div className="mt-2 text-[11px] text-zinc-300 break-all">
+                    {String(item.imageUrl || '').trim()}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void copyPreviewLink(String(item.imageUrl || ''), item.localId);
+                      }}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-zinc-900/70 border border-white/10 text-zinc-100 hover:bg-zinc-800 transition"
+                    >
+                      <Copy className="w-4 h-4" />
+                      {copiedPreviewLinkId === item.localId ? (t.pg_img_copied || '已复制') : (t.pg_img_copy_link || '复制链接')}
+                    </button>
+                    <a
+                      href={String(item.imageUrl || '').trim()}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-xs font-bold text-indigo-200 hover:text-indigo-100 underline"
+                    >
+                      {t.pg_img_open_link || '打开链接'}
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <img
+                  src={item.imageUrl}
+                  className="block w-full h-auto"
+                  alt={item.requestId}
+                  onLoad={() => setBrokenPreviewImages((prev) => {
+                    if (!prev[item.localId]) return prev;
+                    const next = { ...prev };
+                    delete next[item.localId];
+                    return next;
+                  })}
+                  onError={() => setBrokenPreviewImages((prev) => ({ ...prev, [item.localId]: true }))}
+                />
+              )}
               <div className="absolute inset-0 opacity-0 transition-opacity duration-200 bg-black/40 flex items-center justify-center group-hover:opacity-100">
                 <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs font-bold text-white">
                   <Eye className="w-4 h-4" />

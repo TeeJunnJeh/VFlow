@@ -4758,7 +4758,11 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
 
         const pushUrl = (value: any) => {
           if (typeof value !== 'string') return;
-          const cleaned = value.trim();
+          let cleaned = value.trim();
+          cleaned = cleaned.replace(/^`+/, '').replace(/`+$/, '').trim();
+          if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+            cleaned = cleaned.slice(1, -1).trim();
+          }
           if (!cleaned) return;
           if (cleaned.startsWith('http://') || cleaned.startsWith('https://') || cleaned.startsWith('/media/')) {
             if (!urls.includes(cleaned)) urls.push(cleaned);

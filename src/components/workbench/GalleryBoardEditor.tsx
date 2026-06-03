@@ -2,6 +2,7 @@
 import { createPortal } from 'react-dom';
 import { ChevronDown, Download, Folder, Loader2, Plus, Redo2, Replace, Sparkles, Trash2, Type, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import PptxGenJS from 'pptxgenjs';
+import type { Psd } from 'ag-psd';
 import { AppDialog } from '../common/AppDialog';
 import { assetsApi, type Asset as LibraryAsset, type AssetFolder } from '../../services/assets';
 import { videoApi } from '../../services/video';
@@ -10,6 +11,11 @@ import { getGalleryBoardEditorShortcutAction } from './galleryBoardEditorShortcu
 import { buildGalleryBoardSellingPointLayers, type GalleryBoardImageFrame } from './galleryBoardDefaultTextLayout';
 import { applyGalleryBoardCopyDrafts, buildGalleryBoardCopyItems, type GalleryBoardCopyDraft } from './galleryBoardCopyGeneration';
 import { getGalleryBoardTextDisplayProps } from './galleryBoardTextRender';
+import {
+  buildPsdTextLayer,
+  sanitizePsdLayerName,
+  type GalleryBoardPsdLayer,
+} from './galleryBoardPsdExport';
 
 export type GalleryBoardAsset = {
   localId: string;
@@ -1190,6 +1196,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
   const [zoom, setZoom] = useState(() => initialDraft?.zoom ?? 1);
   const [isExportingPng, setIsExportingPng] = useState(false);
   const [isExportingPptx, setIsExportingPptx] = useState(false);
+  const [isExportingPsd, setIsExportingPsd] = useState(false);
   const [viewportSize, setViewportSize] = useState({ width: 960, height: 720 });
   const [localAssets, setLocalAssets] = useState<GalleryBoardAsset[]>(() => initialLocalAssets || []);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
@@ -2907,6 +2914,197 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     }
   };
 
+  const exportBoardAsPsd = async () => {
+    setIsExportingPsd(true);
+
+    try {
+      const width = Math.max(1, Math.round(board.canvasWidth));
+      const height = Math.max(1, Math.round(board.canvasHeight));
+      const imageCache = new Map<string, HTMLImageElement>();
+      const psdChildren: GalleryBoardPsdLayer[] = [];
+      const safeProductName = String(productName || '')
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+      const getImage = async (url: string) => {
+        const cached = imageCache.get(url);
+        if (cached) return cached;
+        const image = await loadImageFromUrl(url);
+        imageCache.set(url, image);
+        return image;
+      };
+
+      const renderLayerImageData = (
+        draw: (context: CanvasRenderingContext2D) => void,
+        layerWidth = width,
+        layerHeight = height
+      ) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(layerWidth));
+        canvas.height = Math.max(1, Math.round(layerHeight));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error(t.pg_board_export_failed);
+        draw(context);
+        return context.getImageData(0, 0, canvas.width, canvas.height);
+      };
+
+      if (board.background && board.background !== 'transparent') {
+        psdChildren.unshift({
+          name: sanitizePsdLayerName(t.pg_board_board_background || 'Board Background'),
+          top: 0,
+          left: 0,
+          imageData: renderLayerImageData((context) => {
+            context.fillStyle = board.background;
+            context.fillRect(0, 0, width, height);
+          }),
+        });
+      }
+
+      if (backgroundImageUrl) {
+        const image = await getImage(backgroundImageUrl);
+        const backgroundImageData = renderLayerImageData((context) => {
+          context.save();
+          context.globalAlpha = clamp(board.backgroundImageOpacity, 0, 1);
+          const rect = fitImageRect(
+            board.backgroundImageFit,
+            image.naturalWidth || image.width,
+            image.naturalHeight || image.height,
+            board.backgroundImageW,
+            board.backgroundImageH
+          );
+          context.drawImage(
+            image,
+            rect.sx,
+            rect.sy,
+            rect.sw,
+            rect.sh,
+            board.backgroundImageX + rect.dx,
+            board.backgroundImageY + rect.dy,
+            rect.dw,
+            rect.dh
+          );
+          context.restore();
+        });
+
+        psdChildren.unshift({
+          name: sanitizePsdLayerName(t.pg_board_board_background || 'Board Background'),
+          top: 0,
+          left: 0,
+          imageData: backgroundImageData,
+        });
+      }
+
+      for (const layer of board.layers) {
+        if (layer.type === 'image') {
+          const asset = layer.assetLocalId ? assetMap.get(layer.assetLocalId) : undefined;
+          const imageUrl = String(asset?.imageUrl || '').trim();
+          if (!imageUrl) continue;
+
+          const image = await getImage(imageUrl);
+          const imageData = renderLayerImageData((context) => {
+            drawBoardImageLayer(
+              context,
+              { ...layer, x: 0, y: 0 },
+              image,
+              image.naturalWidth || image.width,
+              image.naturalHeight || image.height
+            );
+          }, layer.w, layer.h);
+
+          psdChildren.unshift({
+            name: sanitizePsdLayerName(layer.name || t.pg_board_image || 'Image'),
+            top: Math.round(layer.y),
+            left: Math.round(layer.x),
+            opacity: clamp(layer.opacity, 0, 1),
+            imageData,
+          });
+          continue;
+        }
+
+        if (layer.background && layer.background !== 'transparent') {
+          const backgroundLayer = renderLayerImageData((context) => {
+            context.fillStyle = layer.background;
+            context.fillRect(0, 0, Math.max(1, Math.round(layer.w)), Math.max(1, Math.round(layer.h)));
+          }, layer.w, layer.h);
+
+          psdChildren.unshift({
+            name: sanitizePsdLayerName(`${layer.name || t.pg_board_new_text || 'Text'} Background`),
+            top: Math.round(layer.y),
+            left: Math.round(layer.x),
+            imageData: backgroundLayer,
+          });
+        }
+
+        psdChildren.unshift(
+          buildPsdTextLayer({
+            name: layer.name || t.pg_board_new_text || 'Text',
+            text: layer.text || ' ',
+            x: Math.round(layer.x + clamp(layer.padding, 0, 80)),
+            y: Math.round(layer.y + clamp(layer.padding, 0, 80)),
+            w: Math.max(1, Math.round(layer.w - clamp(layer.padding, 0, 80) * 2)),
+            h: Math.max(1, Math.round(layer.h - clamp(layer.padding, 0, 80) * 2)),
+            fontSize: layer.fontSize,
+            fontWeight: layer.fontWeight,
+            fontFamily: layer.fontFamily,
+            color: layer.color,
+            align: layer.align,
+          })
+        );
+      }
+
+      const compositeCanvas = await renderBoardToCanvas();
+      const compositeContext = compositeCanvas.getContext('2d');
+      if (!compositeContext) throw new Error(t.pg_board_export_failed);
+
+      const psd: Psd = {
+        width,
+        height,
+        imageData: compositeContext.getImageData(0, 0, width, height),
+        children: psdChildren,
+        imageResources: {
+          resolutionInfo: {
+            horizontalResolution: 72,
+            horizontalResolutionUnit: 'PPI',
+            widthUnit: 'Inches',
+            verticalResolution: 72,
+            verticalResolutionUnit: 'PPI',
+            heightUnit: 'Inches',
+          },
+        },
+      };
+
+      const { initializeCanvas, writePsdUint8Array } = await import('ag-psd');
+      initializeCanvas(
+        (width, height) => {
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          return canvas;
+        },
+        (width, height) => new ImageData(width, height)
+      );
+      const psdBytes = writePsdUint8Array(psd, { invalidateTextLayers: true, generateThumbnail: true });
+      const psdBlobData = new Uint8Array(psdBytes.byteLength);
+      psdBlobData.set(psdBytes);
+
+      const url = URL.createObjectURL(new Blob([psdBlobData.buffer], { type: 'image/vnd.adobe.photoshop' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${safeProductName || 'product_gallery_board'}_${Date.now()}.psd`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      const message = String(error?.message || error || t.pg_board_export_failed);
+      onAlert?.(message);
+    } finally {
+      setIsExportingPsd(false);
+    }
+  };
+
   const updateSelectedTextLayer = (patch: Partial<BoardTextLayer>) => {
     if (!selectedLayer || selectedLayer.type !== 'text') return;
     updateLayer(selectedLayer.id, (layer) =>
@@ -3053,7 +3251,7 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
     setTemplateTooltip(null);
   };
 
-  const isExportBusy = isExportingPng || isExportingPptx;
+  const isExportBusy = isExportingPng || isExportingPptx || isExportingPsd;
 
   return (
     <>
@@ -3305,6 +3503,18 @@ const GalleryBoardEditor: React.FC<GalleryBoardEditorProps> = ({
                   >
                     <span>{t.pg_board_export_pptx}</span>
                     <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">PPTX</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false);
+                      void exportBoardAsPsd();
+                    }}
+                    disabled={isExportBusy}
+                    className="flex w-full items-center justify-between gap-3 border-t border-white/10 px-3 py-2.5 text-left text-xs font-semibold text-zinc-100 transition hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <span>{t.pg_board_export_psd}</span>
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">PSD</span>
                   </button>
                 </div>
               ) : null}

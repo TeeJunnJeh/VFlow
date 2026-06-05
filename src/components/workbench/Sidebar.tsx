@@ -347,9 +347,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className={`${collapsed ? 'w-16' : 'w-44'} flex flex-col items-stretch py-6 gap-6 shrink-0 transition-[width] duration-300 ease-out`}>
         <div className={`flex flex-col mb-2 gap-2 ${collapsed ? 'items-center px-0' : 'px-4'}`}>
           <div className={`flex h-10 w-full items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-orange-500 flex shrink-0 items-center justify-center font-bold italic text-black shadow-lg shadow-orange-500/20">
-              VF
-            </div>
+            <img
+              src="/vflow-logo.svg"
+              alt="VFlow"
+              className="w-10 h-10 rounded-xl bg-white object-contain shadow-lg shadow-blue-500/20 shrink-0"
+            />
             {!collapsed ? (
               <button
                 type="button"

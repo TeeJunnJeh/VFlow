@@ -103,7 +103,10 @@ const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
 const TRANSFER_STATION_DRAG_MIME = 'application/x-vflow-transfer-station-item';
-const TIKTOK_DIRECT_POST_ENABLED = false;
+
+const isTikTokDirectPostEnabledFromStatus = (statusData: any): boolean => (
+  Boolean(statusData?.capabilities?.direct_post || statusData?.direct_post_enabled)
+);
 
 type KlingModeInfoTooltipProps = {
   children: React.ReactNode;
@@ -1582,6 +1585,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [isTikTokDirectOpen, setIsTikTokDirectOpen] = useState(false);
   const [isLoadingTikTokCreatorInfo, setIsLoadingTikTokCreatorInfo] = useState(false);
   const [isPostingTikTokDirect, setIsPostingTikTokDirect] = useState(false);
+  const [isTikTokDirectPostEnabled, setIsTikTokDirectPostEnabled] = useState(false);
   const [tiktokCreatorInfo, setTikTokCreatorInfo] = useState<TikTokCreatorInfo | null>(null);
   const [tiktokDirectForm, setTikTokDirectForm] = useState<TikTokDirectPostInfo>(() => buildTikTokDirectPostInfo({}));
   const [isSavingScriptAsset, setIsSavingScriptAsset] = useState(false);
@@ -9651,7 +9655,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         setIsTikTokBindPromptOpen(true);
         return;
       }
-      if (TIKTOK_DIRECT_POST_ENABLED) {
+      const directPostEnabled = isTikTokDirectPostEnabledFromStatus(status?.data);
+      setIsTikTokDirectPostEnabled(directPostEnabled);
+      if (directPostEnabled) {
         setIsTikTokPublishModeOpen(true);
         return;
       }
@@ -12066,7 +12072,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
               {isPostingTikTok ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               {t.wb_tiktok_publish_mode_draft || 'Send to TikTok drafts'}
             </button>
-            {TIKTOK_DIRECT_POST_ENABLED ? (
+            {isTikTokDirectPostEnabled ? (
               <button
                 className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center gap-2"
                 onClick={() => pendingTikTokProjectId && void handlePrepareDirectPostToTikTok(pendingTikTokProjectId)}

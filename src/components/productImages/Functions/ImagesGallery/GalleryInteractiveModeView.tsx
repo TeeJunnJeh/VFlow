@@ -7,7 +7,6 @@ import { videoApi } from '../../../../services/video';
 import { ModelSelectorChips, type ModelSelectorValue } from '../../Common/ModelSelectorChips';
 
 type InteractiveStep = 'start' | 'gallery_assets' | 'gallery_review' | 'gallery_model' | 'gallery_next';
-type InteractivePendingAction = 'to_gallery_assets' | 'to_board' | null;
 
 interface GalleryInteractiveModeViewProps {
   onSelectBoardEditor: () => void;
@@ -19,7 +18,6 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
   const { language } = useLanguage();
   const isZh = language === 'zh';
   const [step, setStep] = useState<InteractiveStep>('start');
-  const [pendingAction, setPendingAction] = useState<InteractivePendingAction>(null);
   const [productImages, setProductImages] = useState<File[]>([]);
   const [modelImages, setModelImages] = useState<File[]>([]);
   const [sceneImages, setSceneImages] = useState<File[]>([]);
@@ -40,6 +38,8 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
     modelInfo: '',
   });
   const [generationModel, setGenerationModel] = useState<ModelSelectorValue>('nano-banana-pro');
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
   const productInputRef = useRef<HTMLInputElement | null>(null);
   const modelInputRef = useRef<HTMLInputElement | null>(null);
   const sceneInputRef = useRef<HTMLInputElement | null>(null);
@@ -56,10 +56,14 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
     : `${greeting}. Where should we start?`;
 
   const handleStartChoice = (choice: 'gallery' | 'board') => {
-    setPendingAction(choice === 'gallery' ? 'to_gallery_assets' : 'to_board');
+    if (choice === 'gallery') {
+      setStep('gallery_assets');
+    } else {
+      onSelectBoardEditor();
+    }
   };
 
-  const assetsTitle = isZh ? '我们需要哪些素材？' : 'What assets do we need?';
+  const assetsTitle = isZh ? '我们需要一些素材' : 'We need some assets.';
   const assetsSubtitle = isZh ? '点击卡片上传对应图片（可多选）。' : 'Click a card to upload (multi-select supported).';
   const reviewTitle = isZh ? '请确认识别结果' : 'Review the recognition result';
   const modelTitle = isZh ? '选择生成模型' : 'Choose the generation model';
@@ -172,15 +176,70 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
     }
   };
 
-  const PreviewGrid: React.FC<{ urls: string[] }> = ({ urls }) => {
+  const PreviewGrid: React.FC<{ urls: string[]; onRemove?: (index: number) => void }> = ({ urls, onRemove }) => {
     if (!urls || urls.length < 1) return null;
     return (
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-        {urls.slice(0, 12).map((url) => (
-          <div key={url} className="aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/20">
+        {urls.slice(0, 12).map((url, idx) => (
+          <div key={url} className="group relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/20">
             <img src={url} alt="" className="h-full w-full object-cover" />
+            {onRemove && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onRemove(idx); }}
+                className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-zinc-300 opacity-0 transition hover:bg-red-600/80 hover:text-white group-hover:opacity-100"
+                aria-label={isZh ? '移除' : 'Remove'}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
           </div>
         ))}
+      </div>
+    );
+  };
+
+  const handleSaveEdit = () => {
+    if (editingField === 'productName') setRecognized((prev) => ({ ...prev, productName: editValue }));
+    if (editingField === 'productCategory') setRecognized((prev) => ({ ...prev, productCategory: editValue }));
+    if (editingField === 'modelInfo') setRecognized((prev) => ({ ...prev, modelInfo: editValue }));
+    setEditingField(null);
+  };
+
+  const EditableField: React.FC<{
+    label: string;
+    fieldKey: string;
+    value: string;
+    placeholder: string;
+    className?: string;
+  }> = ({ label, fieldKey, value, placeholder, className }) => {
+    const isEditing = editingField === fieldKey;
+    return (
+      <div className={`group rounded-2xl border border-white/10 bg-black/20 px-4 py-3 ${className ?? ''}`}>
+        <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">{label}</div>
+        {isEditing ? (
+          <input
+            autoFocus
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); if (e.key === 'Escape') setEditingField(null); }}
+            onBlur={handleSaveEdit}
+            className="mt-1 w-full rounded-lg border border-orange-500/40 bg-black/30 px-2 py-1 text-sm font-bold text-zinc-100 outline-none focus:border-orange-500/60"
+          />
+        ) : (
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm font-bold text-zinc-100">{value || placeholder}</span>
+            <button
+              type="button"
+              onClick={() => { setEditingField(fieldKey); setEditValue(value); }}
+              className="shrink-0 rounded-full p-1 text-zinc-500 opacity-0 transition hover:bg-white/10 hover:text-orange-300 group-hover:opacity-100 focus:opacity-100 focus:outline-none"
+              aria-label={isZh ? '编辑' : 'Edit'}
+            >
+              <PencilLine className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -207,28 +266,8 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
   return (
     <div className="w-full flex justify-center">
       <div className="w-full max-w-4xl">
-        <AnimatePresence
-          mode="wait"
-          onExitComplete={() => {
-            if (pendingAction === 'to_gallery_assets') setStep('gallery_assets');
-            if (pendingAction === 'to_board') onSelectBoardEditor();
-            setPendingAction(null);
-          }}
-        >
-          {pendingAction !== null ? (
-            <motion.div
-              key="step-transition"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.22, ease: 'easeOut' }}
-              className="flex items-center justify-center py-20"
-            >
-              <div className="rounded-2xl border border-white/10 bg-black/20 px-6 py-4 text-sm text-zinc-400">
-                {isZh ? '正在进入…' : 'Entering…'}
-              </div>
-            </motion.div>
-          ) : step === 'start' ? (
+        <AnimatePresence mode="wait">
+          {step === 'start' ? (
             <motion.div
               key="step-1"
               initial={{ opacity: 0, y: 12 }}
@@ -250,8 +289,8 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                   onClick={() => handleStartChoice('gallery')}
                   className={cardBaseClass}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
                       <LayoutGrid className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -270,8 +309,8 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                   onClick={() => handleStartChoice('board')}
                   className={cardBaseClass}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
                       <PencilLine className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -293,12 +332,9 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.26, ease: 'easeOut' }}
-              className="space-y-8"
+              className="min-h-[70vh] flex flex-col justify-center space-y-8"
             >
-              <div className="space-y-3">
-                <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                  {isZh ? '商品套图 · 素材' : 'Gallery · Assets'}
-                </div>
+              <div className="space-y-3"> 
                 <StepHeader
                   onBack={() => setStep('start')}
                   title={assetsTitle}
@@ -314,7 +350,7 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                 className="hidden"
                 onChange={(e) => {
                   const next = Array.from(e.target.files || []);
-                  setProductImages(next);
+                  setProductImages((prev) => [...prev, ...next]);
                   e.target.value = '';
                 }}
               />
@@ -326,7 +362,7 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                 className="hidden"
                 onChange={(e) => {
                   const next = Array.from(e.target.files || []);
-                  setModelImages(next);
+                  setModelImages((prev) => [...prev, ...next]);
                   e.target.value = '';
                 }}
               />
@@ -338,7 +374,7 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                 className="hidden"
                 onChange={(e) => {
                   const next = Array.from(e.target.files || []);
-                  setSceneImages(next);
+                  setSceneImages((prev) => [...prev, ...next]);
                   e.target.value = '';
                 }}
               />
@@ -349,19 +385,16 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                   onClick={() => productInputRef.current?.click()}
                   className={cardBaseClass}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
                       <ImageIcon className="h-5 w-5" />
                     </div>
-                    <div className="min-w-0 flex-1 space-y-1">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-base font-black tracking-tight text-zinc-100">
-                          {isZh ? '上传商品图片' : 'Product Images'}
+                          {isZh ? '商品图片' : 'Product Images'}
                         </div>
                         {selectionBadge(productImages.length)}
-                      </div>
-                      <div className="text-sm text-zinc-500">
-                        {isZh ? '建议上传 1–6 张主图/细节图。' : 'Upload 1–6 images.'}
                       </div>
                     </div>
                   </div>
@@ -372,19 +405,16 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                   onClick={() => modelInputRef.current?.click()}
                   className={cardBaseClass}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
                       <UserRound className="h-5 w-5" />
                     </div>
-                    <div className="min-w-0 flex-1 space-y-1">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-base font-black tracking-tight text-zinc-100">
-                          {isZh ? '上传模特图片' : 'Model Images'}
+                          {isZh ? '模特图片' : 'Model Images'}
                         </div>
                         {selectionBadge(modelImages.length)}
-                      </div>
-                      <div className="text-sm text-zinc-500">
-                        {isZh ? '可选：用于上身/场景融入等效果。' : 'Optional.'}
                       </div>
                     </div>
                   </div>
@@ -395,19 +425,16 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                   onClick={() => sceneInputRef.current?.click()}
                   className={cardBaseClass}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-orange-300">
                       <Sparkles className="h-5 w-5" />
                     </div>
-                    <div className="min-w-0 flex-1 space-y-1">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-base font-black tracking-tight text-zinc-100">
-                          {isZh ? '上传场景示例图' : 'Scene Examples'}
+                          {isZh ? '场景图片' : 'Scene Images'}
                         </div>
                         {selectionBadge(sceneImages.length)}
-                      </div>
-                      <div className="text-sm text-zinc-500">
-                        {isZh ? '可选：用于参考氛围/构图。' : 'Optional.'}
                       </div>
                     </div>
                   </div>
@@ -428,7 +455,10 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                       <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
                         {isZh ? '商品图片' : 'Product'}
                       </div>
-                      <PreviewGrid urls={productPreviewUrls} />
+                      <PreviewGrid
+                        urls={productPreviewUrls}
+                        onRemove={(idx) => setProductImages((prev) => prev.filter((_, i) => i !== idx))}
+                      />
                     </div>
                   ) : null}
 
@@ -437,7 +467,10 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                       <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
                         {isZh ? '模特图片' : 'Model'}
                       </div>
-                      <PreviewGrid urls={modelPreviewUrls} />
+                      <PreviewGrid
+                        urls={modelPreviewUrls}
+                        onRemove={(idx) => setModelImages((prev) => prev.filter((_, i) => i !== idx))}
+                      />
                     </div>
                   ) : null}
 
@@ -446,7 +479,10 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                       <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
                         {isZh ? '场景示例图' : 'Scene'}
                       </div>
-                      <PreviewGrid urls={scenePreviewUrls} />
+                      <PreviewGrid
+                        urls={scenePreviewUrls}
+                        onRemove={(idx) => setSceneImages((prev) => prev.filter((_, i) => i !== idx))}
+                      />
                     </div>
                   ) : null}
 
@@ -487,9 +523,6 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
               className="space-y-8"
             >
               <div className="space-y-3">
-                <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                  {isZh ? '商品套图 · 识别' : 'Gallery · Recognition'}
-                </div>
                 <StepHeader
                   onBack={() => setStep('gallery_assets')}
                   title={reviewTitle}
@@ -508,23 +541,18 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                 ) : null}
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                      {isZh ? '商品名称' : 'Product Name'}
-                    </div>
-                    <div className="mt-1 text-sm font-bold text-zinc-100">
-                      {recognized.productName || (isZh ? '未识别' : 'Not recognized')}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                      {isZh ? '商品类目' : 'Category'}
-                    </div>
-                    <div className="mt-1 text-sm font-bold text-zinc-100">
-                      {recognized.productCategory || (isZh ? '未识别' : 'Not recognized')}
-                    </div>
-                  </div>
+                  <EditableField
+                    label={isZh ? '商品名称' : 'Product Name'}
+                    fieldKey="productName"
+                    value={recognized.productName}
+                    placeholder={isZh ? '未识别' : 'Not recognized'}
+                  />
+                  <EditableField
+                    label={isZh ? '商品类目' : 'Category'}
+                    fieldKey="productCategory"
+                    value={recognized.productCategory}
+                    placeholder={isZh ? '未识别' : 'Not recognized'}
+                  />
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
@@ -547,14 +575,12 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                   )}
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                    {isZh ? '模特信息' : 'Model Info'}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-200">
-                    {recognized.modelInfo || (isZh ? '未识别' : 'Not recognized')}
-                  </div>
-                </div>
+                <EditableField
+                  label={isZh ? '模特信息' : 'Model Info'}
+                  fieldKey="modelInfo"
+                  value={recognized.modelInfo}
+                  placeholder={isZh ? '未识别' : 'Not recognized'}
+                />
 
                 <div className="flex items-center justify-end pt-1">
                   <button
@@ -583,9 +609,6 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
               className="space-y-8"
             >
               <div className="space-y-3">
-                <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                  {isZh ? '商品套图 · 模型' : 'Gallery · Model'}
-                </div>
                 <StepHeader
                   onBack={() => setStep('gallery_review')}
                   title={modelTitle}

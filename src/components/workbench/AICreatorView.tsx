@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   Send,
   Wand2,
@@ -10,31 +10,27 @@ import {
   Loader2,
   ImagePlus,
   ScrollText,
-  Upload,
   X,
   Pencil,
   Trash2,
   Plus,
   MessageSquare,
-  ChevronLeft,
-  ChevronRight,
   Edit3,
-  Check,
+  Save,
   Menu,
-  CheckCircle,
   Download,
-  ExternalLink,
+  FolderPlus,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { useTasks } from '../../context/TaskContext';
 import {
-  aiCreatorApi,
-  type AiCreatorAction,
-  type AiCreatorMessage,
-  type AiCreatorConversation,
-} from '../../services/aiCreator';
-import { videoApi } from '../../services/video';
+  agentRuntimeApi,
+  type AgentAction as AiCreatorAction,
+  type AgentMessage as AiCreatorMessage,
+  type AgentConversation as AiCreatorConversation,
+  type AgentAttachment,
+  type AgentSkill,
+} from '../../services/agentRuntime';
 import { assetsApi } from '../../services/assets';
 import { ApiError } from '../../services/errors';
 import { AppDialog } from '../common/AppDialog';
@@ -66,23 +62,29 @@ const ACTION_LABELS_ZH: Record<string, string> = {
   chat: '对话',
 };
 
-interface GenerationResult {
-  id: string;
-  type: string;
-  status: 'pending' | 'success' | 'failed';
-  content?: string;
-  imageUrl?: string;
-  videoUrl?: string;
-  taskId?: string | number;
-  error?: string;
-  model?: string;
-}
-
 interface UploadedImage {
   id: string;
   url: string;
-  file: File;
+  file?: File | null;
+  name?: string;
+  role?: AgentAttachment['role'];
 }
+
+type ImageToolGroupEntry = {
+  message: AiCreatorMessage;
+  index: number;
+  key: string;
+};
+
+type ChatRenderItem =
+  | { type: 'message'; key: string; message: AiCreatorMessage; index: number }
+  | { type: 'image_group'; key: string; entries: ImageToolGroupEntry[] };
+
+type SlashSkillRange = {
+  start: number;
+  end: number;
+  query: string;
+};
 
 const WELCOME_MESSAGE: AiCreatorMessage = {
   role: 'assistant',
@@ -96,16 +98,39 @@ const WELCOME_MESSAGE_ZH: AiCreatorMessage = {
     "👋 你好！我是你的 AI 创作助手。告诉我你想制作什么——视频、脚本、图片，或其他任何内容——我会一键为你生成。",
 };
 
-type WaitProgressPhase = 'idle' | 'simulating' | 'holding' | 'finishing' | 'done';
+const readAssetUrl = (item: any) =>
+  String(item?.url || item?.path || item?.image_url || item?.imageUrl || item?.video_url || item?.videoUrl || item?.video_file || item?.file_url || '').trim();
 
-const WAIT_PROGRESS_SIM_DURATION_MS = 90_000;
-const WAIT_PROGRESS_MAX_BEFORE_HOLD = 90;
-const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
+const readAssetRequestId = (item: any) =>
+  String(item?.request_id || item?.requestId || item?.external_task_id || '').trim();
+
+const isPendingToolAsset = (item: any) => {
+  if (!item || readAssetUrl(item) || !readAssetRequestId(item)) return false;
+  const rawKind = String(item?.media_kind || item?.mediaKind || item?.type || '').trim().toLowerCase();
+  const status = String(item?.status || '').trim().toLowerCase();
+  if (['succeeded', 'success', 'done', 'ready', 'failed', 'error', 'cancelled', 'canceled'].includes(status)) return false;
+  return rawKind === 'pending_image' || rawKind === 'pending_video' || rawKind === 'image' || rawKind === 'video' || rawKind === '' || ['created', 'processing', 'pending', 'running'].includes(status);
+};
+
+const isFailedToolAsset = (item: any) => {
+  if (!item) return false;
+  const status = String(item?.status || '').trim().toLowerCase();
+  return ['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(status);
+};
+
+const hasPendingToolAssets = (items: AiCreatorMessage[]) =>
+  items.some((message) => {
+    if (message.role !== 'tool') return false;
+    const status = String(message.tool_result?.status || '').trim().toLowerCase();
+    if (['pending', 'running'].includes(status)) return true;
+    const assets = Array.isArray(message.tool_result?.assets) ? message.tool_result.assets : [];
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    return [...assets, ...attachments].some(isPendingToolAsset);
+  });
 
 export const AICreatorView: React.FC = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
-  const { tasks, addTask } = useTasks();
   const isZh = (t as any).ai_creator_title === 'AI 创作助手';
 
   const STORAGE_KEY = 'vflow_ai_creator_active_conversation';
@@ -122,16 +147,20 @@ export const AICreatorView: React.FC = () => {
 
   const [messages, setMessages] = useState<AiCreatorMessage[]>([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
   const [input, setInput] = useState('');
+  const [availableSkills, setAvailableSkills] = useState<{ system_skills: AgentSkill[]; workflow_skills: AgentSkill[] }>({ system_skills: [], workflow_skills: [] });
+  const [selectedSkills, setSelectedSkills] = useState<AgentSkill[]>([]);
+  const [slashRange, setSlashRange] = useState<SlashSkillRange | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
-  const [results, setResults] = useState<GenerationResult[]>([]);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTitle, setDialogTitle] = useState('');
   const [dialogMessage, setDialogMessage] = useState('');
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
+  const [previewImage, setPreviewImage] = useState<AgentAttachment | null>(null);
+  const [savingPreviewAsset, setSavingPreviewAsset] = useState(false);
 
   // Sidebar editing states
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -141,31 +170,29 @@ export const AICreatorView: React.FC = () => {
   // Action confirmation dialog
   const [confirmAction, setConfirmAction] = useState<AiCreatorAction | null>(null);
   const [confirmParams, setConfirmParams] = useState<Record<string, unknown>>({});
-
-  // Track which result ids are linked to global tasks so we don't duplicate updates
-  const linkedTaskIdsRef = useRef<Set<string | number>>(new Set());
+  const [selectedImageGroupItems, setSelectedImageGroupItems] = useState<Record<string, string>>({});
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
+  const nextScrollBehaviorRef = useRef<ScrollBehavior>('smooth');
+  const suppressNextScrollRef = useRef(false);
 
-  // 按会话缓存临时状态（生成结果、上传图片），切回时恢复（持久化到 localStorage）
-  const resultsRef = useRef<GenerationResult[]>([]);
+  // 按会话缓存临时状态（待发送上传图片），切回时恢复（持久化到 localStorage）
   const uploadedImagesRef = useRef<UploadedImage[]>([]);
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
 
-  useEffect(() => { resultsRef.current = results; }, [results]);
   useEffect(() => { uploadedImagesRef.current = uploadedImages; }, [uploadedImages]);
   useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
 
   const getSessionStorageKey = (conversationId: string) => `vflow_ai_creator_session_${user?.id || 'anon'}_${conversationId}`;
 
-  const saveSessionState = (conversationId: string, state: { results: GenerationResult[]; uploadedImages: UploadedImage[] }) => {
+  const saveSessionState = (conversationId: string, state: { uploadedImages: UploadedImage[] }) => {
     try {
       localStorage.setItem(
         getSessionStorageKey(conversationId),
         JSON.stringify({
-          results: state.results,
-          uploadedImages: state.uploadedImages.map((img) => ({ id: img.id, url: img.url })),
+          uploadedImages: state.uploadedImages.map((img) => ({ id: img.id, url: img.url, name: img.name, role: img.role })),
         })
       );
     } catch {
@@ -173,218 +200,52 @@ export const AICreatorView: React.FC = () => {
     }
   };
 
-  const loadSessionState = (conversationId: string): { results: GenerationResult[]; uploadedImages: UploadedImage[] } | null => {
+  const loadSessionState = (conversationId: string): { uploadedImages: UploadedImage[] } | null => {
     try {
       const raw = localStorage.getItem(getSessionStorageKey(conversationId));
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      const results: GenerationResult[] = Array.isArray(parsed.results) ? parsed.results : [];
       const uploadedImages: UploadedImage[] = (Array.isArray(parsed.uploadedImages) ? parsed.uploadedImages : []).map(
         (img: any) => ({
           id: img.id || `img_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           url: img.url,
+          name: img.name || '',
+          role: img.role || 'reference_image',
           file: null as any,
         })
       );
-      return { results, uploadedImages };
+      return { uploadedImages };
     } catch {
       return null;
     }
   };
 
-  // === Wait Progress Simulation (Workbench-style loading) ===
-  const [waitProgress, setWaitProgress] = useState(0);
-  const [waitProgressPhase, setWaitProgressPhase] = useState<WaitProgressPhase>('idle');
-  const [waitingVideoFailed, setWaitingVideoFailed] = useState(false);
-
-  const waitProgressTimerRef = useRef<number | null>(null);
-  const waitProgressStartedAtRef = useRef<number | null>(null);
-  const waitProgressValueRef = useRef(0);
-  const waitProgressPhaseRef = useRef<WaitProgressPhase>('idle');
-  const waitProgressHoldValueRef = useRef<number | null>(null);
-  const waitProgressDebugPrintedRef = useRef(false);
-  const waitProgressSimDurationMsRef = useRef<number>(WAIT_PROGRESS_SIM_DURATION_MS);
-  const waitProgressTrackedTaskIdRef = useRef<string | number | null>(null);
-  const waitProgressRafRef = useRef<number | null>(null);
-
-  const clearWaitProgressTimers = () => {
-    if (waitProgressTimerRef.current) {
-      window.clearTimeout(waitProgressTimerRef.current);
-      waitProgressTimerRef.current = null;
-    }
-    if (waitProgressRafRef.current) {
-      window.cancelAnimationFrame(waitProgressRafRef.current);
-      waitProgressRafRef.current = null;
-    }
-  };
-
-  const setWaitProgressWithRef = (value: number) => {
-    const clamped = Math.max(0, Math.min(100, value));
-    waitProgressValueRef.current = clamped;
-    setWaitProgress(clamped);
-  };
-
-  const setWaitProgressPhaseWithRef = (phase: WaitProgressPhase) => {
-    waitProgressPhaseRef.current = phase;
-    setWaitProgressPhase(phase);
-  };
-
-  const tickWaitSimulation = () => {
-    const phase = waitProgressPhaseRef.current;
-    if (phase === 'idle' || phase === 'finishing' || phase === 'done') return;
-
-    const startedAt = waitProgressStartedAtRef.current;
-    if (!startedAt) return;
-
-    const elapsedMs = Date.now() - startedAt;
-    const simDurationMs = waitProgressSimDurationMsRef.current || WAIT_PROGRESS_SIM_DURATION_MS;
-
-    if (!waitProgressDebugPrintedRef.current) {
-      const estSec = Math.round(simDurationMs / 1000);
-      const ratioRaw = simDurationMs > 0 ? elapsedMs / simDurationMs : 0;
-      console.log('[AICreatorWaitDebug]', {
-        taskId: waitProgressTrackedTaskIdRef.current,
-        estimatedSeconds: estSec,
-        simDurationMs,
-        elapsedMs,
-        ratio: ratioRaw,
-        percentApprox: Math.round(ratioRaw * 100),
-      });
-      waitProgressDebugPrintedRef.current = true;
-    }
-
-    if (phase === 'holding') {
-      if (waitProgressHoldValueRef.current === null) {
-        waitProgressHoldValueRef.current = 96;
-      }
-      setWaitProgressWithRef(waitProgressHoldValueRef.current);
-      return;
-    }
-
-    const ratio = Math.max(0, Math.min(1, elapsedMs / simDurationMs));
-    const eased = 1 - Math.pow(1 - ratio, 3);
-    const next = eased * WAIT_PROGRESS_MAX_BEFORE_HOLD;
-
-    if (ratio >= 1) {
-      if (waitProgressHoldValueRef.current === null) {
-        waitProgressHoldValueRef.current = 96;
-      }
-      setWaitProgressPhaseWithRef('holding');
-      setWaitProgressWithRef(waitProgressHoldValueRef.current);
-      return;
-    }
-
-    setWaitProgressPhaseWithRef('simulating');
-    setWaitProgressWithRef(next);
-  };
-
-  const scheduleWaitSimulationTick = () => {
-    if (waitProgressTimerRef.current) {
-      window.clearTimeout(waitProgressTimerRef.current);
-      waitProgressTimerRef.current = null;
-    }
-
-    const delay = waitProgressPhaseRef.current === 'holding'
-      ? 1200 + Math.random() * 500
-      : 320 + Math.random() * 900;
-
-    waitProgressTimerRef.current = window.setTimeout(() => {
-      tickWaitSimulation();
-      if (waitProgressPhaseRef.current === 'simulating' || waitProgressPhaseRef.current === 'holding') {
-        scheduleWaitSimulationTick();
-      }
-    }, delay);
-  };
-
-  const startWaitProgressSimulation = (taskId: string | number, estimatedSeconds?: number | null) => {
-    clearWaitProgressTimers();
-    waitProgressTrackedTaskIdRef.current = taskId;
-    waitProgressStartedAtRef.current = Date.now();
-    waitProgressHoldValueRef.current = null;
-    waitProgressDebugPrintedRef.current = false;
-
-    const est = Number(estimatedSeconds);
-    const durationMs = Number.isFinite(est) && est > 0 ? Math.round(est * 1000) : 120_000;
-    waitProgressSimDurationMsRef.current = Math.max(30_000, Math.min(900_000, durationMs));
-
-    setWaitingVideoFailed(false);
-    setWaitProgressWithRef(0);
-    setWaitProgressPhaseWithRef('simulating');
-    tickWaitSimulation();
-    scheduleWaitSimulationTick();
-  };
-
-  const finishWaitProgressSimulation = () => {
-    if (waitProgressPhaseRef.current === 'finishing' || waitProgressPhaseRef.current === 'done') return;
-
-    clearWaitProgressTimers();
-    const from = Math.max(0, Math.min(100, waitProgressValueRef.current));
-
-    if (from >= 100) {
-      setWaitProgressWithRef(100);
-      setWaitProgressPhaseWithRef('done');
-      return;
-    }
-
-    setWaitProgressPhaseWithRef('finishing');
-    const startedAt = performance.now();
-    const durationMs = 480;
-
-    const animate = (now: number) => {
-      const ratio = Math.min(1, (now - startedAt) / durationMs);
-      const eased = 1 - Math.pow(1 - ratio, 3);
-      setWaitProgressWithRef(from + (100 - from) * eased);
-
-      if (ratio < 1) {
-        waitProgressRafRef.current = window.requestAnimationFrame(animate);
-      } else {
-        setWaitProgressWithRef(100);
-        setWaitProgressPhaseWithRef('done');
-      }
-    };
-
-    waitProgressRafRef.current = window.requestAnimationFrame(animate);
-  };
-
-  const resetWaitProgressSimulation = () => {
-    clearWaitProgressTimers();
-    waitProgressTrackedTaskIdRef.current = null;
-    waitProgressStartedAtRef.current = null;
-    waitProgressHoldValueRef.current = null;
-    setWaitProgressWithRef(0);
-    setWaitProgressPhaseWithRef('idle');
-  };
-
   const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (suppressNextScrollRef.current) {
+      suppressNextScrollRef.current = false;
+      return;
+    }
+    const behavior = nextScrollBehaviorRef.current;
+    bottomRef.current?.scrollIntoView({ behavior });
+    nextScrollBehaviorRef.current = 'smooth';
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     scrollToBottom();
-  }, [messages, results]);
+  }, [messages]);
 
-  // 自动保存当前会话的生成结果和上传图片
+  // 自动保存当前会话尚未发送的上传图片
   useEffect(() => {
     if (activeConversationId) {
-      saveSessionState(activeConversationId, { results, uploadedImages });
+      saveSessionState(activeConversationId, { uploadedImages });
     }
-  }, [results, uploadedImages, activeConversationId]);
-
-  // 当恢复结果中有进行中的视频任务时，重启进度条模拟
-  useEffect(() => {
-    if (results.length === 0) return;
-    const pendingVideo = results.find((r) => r.type === 'generate_video' && r.status === 'pending');
-    if (pendingVideo?.taskId && waitProgressPhaseRef.current === 'idle') {
-      startWaitProgressSimulation(pendingVideo.taskId, 120);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results]);
+  }, [uploadedImages, activeConversationId]);
 
   // Load conversations on mount. Default to empty new chat instead of restoring
-  // the last active conversation to avoid polluting the chat area with stale
-  // generation results / pending video tasks.
+  // the last active conversation.
   useEffect(() => {
     void loadConversations();
+    void loadSkills();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -393,8 +254,9 @@ export const AICreatorView: React.FC = () => {
     if (conversations.some((c) => c.id === activeConversationId)) return;
     setActiveConversationId(null);
     setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
-    setResults([]);
     setUploadedImages([]);
+    setSelectedSkills([]);
+    setSlashRange(null);
     setEditingIdx(null);
     setEditText('');
     try {
@@ -430,59 +292,21 @@ export const AICreatorView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId, conversations]);
 
-  // 监听全局任务队列，当 AI Creator 生成的视频任务完成时更新结果卡片
   useEffect(() => {
-    if (tasks.length === 0) return;
+    if (!activeConversationId || generatingType || !hasPendingToolAssets(messages) || document.hidden) return;
+    const timer = window.setTimeout(() => {
+      void loadConversation(activeConversationId, { skipStateRestore: true, silent: true, preserveScroll: true });
+    }, 6000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, messages, generatingType]);
 
-    // 追踪的 wait-progress 任务完成时结束模拟
-    const trackedTaskId = waitProgressTrackedTaskIdRef.current;
-    if (trackedTaskId) {
-      const trackedTask = tasks.find((t) => String(t.id) === String(trackedTaskId));
-      if (!trackedTask) {
-        resetWaitProgressSimulation();
-      } else if (trackedTask.status === 'success' || trackedTask.status === 'failed') {
-        finishWaitProgressSimulation();
-      }
-    }
-
-    setResults((prev) =>
-      prev.map((result) => {
-        if (result.type !== 'generate_video' || !result.taskId) return result;
-        const task = tasks.find((t) => String(t.id) === String(result.taskId));
-        if (!task) return result;
-
-        // 任务完成且有视频 URL
-        if (task.status === 'success' && (task.result?.video_url || task.result?.url)) {
-          return {
-            ...result,
-            status: 'success',
-            videoUrl: task.result.video_url || task.result.url,
-          };
-        }
-        // 任务失败
-        if (task.status === 'failed') {
-          return {
-            ...result,
-            status: 'failed',
-            error: task.result?.error || 'Generation failed',
-          };
-        }
-        // 仍在处理中
-        if (task.status === 'processing' || task.status === 'pending') {
-          return { ...result, status: 'pending' };
-        }
-        return result;
-      })
-    );
-  }, [tasks]);
-
-  // 组件卸载时清理 wait-progress 定时器并保存当前会话状态
+  // 组件卸载时保存当前会话状态
   useEffect(() => {
     return () => {
-      clearWaitProgressTimers();
       const convoId = activeConversationIdRef.current;
       if (convoId) {
-        saveSessionState(convoId, { results: resultsRef.current, uploadedImages: uploadedImagesRef.current });
+        saveSessionState(convoId, { uploadedImages: uploadedImagesRef.current });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -490,16 +314,44 @@ export const AICreatorView: React.FC = () => {
 
   const loadConversations = async () => {
     try {
-      const list = await aiCreatorApi.listConversations();
+      const list = await agentRuntimeApi.listConversations();
       setConversations(list);
     } catch (e) {
       console.error('Failed to load conversations:', e);
     }
   };
 
+  const loadSkills = async () => {
+    try {
+      const skills = await agentRuntimeApi.listSkills();
+      setAvailableSkills(skills);
+    } catch (e) {
+      console.error('Failed to load skills:', e);
+      setAvailableSkills({ system_skills: [], workflow_skills: [] });
+    }
+  };
+
+  const ensureConversationInList = (id: string, title: string) => {
+    const now = new Date().toISOString();
+    setConversations((prev) => {
+      if (prev.some((item) => item.id === id)) {
+        return prev.map((item) => (item.id === id ? { ...item, updated_at: now } : item));
+      }
+      return [
+        {
+          id,
+          title: title.slice(0, 30) || (isZh ? '新对话' : 'New chat'),
+          created_at: now,
+          updated_at: now,
+        },
+        ...prev,
+      ];
+    });
+  };
+
   const startNewChat = async () => {
     if (activeConversationId) {
-      saveSessionState(activeConversationId, { results: [...results], uploadedImages: [...uploadedImages] });
+      saveSessionState(activeConversationId, { uploadedImages: [...uploadedImages] });
     }
     setActiveConversationId(null);
     try {
@@ -508,24 +360,33 @@ export const AICreatorView: React.FC = () => {
       // ignore
     }
     setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
-    setResults([]);
     setUploadedImages([]);
+    setSelectedSkills([]);
+    setSlashRange(null);
     setEditingIdx(null);
     setEditText('');
     // Optionally auto-create on first message
   };
 
-  const loadConversation = async (id: string, options?: { skipStateRestore?: boolean; silent?: boolean }) => {
+  const loadConversation = async (id: string, options?: { skipStateRestore?: boolean; silent?: boolean; instantScroll?: boolean; preserveScroll?: boolean }) => {
     if (convoLoading) return;
+    const showLoading = !options?.silent;
 
     // 切走前先把当前会话的临时状态缓存下来
     if (activeConversationId) {
-      saveSessionState(activeConversationId, { results: [...results], uploadedImages: [...uploadedImages] });
+      saveSessionState(activeConversationId, { uploadedImages: [...uploadedImages] });
     }
 
-    setConvoLoading(true);
+    if (showLoading) {
+      setConvoLoading(true);
+    }
     try {
-      const data = await aiCreatorApi.getMessages(id);
+      const data = await agentRuntimeApi.getMessages(id);
+      if (options?.preserveScroll) {
+        suppressNextScrollRef.current = true;
+      } else {
+        nextScrollBehaviorRef.current = options?.instantScroll === false ? 'smooth' : 'auto';
+      }
       setActiveConversationId(data.id);
       if (data.messages && data.messages.length > 0) {
         setMessages(data.messages);
@@ -535,32 +396,14 @@ export const AICreatorView: React.FC = () => {
 
       if (!options?.skipStateRestore) {
         const cached = loadSessionState(data.id);
-        let restoredResults: GenerationResult[] = cached?.results ?? [];
-        let restoredImages: UploadedImage[] = cached?.uploadedImages ?? [];
-
-        // 将全局任务队列的最新状态同步到已恢复的 results 上（防止组件卸载期间任务完成导致状态不同步）
-        restoredResults = restoredResults.map((result) => {
-          if (result.type !== 'generate_video' || !result.taskId) return result;
-          const task = tasks.find((t) => String(t.id) === String(result.taskId));
-          if (!task) return result;
-          if (task.status === 'success' && (task.result?.video_url || task.result?.url)) {
-            return { ...result, status: 'success', videoUrl: task.result.video_url || task.result.url };
-          }
-          if (task.status === 'failed') {
-            return { ...result, status: 'failed', error: task.result?.error || 'Generation failed' };
-          }
-          if (task.status === 'processing' || task.status === 'pending') {
-            return { ...result, status: 'pending' };
-          }
-          return result;
-        });
-
-        setResults(restoredResults);
+        const restoredImages: UploadedImage[] = cached?.uploadedImages ?? [];
         setUploadedImages(restoredImages);
       }
 
       setEditingIdx(null);
       setEditText('');
+      setSelectedSkills([]);
+      setSlashRange(null);
     } catch (e: any) {
       const isNotFound = (e instanceof ApiError && e.status === 404)
         || String(e?.message || '').includes('对话不存在');
@@ -568,8 +411,9 @@ export const AICreatorView: React.FC = () => {
         setConversations((prev) => prev.filter((c) => c.id !== id));
         setActiveConversationId(null);
         setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
-        setResults([]);
         setUploadedImages([]);
+        setSelectedSkills([]);
+        setSlashRange(null);
         setEditingIdx(null);
         setEditText('');
         try {
@@ -591,7 +435,9 @@ export const AICreatorView: React.FC = () => {
         console.error('Failed to refresh conversation:', e);
       }
     } finally {
-      setConvoLoading(false);
+      if (showLoading) {
+        setConvoLoading(false);
+      }
     }
   };
 
@@ -599,7 +445,7 @@ export const AICreatorView: React.FC = () => {
     e.stopPropagation();
     if (!window.confirm(isZh ? '确定删除此对话？' : 'Delete this conversation?')) return;
     try {
-      await aiCreatorApi.deleteConversation(id);
+      await agentRuntimeApi.deleteConversation(id);
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeConversationId === id) {
         startNewChat();
@@ -622,7 +468,7 @@ export const AICreatorView: React.FC = () => {
       return;
     }
     try {
-      await aiCreatorApi.updateConversation(id, title);
+      await agentRuntimeApi.updateConversation(id, title);
       setConversations((prev) =>
         prev.map((c) => (c.id === id ? { ...c, title } : c))
       );
@@ -644,6 +490,112 @@ export const AICreatorView: React.FC = () => {
     return map[type] || type;
   };
 
+  const getSkillKey = (skill: AgentSkill) =>
+    `${skill.source}:${skill.source === 'workflow' ? skill.id || skill.name : `${skill.name}:${skill.version || ''}`}`;
+
+  const getSkillLabel = (skill: AgentSkill) =>
+    String(skill.label || skill.name || '').trim() || (isZh ? '未命名技能' : 'Untitled skill');
+
+  const detectSlashSkillRange = (value: string, cursor: number | null | undefined): SlashSkillRange | null => {
+    const end = typeof cursor === 'number' ? cursor : value.length;
+    const beforeCursor = value.slice(0, end);
+    const tokenStart = Math.max(
+      beforeCursor.lastIndexOf(' '),
+      beforeCursor.lastIndexOf('\n'),
+      beforeCursor.lastIndexOf('\t')
+    ) + 1;
+    const token = beforeCursor.slice(tokenStart);
+    if (!token.startsWith('/')) return null;
+    return { start: tokenStart, end, query: token.slice(1).trim().toLowerCase() };
+  };
+
+  const updateSlashRange = (value: string, cursor: number | null | undefined) => {
+    setSlashRange(detectSlashSkillRange(value, cursor));
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInput(value);
+    updateSlashRange(value, e.target.selectionStart);
+  };
+
+  const removeSelectedSkill = (skill: AgentSkill) => {
+    const key = getSkillKey(skill);
+    setSelectedSkills((prev) => prev.filter((item) => getSkillKey(item) !== key));
+  };
+
+  const selectSkill = (skill: AgentSkill) => {
+    const key = getSkillKey(skill);
+    const alreadySelected = selectedSkills.some((item) => getSkillKey(item) === key);
+    if (!alreadySelected && selectedSkills.length >= 2) return;
+    if (!alreadySelected) {
+      setSelectedSkills((prev) => [...prev, skill].slice(0, 2));
+    }
+    if (slashRange) {
+      const before = input.slice(0, slashRange.start);
+      const after = input.slice(slashRange.end);
+      const needsSpace = before && after && !/\s$/.test(before) && !/^\s/.test(after);
+      const nextInput = `${before}${needsSpace ? ' ' : ''}${after}`.replace(/[ \t]{2,}/g, ' ');
+      const nextCursor = before.length + (needsSpace ? 1 : 0);
+      setInput(nextInput);
+      window.requestAnimationFrame(() => {
+        textInputRef.current?.focus();
+        textInputRef.current?.setSelectionRange(nextCursor, nextCursor);
+      });
+    }
+    setSlashRange(null);
+  };
+
+  const skillMatchesQuery = (skill: AgentSkill, query: string) => {
+    if (!query) return true;
+    const haystack = [
+      skill.label,
+      skill.name,
+      skill.description,
+      ...(Array.isArray(skill.trigger_actions) ? skill.trigger_actions : []),
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  };
+
+  const filteredSystemSkills = React.useMemo(
+    () => availableSkills.system_skills.filter((skill) => skillMatchesQuery(skill, slashRange?.query || '')),
+    [availableSkills.system_skills, slashRange]
+  );
+
+  const filteredWorkflowSkills = React.useMemo(
+    () => availableSkills.workflow_skills.filter((skill) => skillMatchesQuery(skill, slashRange?.query || '')),
+    [availableSkills.workflow_skills, slashRange]
+  );
+
+  const firstSelectableSkill = React.useMemo(
+    () => [...filteredSystemSkills, ...filteredWorkflowSkills].find((skill) => {
+      const selected = selectedSkills.some((item) => getSkillKey(item) === getSkillKey(skill));
+      return selected || selectedSkills.length < 2;
+    }) || null,
+    [filteredSystemSkills, filteredWorkflowSkills, selectedSkills]
+  );
+
+  const renderSkillChip = (skill: AgentSkill, removable = false) => (
+    <span
+      key={getSkillKey(skill)}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-orange-300/50 bg-orange-700/70 px-2.5 py-1 text-xs font-semibold text-orange-50 shadow-sm shadow-black/20"
+      title={skill.description || getSkillLabel(skill)}
+    >
+      <Sparkles className="h-3 w-3 shrink-0" />
+      <span className="truncate">{getSkillLabel(skill)}</span>
+      {removable && (
+        <button
+          type="button"
+          onClick={() => removeSelectedSkill(skill)}
+          className="rounded p-0.5 text-orange-100/75 transition hover:bg-white/15 hover:text-white"
+          title={isZh ? '移除技能' : 'Remove skill'}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </span>
+  );
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -657,7 +609,7 @@ export const AICreatorView: React.FC = () => {
         const resp = await assetsApi.uploadTempAsset(file);
         const url = String(resp?.data?.url || resp?.data?.path || resp?.url || '').trim();
         if (url) {
-          newImages.push({ id: `img_${Date.now()}_${Math.random().toString(36).slice(2)}`, url, file });
+          newImages.push({ id: `img_${Date.now()}_${Math.random().toString(36).slice(2)}`, url, file, name: file.name, role: 'reference_image' });
         }
       } catch (err: any) {
         console.error('Upload failed:', err);
@@ -675,32 +627,66 @@ export const AICreatorView: React.FC = () => {
     setUploadedImages((prev) => prev.filter((img) => img.id !== id));
   };
 
+  const uploadedImagesToAttachments = (images: UploadedImage[]): AgentAttachment[] =>
+    images.map((img) => ({
+      url: img.url,
+      name: img.name || img.file?.name || '',
+      media_kind: 'image',
+      role: img.role || 'reference_image',
+    }));
+
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText || input).trim();
-    if (!text || loading) return;
+    const attachments = uploadedImagesToAttachments(uploadedImages);
+    const requestedSkills = selectedSkills.slice(0, 2);
+    if ((!text && attachments.length === 0) || loading) return;
 
-    if (!overrideText) setInput('');
-
-    // Build message with image references
-    let messageContent = text;
-    if (uploadedImages.length > 0) {
-      const imageDesc = uploadedImages.map((img, i) => `[参考图${i + 1}: ${img.url}]`).join('\n');
-      messageContent = `${text}\n\n${imageDesc}`;
+    if (!overrideText) {
+      setInput('');
+      setSlashRange(null);
     }
 
-    const userMsg: AiCreatorMessage = { role: 'user', content: messageContent };
+    const messageContent = text || (isZh ? '请根据我上传的素材继续创作。' : 'Please continue with the uploaded assets.');
+    const userMsg: AiCreatorMessage = {
+      role: 'user',
+      content: messageContent,
+      attachments,
+      metadata: requestedSkills.length > 0 ? { requested_skills: requestedSkills } : {},
+    };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      const history = messages
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      const res = await aiCreatorApi.chat(text, history, activeConversationId || undefined);
+      const res = await agentRuntimeApi.chatStream(
+        {
+          message: messageContent,
+          conversation_id: activeConversationId || undefined,
+          attachments,
+          requested_skills: requestedSkills,
+        },
+        {
+          onConversation: (data) => {
+            const conversationId = data.conversation_id || data.conversation?.id || '';
+            if (!conversationId) return;
+            if (conversationId !== activeConversationId) {
+              ensureConversationInList(conversationId, messageContent);
+              setActiveConversationId(conversationId);
+              try {
+                window.localStorage.setItem(STORAGE_KEY, conversationId);
+              } catch {
+                // ignore
+              }
+            }
+          },
+          onMessage: (message) => {
+            setMessages((prev) => [...prev, message]);
+          },
+        }
+      );
 
       // Update active conversation if backend created/returned one
       if (res.conversation_id && res.conversation_id !== activeConversationId) {
+        ensureConversationInList(res.conversation_id, messageContent);
         setActiveConversationId(res.conversation_id);
         // 同步落盘，防止切页/刷新时还没触发 useEffect
         try {
@@ -715,12 +701,8 @@ export const AICreatorView: React.FC = () => {
         loadConversations();
       }
 
-      const assistantMsg: AiCreatorMessage = {
-        role: 'assistant',
-        content: res.reply,
-        action: res.action || null,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      setUploadedImages([]);
+      setSelectedSkills([]);
     } catch (err: any) {
       openInfo(
         (t as any).ai_creator_title || 'AI Creator',
@@ -732,18 +714,38 @@ export const AICreatorView: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (slashRange && e.key === 'Escape') {
+      e.preventDefault();
+      setSlashRange(null);
+      return;
+    }
+    if (slashRange && e.key === 'Enter') {
+      e.preventDefault();
+      if (firstSelectableSkill) {
+        selectSkill(firstSelectableSkill);
+      }
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  const addResult = (result: GenerationResult) => {
-    setResults((prev) => [...prev, result]);
-  };
-
-  const updateResult = (id: string, updates: Partial<GenerationResult>) => {
-    setResults((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+  const saveToolResultAsWorkflow = async (msg: AiCreatorMessage) => {
+    const runId = msg.tool_result?.run_id || msg.run_id || '';
+    if (!runId) return;
+    const toolName = String(msg.tool_result?.tool_name || msg.metadata?.tool_name || 'tool');
+    try {
+      await agentRuntimeApi.saveWorkflowSkill({
+        run_id: runId,
+        name: `${getActionLabel(toolName)} workflow`,
+        description: msg.content ? msg.content.slice(0, 200) : '',
+      });
+      openInfo(isZh ? '已保存' : 'Saved', isZh ? '已保存为可复用工作流。' : 'Saved as a reusable workflow.');
+    } catch (err: any) {
+      openInfo(isZh ? '保存失败' : 'Save failed', err?.message || 'Failed to save workflow');
+    }
   };
 
   const executeAction = (action: AiCreatorAction) => {
@@ -753,185 +755,96 @@ export const AICreatorView: React.FC = () => {
     setConfirmParams(action.params || {});
   };
 
+  const createPendingToolMessage = (action: AiCreatorAction, params: Record<string, unknown>): AiCreatorMessage => {
+    const localId = `local_tool_${action.run_id || action.type}_${Date.now()}`;
+    const isImageTool = action.type === 'generate_image' || action.type === 'generate_first_frame';
+    const isVideoTool = action.type === 'generate_video';
+    const pendingAsset = isImageTool
+      ? [{
+          type: 'pending_image',
+          media_kind: 'image',
+          role: action.type === 'generate_first_frame' ? 'first_frame' : 'generated_image',
+          request_id: localId,
+          status: 'running',
+        }]
+      : isVideoTool
+        ? [{
+            type: 'pending_video',
+            media_kind: 'video',
+            role: 'generated_video',
+            request_id: localId,
+            status: 'running',
+          }]
+      : [];
+    return {
+      id: localId,
+      role: 'tool',
+      content: action.type === 'generate_image'
+        ? (isZh ? '正在生成图片…' : 'Generating image...')
+        : action.type === 'generate_video'
+          ? (isZh ? '正在生成视频…' : 'Generating video...')
+        : (isZh ? '正在执行…' : 'Running...'),
+      attachments: [],
+      run_id: action.run_id || null,
+      metadata: {
+        local_pending: true,
+        tool_name: action.type,
+        params,
+      },
+      tool_result: {
+        run_id: action.run_id || localId,
+        step_id: 0,
+        tool_name: action.type,
+        status: 'running',
+        display_type: action.type === 'generate_image' ? 'image' : action.type === 'generate_video' ? 'video' : action.type,
+        assets: pendingAsset,
+        task_ids: [],
+        project_id: '',
+      },
+    };
+  };
+
+  const markPendingToolMessageFailed = (id: string, message: string) => {
+    setMessages((prev) => prev.map((item) => {
+      if (item.id !== id) return item;
+      return {
+        ...item,
+        content: message,
+        tool_result: item.tool_result
+          ? {
+              ...item.tool_result,
+              status: 'failed',
+              assets: [],
+              error_message: message,
+            }
+          : item.tool_result,
+        metadata: {
+          ...(item.metadata || {}),
+          local_pending: false,
+          error_message: message,
+        },
+      };
+    }));
+  };
+
   const runGeneration = async (action: AiCreatorAction, params: Record<string, unknown>) => {
     const type = action.type;
     setGeneratingType(type);
-
-    const resultId = `${type}_${Date.now()}`;
-    const imageUrls = uploadedImages.map((img) => img.url);
+    const pendingMessage = createPendingToolMessage(action, params);
+    setMessages((prev) => [...prev, pendingMessage]);
 
     try {
-      if (type === 'generate_video') {
-        addResult({ id: resultId, type, status: 'pending', taskId: undefined });
-        const payload: any = {
-          prompt: String(params.prompt || ''),
-          model: String(params.model || 'kling'),
-          duration: Number(params.duration || 5),
-          aspect_ratio: String(params.aspect_ratio || '9:16'),
-          sound: String(params.sound || 'off'),
-        };
-        if (imageUrls.length > 0) {
-          payload.image_path = imageUrls[0];
-        }
-        const res = await videoApi.generate(payload);
-        if (res?.code === 0) {
-          const taskId = res?.data?.task_id;
-          const projectId = res?.data?.project_id;
-          updateResult(resultId, { taskId, content: `Task #${taskId} queued` });
-
-          // 将视频任务加入全局任务队列，实时追踪进度并在完成后显示视频
-          if (taskId && !linkedTaskIdsRef.current.has(taskId)) {
-            linkedTaskIdsRef.current.add(taskId);
-            addTask({
-              id: taskId,
-              projectId: projectId || undefined,
-              type: 'video_generation',
-              status: 'processing',
-              name: String(params.prompt || '').slice(0, 60) || (isZh ? 'AI Creator 视频' : 'AI Creator Video'),
-              thumbnail: imageUrls[0] || undefined,
-              createdAt: Date.now(),
-            });
-            // 启动工作台风格的等待进度模拟
-            startWaitProgressSimulation(taskId, 120);
-          }
-
-          openInfo(
-            (t as any).ai_creator_title || 'AI Creator',
-            (t as any).ai_creator_video_queued || 'Video generation started! Check the task queue for progress.'
-          );
-        } else {
-          throw new Error(res?.message || 'Video generation failed');
-        }
-      } else if (type === 'generate_script') {
-        addResult({ id: resultId, type, status: 'pending' });
-        if (!user?.id) throw new Error('User not authenticated');
-        const promptText = String(params.product_name || params.prompt || '');
-        const descText = String(params.product_description || params.prompt || '');
-        const duration = Number(params.duration || 30);
-        const payload = {
-          product_category: promptText.slice(0, 100),
-          visual_style: String(params.style || 'casual'),
-          aspect_ratio: '9:16',
-          user_language: String(params.language || 'zh'),
-          script_content: {
-            duration,
-            shot_number: Math.max(3, Math.min(20, Math.round(duration / 5))),
-            input: promptText,
-            custom: descText,
-          },
-        };
-        const res = await videoApi.generateScript(user.id, payload);
-        if (res?.code === 0) {
-          const scripts = res?.data?.script_contents || [];
-          const text = scripts.map((s: any) => {
-            if (!s || typeof s !== 'object') return String(s || '');
-            // 优先使用 video_master_script（完整脚本文本）
-            if (s.video_master_script) return String(s.video_master_script);
-            // 其次使用 creative_card_text
-            if (s.creative_card_text) return String(s.creative_card_text);
-            // 有 shots 时格式化为分镜文本
-            if (Array.isArray(s.shots) && s.shots.length > 0) {
-              return s.shots.map((shot: any, idx: number) => {
-                const lines = [`【镜头 ${idx + 1}】`];
-                if (shot.beat) lines.push(`节奏：${shot.beat}`);
-                if (shot.visual) lines.push(`画面：${shot.visual}`);
-                if (shot.voiceover) lines.push(`旁白：${shot.voiceover}`);
-                return lines.join('\n');
-              }).join('\n\n');
-            }
-            // 兜底：拼接其他文本字段
-            const parts: string[] = [];
-            if (s.material_usage_text) parts.push(String(s.material_usage_text));
-            if (s.continuity_anchor) parts.push(String(s.continuity_anchor));
-            if (s.script_structure) parts.push(String(s.script_structure));
-            return parts.join('\n\n') || JSON.stringify(s, null, 2);
-          }).join('\n\n---\n\n');
-          updateResult(resultId, { status: 'success', content: text || 'Script generated successfully' });
-        } else {
-          throw new Error(res?.message || 'Script generation failed');
-        }
-      } else if (type === 'generate_image') {
-        addResult({ id: resultId, type, status: 'pending' });
-        if (imageUrls.length > 0) {
-          // Use image fusion with uploaded references
-          const projectRes = await videoApi.createProject(user?.id || 0, { title: 'AI Creator 图片项目' });
-          const projectId = projectRes?.data?.project_id || projectRes?.data?.id;
-          if (!projectId) throw new Error('Failed to create project');
-          const payload = {
-            project_id: projectId,
-            image_paths: imageUrls,
-            prompt: String(params.prompt || ''),
-            aspect_ratio: (String(params.aspect_ratio || '9:16') as any),
-            resolution: (String(params.resolution || '2K') as any),
-          };
-          const res = await videoApi.generateFusionImage(payload);
-          if (res?.code === 0) {
-            const imageUrl = res?.data?.image_url;
-            updateResult(resultId, { status: 'success', imageUrl });
-          } else {
-            throw new Error(res?.message || 'Image generation failed');
-          }
-        } else {
-          // Pure text-to-image
-          const payload = {
-            prompt: String(params.prompt || ''),
-            aspect_ratio: String(params.aspect_ratio || '9:16'),
-            resolution: String(params.resolution || '2K'),
-          };
-          const res = await aiCreatorApi.generateImage(payload);
-          if (res?.code === 0) {
-            const imageUrl = res?.data?.image_url;
-            const model = res?.data?.model;
-            updateResult(resultId, { status: 'success', imageUrl, model });
-          } else {
-            throw new Error(res?.message || 'Image generation failed');
-          }
-        }
-      } else if (type === 'generate_first_frame') {
-        addResult({ id: resultId, type, status: 'pending' });
-        if (imageUrls.length > 0) {
-          const payload = {
-            reference_image_path: imageUrls[0],
-            aspect_ratio: String(params.aspect_ratio || '9:16'),
-            prompt_override: String(params.prompt || ''),
-          };
-          const res = await videoApi.generateFirstFrame(payload);
-          if (res?.code === 0) {
-            const firstFramePath = res?.data?.first_frame_path;
-            updateResult(resultId, { status: 'success', imageUrl: firstFramePath });
-          } else {
-            throw new Error(res?.message || 'First frame generation failed');
-          }
-        } else {
-          openInfo(
-            (t as any).ai_creator_title || 'AI Creator',
-            (t as any).ai_creator_first_frame_tip || 'First frame generation requires a reference product image. Please upload one.'
-          );
-          updateResult(resultId, { status: 'failed', error: 'Reference image required' });
-        }
-      } else if (type === 'clothing_swap') {
-        if (imageUrls.length >= 2) {
-          openInfo(
-            (t as any).ai_creator_title || 'AI Creator',
-            'Clothing swap images uploaded. Please go to Product Images → Clothing Swap to process.'
-          );
-        } else {
-          openInfo(
-            (t as any).ai_creator_title || 'AI Creator',
-            (t as any).ai_creator_clothing_swap_tip || 'Please upload both garment and model images, then go to Product Images → Clothing Swap.'
-          );
-        }
-      } else {
-        openInfo(
-          (t as any).ai_creator_title || 'AI Creator',
-          (t as any).ai_creator_unsupported || 'This feature is not yet supported for one-click generation.'
-        );
+      if (!action.run_id) {
+        throw new Error(isZh ? '该动作没有可执行的 Agent Run，请重新发送需求。' : 'This action has no executable Agent run. Please send the request again.');
       }
+      const run = await agentRuntimeApi.confirmRun(action.run_id, params);
+      await loadConversation(run.conversation_id || activeConversationId || '', { skipStateRestore: true, silent: true });
     } catch (err: any) {
-      updateResult(resultId, { status: 'failed', error: err?.message || 'Generation failed' });
+      const message = err?.message || (t as any).ai_creator_error || 'Generation failed. Please try again.';
+      markPendingToolMessageFailed(pendingMessage.id || '', message);
       openInfo(
         (t as any).ai_creator_title || 'AI Creator',
-        err?.message || (t as any).ai_creator_error || 'Generation failed. Please try again.'
+        message
       );
     } finally {
       setGeneratingType(null);
@@ -969,20 +882,37 @@ export const AICreatorView: React.FC = () => {
   const confirmEdit = async () => {
     if (editingIdx === null || !editText.trim()) return;
 
+    const target = messages[editingIdx];
+    if (activeConversationId && target?.id) {
+      try {
+        await agentRuntimeApi.truncateMessages(activeConversationId, target.id);
+      } catch (err: any) {
+        openInfo(isZh ? '编辑失败' : 'Edit failed', err?.message || 'Failed to update conversation history');
+        return;
+      }
+    }
+
     // Truncate messages after editingIdx (remove original user msg + assistant reply + everything after)
     const truncated = messages.slice(0, editingIdx);
     setMessages(truncated);
-    setResults([]); // Also clear generation results after edit point
     setEditingIdx(null);
 
     // Re-send edited message
     await handleSend(editText.trim());
   };
 
-  const deleteFrom = (idx: number) => {
+  const deleteFrom = async (idx: number) => {
+    const target = messages[idx];
+    if (activeConversationId && target?.id) {
+      try {
+        await agentRuntimeApi.truncateMessages(activeConversationId, target.id);
+      } catch (err: any) {
+        openInfo(isZh ? '删除失败' : 'Delete failed', err?.message || 'Failed to update conversation history');
+        return;
+      }
+    }
     // Delete this message and everything after it
     setMessages((prev) => prev.slice(0, idx));
-    setResults([]);
   };
 
   // Detect if the last assistant message is asking for a choice (routing)
@@ -995,145 +925,402 @@ export const AICreatorView: React.FC = () => {
       lastAssistantMessage.content.includes('video') ||
       lastAssistantMessage.content.includes('image'));
 
-  const renderResult = (result: GenerationResult) => {
-    if ((result.type === 'generate_image' || result.type === 'generate_first_frame') && result.imageUrl) {
-      return (
-        <div className="mt-4 rounded-2xl overflow-hidden border border-white/10 bg-zinc-900">
-          <div className="px-5 py-3 bg-zinc-950/50 text-sm text-zinc-400 flex items-center gap-2">
-            <ImageIcon className="w-4 h-4" />
-            <span className="font-medium">{getActionLabel(result.type)}</span>
-            {result.model && (
-              <span className="ml-2 px-2 py-0.5 rounded-md bg-zinc-800 text-[10px] text-zinc-500 border border-white/5">
-                {result.model}
-              </span>
-            )}
-          </div>
-          <img src={result.imageUrl} alt="Generated" className="w-full max-h-[400px] object-contain bg-black" />
-        </div>
-      );
-    }
-    if (result.type === 'generate_script' && result.content) {
-      return (
-        <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-900 overflow-hidden">
-          <div className="px-5 py-3 bg-zinc-950/50 text-sm text-zinc-400 flex items-center gap-2">
-            <ScrollText className="w-4 h-4" />
-            <span className="font-medium">{getActionLabel(result.type)}</span>
-          </div>
-          <div className="p-5 text-base text-zinc-200 whitespace-pre-wrap max-h-[400px] overflow-y-auto">{result.content}</div>
-        </div>
-      );
-    }
-    if (result.type === 'generate_video') {
-      const task = tasks.find((t) => String(t.id) === String(result.taskId));
-      const videoUrl = result.videoUrl || task?.result?.video_url || task?.result?.url;
-      const isProcessing = !videoUrl && result.status !== 'failed';
+  const getPreviewUrl = (item: any) => {
+    const url = readAssetUrl(item);
+    if (!url) return '';
+    if (/^(https?:)?\/\//i.test(url) || /^(blob|data):/i.test(url) || url.startsWith('/')) return url;
+    return `/${url}`;
+  };
 
-      return (
-        <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-900 overflow-hidden">
-          <div className="px-5 py-3 bg-zinc-950/50 text-sm text-zinc-400 flex items-center gap-2">
-            <Film className="w-4 h-4" />
-            <span className="font-medium">{getActionLabel(result.type)}</span>
-            {isProcessing && (
-              <span className="text-orange-400 ml-2 flex items-center gap-1">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {(t as any).ai_creator_generating || 'Generating...'}
-              </span>
-            )}
-            {result.status === 'success' && videoUrl && (
-              <span className="text-emerald-400 ml-2 flex items-center gap-1">
-                <CheckCircle className="w-4 h-4" />
-                {(t as any).ai_creator_done || 'Done'}
-              </span>
-            )}
-            {result.status === 'failed' && (
-              <span className="text-red-400 ml-2 flex items-center gap-1">
-                <X className="w-4 h-4" />
-                {(t as any).ai_creator_failed || 'Failed'}
-              </span>
+  const getPreviewMediaKind = (item: any) => {
+    const rawKind = String(item?.media_kind || item?.mediaKind || item?.type || '').trim().toLowerCase();
+    if (rawKind === 'pending_image') return 'image';
+    if (rawKind === 'pending_video') return 'video';
+    if (rawKind) return rawKind;
+    const url = getPreviewUrl(item);
+    if (/\.(png|jpe?g|webp|gif|bmp|avif|svg)(\?.*)?$/i.test(url)) return 'image';
+    if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(url)) return 'video';
+    return 'document';
+  };
+
+  const normalizePreviewAttachment = (item: any): AgentAttachment | null => {
+    const url = getPreviewUrl(item);
+    if (!url) return null;
+    return {
+      ...item,
+      url,
+      name: String(item?.name || item?.filename || '').trim(),
+      media_kind: getPreviewMediaKind(item),
+      role: String(item?.role || '').trim(),
+    };
+  };
+
+  const getToolName = (msg: AiCreatorMessage) =>
+    String(msg.tool_result?.tool_name || msg.metadata?.tool_name || 'tool');
+
+  const getToolRawPreviewItems = (msg: AiCreatorMessage) => {
+    const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+    const toolAssets = Array.isArray(msg.tool_result?.assets) ? msg.tool_result.assets : [];
+    return [...attachments, ...toolAssets];
+  };
+
+  const getToolVisualState = (msg: AiCreatorMessage): 'running' | 'failed' | 'succeeded' => {
+    const status = String(msg.tool_result?.status || 'succeeded').trim().toLowerCase();
+    const rawPreviewItems = getToolRawPreviewItems(msg);
+    if (status === 'failed' || rawPreviewItems.some(isFailedToolAsset)) return 'failed';
+    if (['pending', 'running'].includes(status) || rawPreviewItems.some(isPendingToolAsset)) return 'running';
+    return 'succeeded';
+  };
+
+  const getToolImageAttachments = (msg: AiCreatorMessage) => {
+    const imageByUrl = new Map<string, AgentAttachment>();
+    getToolRawPreviewItems(msg)
+      .map(normalizePreviewAttachment)
+      .filter((attachment): attachment is AgentAttachment => Boolean(attachment))
+      .forEach((attachment) => {
+        if (getPreviewMediaKind(attachment) === 'image' && attachment.url) {
+          imageByUrl.set(attachment.url, attachment);
+        }
+      });
+    return Array.from(imageByUrl.values());
+  };
+
+  const getToolVideoAttachments = (msg: AiCreatorMessage) => {
+    const videoByUrl = new Map<string, AgentAttachment>();
+    getToolRawPreviewItems(msg)
+      .map(normalizePreviewAttachment)
+      .filter((attachment): attachment is AgentAttachment => Boolean(attachment))
+      .forEach((attachment) => {
+        if (getPreviewMediaKind(attachment) === 'video' && attachment.url) {
+          videoByUrl.set(attachment.url, attachment);
+        }
+      });
+    return Array.from(videoByUrl.values());
+  };
+
+  const isImageToolMessage = (msg: AiCreatorMessage) => {
+    if (msg.role !== 'tool') return false;
+    const toolName = getToolName(msg);
+    const displayType = String(msg.tool_result?.display_type || '').trim().toLowerCase();
+    if (toolName === 'generate_image' || toolName === 'generate_first_frame') return true;
+    if (displayType === 'image' || displayType === 'first_frame') return true;
+    return getToolRawPreviewItems(msg).some((item) => getPreviewMediaKind(item) === 'image');
+  };
+
+  const getMessageIdentity = (msg: AiCreatorMessage, index: number) =>
+    String(msg.id || `${msg.role}_${index}_${msg.run_id || ''}_${msg.created_at || ''}`);
+
+  const getPreviewFileName = (attachment: AgentAttachment | null) => {
+    const explicitName = String(attachment?.name || '').trim();
+    if (explicitName) return explicitName;
+    const urlPath = String(attachment?.url || '').split('?')[0].split('#')[0];
+    const fromUrl = decodeURIComponent(urlPath.split('/').filter(Boolean).pop() || '').trim();
+    if (fromUrl && /\.[a-z0-9]{2,5}$/i.test(fromUrl)) return fromUrl;
+    return `ai-creator-image-${Date.now()}.png`;
+  };
+
+  const extensionFromMime = (mime: string) => {
+    const lower = mime.toLowerCase();
+    if (lower.includes('jpeg')) return 'jpg';
+    if (lower.includes('png')) return 'png';
+    if (lower.includes('webp')) return 'webp';
+    if (lower.includes('gif')) return 'gif';
+    return 'png';
+  };
+
+  const savePreviewImageToLibrary = async () => {
+    if (!previewImage?.url || savingPreviewAsset) return;
+    setSavingPreviewAsset(true);
+    try {
+      const response = await fetch(previewImage.url, { credentials: 'include' });
+      if (!response.ok) throw new Error(isZh ? '图片下载失败，无法加入素材库。' : 'Failed to fetch image for library upload.');
+      const blob = await response.blob();
+      const mime = blob.type || 'image/png';
+      let fileName = getPreviewFileName(previewImage);
+      if (!/\.[a-z0-9]{2,5}$/i.test(fileName)) {
+        fileName = `${fileName}.${extensionFromMime(mime)}`;
+      }
+      const file = new File([blob], fileName, { type: mime });
+      await assetsApi.uploadAsset(file, 'product');
+      setPreviewImage(null);
+      openInfo(isZh ? '已添加' : 'Added', isZh ? '图片已添加到素材库。' : 'Image added to the asset library.');
+    } catch (err: any) {
+      openInfo(isZh ? '添加失败' : 'Add failed', err?.message || (isZh ? '无法添加到素材库。' : 'Failed to add image to the asset library.'));
+    } finally {
+      setSavingPreviewAsset(false);
+    }
+  };
+
+  const renderToolMessage = (msg: AiCreatorMessage, options?: { embedded?: boolean }) => {
+    const toolResult = msg.tool_result || null;
+    const toolName = getToolName(msg);
+    const visualState = getToolVisualState(msg);
+    const isRunning = visualState === 'running';
+    const isFailed = visualState === 'failed';
+    const imageAttachments = getToolImageAttachments(msg);
+    const videoAttachments = getToolVideoAttachments(msg);
+    const hasPreviewAssets = imageAttachments.length > 0 || videoAttachments.length > 0;
+    const hasWorkflowRun = Boolean(toolResult?.run_id || msg.run_id);
+    const statusLabel = isFailed
+      ? (isZh ? '失败' : 'Failed')
+      : isRunning
+        ? (isZh ? '生成中' : 'Generating')
+        : (isZh ? '已完成' : 'Done');
+    const statusClass = isFailed
+      ? 'bg-red-500/15 text-red-200 ring-1 ring-red-500/20'
+      : isRunning
+        ? 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30'
+        : 'bg-emerald-500/10 text-emerald-300';
+    const cardClass = isFailed
+      ? 'border-red-500/25 bg-red-950/30 text-red-100'
+      : isRunning
+        ? 'border-amber-500/20 bg-zinc-900 text-zinc-300'
+        : 'border-white/10 bg-zinc-900 text-zinc-300';
+    const showContent = Boolean(msg.content) && (isFailed || isRunning || !hasPreviewAssets);
+
+    const card = (
+      <div className={`w-full max-w-[360px] overflow-hidden rounded-2xl border text-sm ${cardClass}`}>
+          <div className="flex items-center gap-2 bg-zinc-950/60 px-5 py-3">
+            {ACTION_ICONS[toolName] || <Wand2 className="w-4 h-4" />}
+            <span className="font-semibold text-zinc-200">{getActionLabel(toolName)}</span>
+            <span className={`ml-1 rounded-md px-2 py-0.5 text-[11px] ${statusClass}`}>
+              {statusLabel}
+            </span>
+            {hasWorkflowRun && !isFailed && !isRunning && (
+              <button
+                onClick={() => saveToolResultAsWorkflow(msg)}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-700"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {isZh ? '保存为工作流' : 'Save workflow'}
+              </button>
             )}
           </div>
-
-          {/* 进度条 + 等待动画 (Workbench 风格) */}
-          {isProcessing && (
-            <div className="relative h-56 w-full overflow-hidden bg-black">
-              {!waitingVideoFailed ? (
-                <video
-                  className="h-full w-full object-cover"
-                  src={WAITING_PREVIEW_VIDEO_SRC}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  preload="auto"
-                  onError={() => setWaitingVideoFailed(true)}
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
-                  <Film className="w-12 h-12 text-zinc-600" />
-                </div>
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
-              <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-4 pb-4 text-center">
-                <p className="text-xs text-white/80 font-semibold drop-shadow">
-                  {waitProgressPhase === 'holding'
-                    ? (isZh ? '生成时间比预期稍长，正在进行最终渲染…' : 'Taking longer than expected, waiting for final render...')
-                    : (isZh ? '正在生成视频，请稍候…' : 'Generating video, please wait...')}
-                </p>
-                <div className="text-2xl font-black text-orange-200 tabular-nums drop-shadow">
-                  {Math.max(0, Math.min(100, Math.round(waitProgress)))}%
-                </div>
-                <div className="w-full max-w-[200px] h-1.5 bg-white/20 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-orange-500 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.max(0, Math.min(100, waitProgress))}%` }}
+          {showContent && (
+            <div className={`px-5 py-3 text-xs ${isFailed ? 'text-red-300' : 'text-zinc-400'}`}>
+              {toolResult?.error_message || msg.content}
+            </div>
+          )}
+          {isRunning && !hasPreviewAssets && (
+            <div className="flex aspect-[4/3] items-center justify-center border-t border-white/10 bg-black/30">
+              <div className="flex flex-col items-center gap-3 text-amber-400">
+                <Loader2 className="h-7 w-7 animate-spin" />
+                <span className="text-xs">{toolName === 'generate_video' ? (isZh ? '视频生成中…' : 'Generating video...') : (isZh ? '图片生成中…' : 'Generating image...')}</span>
+              </div>
+            </div>
+          )}
+          {videoAttachments.length > 0 && (
+            <div>
+              {videoAttachments.map((attachment, idx) => (
+                <div
+                  key={`${attachment.url}_${idx}`}
+                  className="border-t border-white/10 bg-black first:border-t-0"
+                  title={attachment.name || attachment.role || attachment.url}
+                >
+                  <video
+                    src={attachment.url}
+                    controls
+                    playsInline
+                    className="block aspect-[9/16] max-h-[560px] w-full bg-black object-contain"
                   />
                 </div>
-              </div>
+              ))}
             </div>
           )}
-
-          {/* 视频预览 + 操作按钮 */}
-          {videoUrl && (
-            <div className="p-5 space-y-4">
-              <video
-                src={videoUrl}
-                controls
-                className="w-full rounded-xl bg-black max-h-[400px]"
-              />
-              <div className="flex items-center gap-3">
-                <a
-                  href={videoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-800 text-sm text-zinc-300 hover:bg-zinc-700 transition"
-                >
-                  <Download className="w-4 h-4" />
-                  {(t as any).ai_creator_download || 'Download'}
-                </a>
+          {imageAttachments.length > 0 && (
+            <div>
+              {imageAttachments.map((attachment, idx) => (
                 <button
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent('vflow:navigate', { detail: { view: 'history' } }));
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-800 text-sm text-zinc-300 hover:bg-zinc-700 transition"
+                  key={`${attachment.url}_${idx}`}
+                  type="button"
+                  onClick={() => setPreviewImage(attachment)}
+                  className="block w-full cursor-zoom-in border-t border-white/10 bg-black text-left first:border-t-0"
+                  title={attachment.name || attachment.role || attachment.url}
                 >
-                  <ExternalLink className="w-4 h-4" />
-                  {(t as any).ai_creator_view_history || 'View in History'}
+                  <img src={attachment.url} alt={attachment.name || 'tool result'} className="block h-auto w-full" />
                 </button>
-              </div>
+              ))}
             </div>
           )}
+      </div>
+    );
 
-          {/* 失败状态 */}
-          {result.status === 'failed' && (
-            <div className="p-5 text-base text-red-400">
-              {result.error || (t as any).ai_creator_error || 'Generation failed'}
-            </div>
-          )}
+    if (options?.embedded) return card;
+    return (
+      <div className="flex justify-start">
+        {card}
+      </div>
+    );
+  };
+
+  const renderEventMessage = (msg: AiCreatorMessage) => (
+    <div className="flex justify-center">
+      <div className="inline-flex max-w-[80%] items-center gap-2 rounded-lg border border-orange-400/40 bg-orange-950/80 px-3.5 py-2 text-xs font-semibold text-orange-100 shadow-sm shadow-black/20">
+        <Sparkles className="h-3.5 w-3.5" />
+        <span className="truncate">{msg.content}</span>
+      </div>
+    </div>
+  );
+
+  const getMessageRequestedSkills = (msg: AiCreatorMessage): AgentSkill[] => {
+    const raw = msg.metadata?.requested_skills;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((item): item is AgentSkill => item && typeof item === 'object' && typeof item.name === 'string')
+      .slice(0, 2);
+  };
+
+  const chatRenderItems = React.useMemo<ChatRenderItem[]>(() => {
+    const items: ChatRenderItem[] = [];
+    let imageGroup: ImageToolGroupEntry[] = [];
+
+    const flushImageGroup = () => {
+      if (imageGroup.length === 1) {
+        const entry = imageGroup[0];
+        items.push({ type: 'message', key: entry.key, message: entry.message, index: entry.index });
+      } else if (imageGroup.length > 1) {
+        const first = imageGroup[0];
+        const last = imageGroup[imageGroup.length - 1];
+        items.push({
+          type: 'image_group',
+          key: `image_group_${first.key}_${last.key}_${imageGroup.length}`,
+          entries: imageGroup,
+        });
+      }
+      imageGroup = [];
+    };
+
+    messages.forEach((message, index) => {
+      const key = getMessageIdentity(message, index);
+      if (isImageToolMessage(message)) {
+        imageGroup.push({ message, index, key });
+        return;
+      }
+      flushImageGroup();
+      items.push({ type: 'message', key, message, index });
+    });
+    flushImageGroup();
+    return items;
+  }, [messages]);
+
+  const renderImageToolGroup = (item: Extract<ChatRenderItem, { type: 'image_group' }>) => {
+    const savedKey = selectedImageGroupItems[item.key];
+    const fallbackEntry = [...item.entries].reverse().find((entry) => getToolVisualState(entry.message) === 'running') || item.entries[item.entries.length - 1];
+    const selectedEntry = item.entries.find((entry) => entry.key === savedKey) || fallbackEntry;
+
+    return (
+      <div className="flex justify-start">
+        <div className="flex max-w-[452px] items-start gap-3">
+          <div className="min-w-0 flex-1">
+            {renderToolMessage(selectedEntry.message, { embedded: true })}
+          </div>
+          <div className="flex w-16 shrink-0 flex-col gap-2">
+            {item.entries.map((entry, idx) => {
+              const visualState = getToolVisualState(entry.message);
+              const image = getToolImageAttachments(entry.message)[0] || null;
+              const isSelected = entry.key === selectedEntry.key;
+              return (
+                <button
+                  key={entry.key}
+                  type="button"
+                  onClick={() => setSelectedImageGroupItems((prev) => ({ ...prev, [item.key]: entry.key }))}
+                  className={`relative flex aspect-square w-16 items-center justify-center overflow-hidden rounded-lg border bg-zinc-950 transition ${
+                    isSelected
+                      ? 'border-orange-400 ring-2 ring-orange-500/40'
+                      : 'border-white/10 hover:border-orange-500/40'
+                  }`}
+                  title={`${getActionLabel(getToolName(entry.message))} ${idx + 1}`}
+                >
+                  {image?.url ? (
+                    <img src={image.url} alt={image.name || 'generated'} className="h-full w-full object-cover" />
+                  ) : visualState === 'running' ? (
+                    <div className="flex h-full w-full items-center justify-center bg-amber-950/40 text-amber-400">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    </div>
+                  ) : visualState === 'failed' ? (
+                    <div className="flex h-full w-full items-center justify-center bg-red-950/60 text-red-300">
+                      <X className="h-4 w-4" />
+                    </div>
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-zinc-900 text-zinc-500">
+                      <ImageIcon className="h-4 w-4" />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      );
-    }
-    return null;
+      </div>
+    );
+  };
+
+  const renderSkillMenuGroup = (title: string, skills: AgentSkill[]) => {
+    if (skills.length === 0) return null;
+    return (
+      <div className="py-1">
+        <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500">{title}</div>
+        <div className="space-y-1">
+          {skills.map((skill) => {
+            const key = getSkillKey(skill);
+            const selected = selectedSkills.some((item) => getSkillKey(item) === key);
+            const disabled = !selected && selectedSkills.length >= 2;
+            return (
+              <button
+                key={key}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (!disabled) selectSkill(skill);
+                }}
+                disabled={disabled}
+                className={`flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left transition ${
+                  selected
+                    ? 'bg-orange-700/55 text-orange-50 shadow-sm shadow-black/20 ring-1 ring-orange-300/25'
+                    : disabled
+                      ? 'cursor-not-allowed text-zinc-600'
+                      : 'text-zinc-200 hover:bg-zinc-800 hover:text-orange-100 hover:ring-1 hover:ring-orange-400/25'
+                }`}
+                title={disabled ? (isZh ? '最多选择 2 个技能' : 'Select up to 2 skills') : skill.description || getSkillLabel(skill)}
+              >
+                <Sparkles className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? 'text-orange-300' : 'text-zinc-500'}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{getSkillLabel(skill)}</span>
+                  {skill.description && (
+                    <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500">{skill.description}</span>
+                  )}
+                </span>
+                {selected && <span className="text-xs font-semibold text-orange-300">{isZh ? '已选' : 'Selected'}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSkillMenu = () => {
+    if (!slashRange) return null;
+    const hasSkills = filteredSystemSkills.length > 0 || filteredWorkflowSkills.length > 0;
+    return (
+      <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl shadow-black/40">
+        {hasSkills ? (
+          <>
+            {renderSkillMenuGroup(isZh ? '系统技能' : 'System skills', filteredSystemSkills)}
+            {renderSkillMenuGroup(isZh ? '我的工作流' : 'My workflows', filteredWorkflowSkills)}
+          </>
+        ) : (
+          <div className="px-4 py-5 text-center text-sm text-zinc-500">
+            {isZh ? '没有匹配的技能' : 'No matching skills'}
+          </div>
+        )}
+        {selectedSkills.length >= 2 && (
+          <div className="border-t border-white/10 px-3 py-2 text-xs text-amber-400">
+            {isZh ? '最多选择 2 个技能。' : 'Select up to 2 skills.'}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1282,7 +1469,7 @@ export const AICreatorView: React.FC = () => {
           </button>
         </div>
 
-        {/* Chat + Results area */}
+        {/* Chat area */}
         <main className="flex-1 overflow-y-auto px-8 py-8 space-y-8">
           {convoLoading && (
             <div className="flex justify-center py-12">
@@ -1291,17 +1478,25 @@ export const AICreatorView: React.FC = () => {
           )}
 
           {!convoLoading &&
-            messages.map((msg, idx) => (
-              <div key={idx}>
-                <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            chatRenderItems.map((item) => (
+              <div key={item.key}>
+                {item.type === 'image_group' ? (
+                  renderImageToolGroup(item)
+                ) : item.message.role === 'tool' ? (
+                  renderToolMessage(item.message)
+                ) : item.message.role === 'event' ? (
+                  renderEventMessage(item.message)
+                ) : (
+                  <>
+                <div className={`flex ${item.message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
                     className={`max-w-[80%] rounded-2xl px-6 py-4 text-base leading-relaxed group relative ${
-                      msg.role === 'user'
-                        ? 'bg-orange-600 text-white'
+                      item.message.role === 'user'
+                        ? 'bg-orange-500 text-white'
                         : 'bg-zinc-900 border border-white/10 text-zinc-200'
                     }`}
                   >
-                    {editingIdx === idx ? (
+                    {editingIdx === item.index ? (
                       <div className="space-y-2">
                         <textarea
                           value={editText}
@@ -1330,21 +1525,60 @@ export const AICreatorView: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                      <div className="space-y-3">
+                        {item.message.role === 'user' && getMessageRequestedSkills(item.message).length > 0 && (
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            {getMessageRequestedSkills(item.message).map((skill) => renderSkillChip(skill))}
+                          </div>
+                        )}
+                        {item.message.content && <div className="whitespace-pre-wrap">{item.message.content}</div>}
+                        {Array.isArray(item.message.attachments) && item.message.attachments.length > 0 && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {item.message.attachments.map((attachment, attachmentIdx) => {
+                              const isImage = String(attachment.media_kind || '').toLowerCase() === 'image';
+                              return (
+                                <a
+                                  key={`${attachment.url}_${attachmentIdx}`}
+                                  href={attachment.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={`block overflow-hidden rounded-lg border ${
+                                    item.message.role === 'user' ? 'border-white/25 bg-white/10' : 'border-white/10 bg-black/20'
+                                  }`}
+                                  title={attachment.name || attachment.role || attachment.url}
+                                >
+                                  {isImage ? (
+                                    <img src={attachment.url} alt={attachment.name || attachment.role || 'attachment'} className="h-24 w-full object-cover" />
+                                  ) : (
+                                    <div className="px-3 py-2 text-xs text-zinc-300 truncate">
+                                      {attachment.name || attachment.url}
+                                    </div>
+                                  )}
+                                  {(attachment.role || attachment.name) && (
+                                    <div className={`px-2 py-1 text-[11px] truncate ${item.message.role === 'user' ? 'text-orange-50/80' : 'text-zinc-400'}`}>
+                                      {attachment.role || attachment.name}
+                                    </div>
+                                  )}
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {/* Edit / Delete buttons on user messages */}
-                    {msg.role === 'user' && editingIdx !== idx && (
+                    {item.message.role === 'user' && editingIdx !== item.index && (
                       <div className="absolute -left-24 top-1/2 -translate-y-1/2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => startEdit(idx)}
+                          onClick={() => startEdit(item.index)}
                           className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-orange-400 hover:bg-zinc-700 transition"
                           title="Edit"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => deleteFrom(idx)}
+                          onClick={() => deleteFrom(item.index)}
                           className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-zinc-700 transition"
                           title="Delete"
                         >
@@ -1354,15 +1588,15 @@ export const AICreatorView: React.FC = () => {
                     )}
 
                     {/* Action card inside assistant message */}
-                    {msg.role === 'assistant' && msg.action && msg.action.type !== 'chat' && (
-                      <div className="mt-4 pt-4 border-t border-white/10">
+                    {item.message.role === 'assistant' && item.message.action && item.message.action.type !== 'chat' && (
+                      <div className={item.message.content ? 'mt-4 pt-4 border-t border-white/10' : ''}>
                         <div className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
-                          {ACTION_ICONS[msg.action.type] || <Wand2 className="w-5 h-5" />}
-                          <span className="font-bold text-zinc-300">{getActionLabel(msg.action.type)}</span>
+                          {ACTION_ICONS[item.message.action.type] || <Wand2 className="w-5 h-5" />}
+                          <span className="font-bold text-zinc-300">{getActionLabel(item.message.action.type)}</span>
                         </div>
-                        {msg.action.params && Object.keys(msg.action.params).length > 0 && (
+                        {item.message.action.params && Object.keys(item.message.action.params).length > 0 && (
                           <div className="text-xs text-zinc-500 mb-3 space-y-1">
-                            {Object.entries(msg.action.params).map(([k, v]) => (
+                            {Object.entries(item.message.action.params).map(([k, v]) => (
                               <div key={k}>
                                 <span className="text-zinc-400">{k}:</span> {String(v)}
                               </div>
@@ -1371,36 +1605,49 @@ export const AICreatorView: React.FC = () => {
                         )}
                         <div className="mt-1 flex items-center gap-2">
                           <button
-                            onClick={() => executeActionDirectly(msg.action!)}
+                            onClick={() => executeActionDirectly(item.message.action!)}
                             disabled={generatingType !== null}
                             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-600 text-sm text-white font-bold hover:bg-orange-500 transition disabled:opacity-50"
                           >
-                            {generatingType === msg.action.type ? (
+                            {generatingType === item.message.action.type ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
                               <Wand2 className="w-4 h-4" />
                             )}
-                            {generatingType === msg.action.type
+                            {generatingType === item.message.action.type
                               ? (isZh ? '正在生成…' : 'Generating…')
                               : (isZh ? '立即生成' : 'Generate')}
                           </button>
                           <button
-                            onClick={() => executeAction(msg.action!)}
+                            onClick={() => executeAction(item.message.action!)}
                             disabled={generatingType !== null}
                             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 text-sm text-zinc-300 font-medium hover:bg-zinc-700 transition disabled:opacity-50"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                             {isZh ? '编辑参数' : 'Edit Parameters'}
                           </button>
+                          {item.message.action.type === 'generate_first_frame' && (
+                            <button
+                              onClick={() => quickSend(isZh ? '跳过首帧，直接生成视频' : 'Skip the first frame and generate the video directly')}
+                              disabled={generatingType !== null || loading}
+                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 text-sm text-zinc-300 font-medium hover:bg-zinc-700 transition disabled:opacity-50"
+                            >
+                              <Film className="w-3.5 h-3.5" />
+                              {isZh ? '跳过首帧' : 'Skip first frame'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
+                  </>
+                )}
 
                 {/* Routing quick-reply buttons */}
-                {msg.role === 'assistant' &&
-                  idx === messages.length - 1 &&
+                {item.type === 'message' &&
+                  item.message.role === 'assistant' &&
+                  item.index === messages.length - 1 &&
                   showRoutingButtons && (
                     <div className="flex gap-3 mt-3 ml-1">
                       <button
@@ -1429,15 +1676,6 @@ export const AICreatorView: React.FC = () => {
             </div>
           )}
 
-          {/* Render generation results */}
-          {results.map((result) => (
-            <div key={result.id} className="flex justify-start">
-              <div className="max-w-[80%] w-full">
-                {renderResult(result)}
-              </div>
-            </div>
-          ))}
-
           <div ref={bottomRef} />
         </main>
 
@@ -1461,6 +1699,13 @@ export const AICreatorView: React.FC = () => {
               </div>
             )}
 
+            <div className="relative">
+              {selectedSkills.length > 0 && (
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  {selectedSkills.map((skill) => renderSkillChip(skill, true))}
+                </div>
+              )}
+              {renderSkillMenu()}
             <div className="flex items-end gap-3 rounded-2xl bg-zinc-900 border border-white/10 p-3 pr-4 focus-within:border-orange-500/50 transition">
               {/* + upload button */}
               <button
@@ -1482,9 +1727,17 @@ export const AICreatorView: React.FC = () => {
 
               {/* Text input */}
               <input
+                ref={textInputRef}
                 type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={handleInputChange}
+                onClick={(e) => updateSlashRange(e.currentTarget.value, e.currentTarget.selectionStart)}
+                onKeyUp={(e) => {
+                  if (e.key !== 'Enter' && e.key !== 'Escape') {
+                    updateSlashRange(e.currentTarget.value, e.currentTarget.selectionStart);
+                  }
+                }}
+                onBlur={() => window.setTimeout(() => setSlashRange(null), 120)}
                 onKeyDown={handleKeyDown}
                 placeholder={(t as any).ai_creator_placeholder || 'Describe what you want to generate...'}
                 disabled={loading}
@@ -1499,6 +1752,7 @@ export const AICreatorView: React.FC = () => {
               >
                 <Send className="w-5 h-5" />
               </button>
+            </div>
             </div>
             <p className="text-xs text-zinc-600 mt-2 ml-1">
               AI may produce inaccurate content. Upload images as reference material.
@@ -1547,10 +1801,10 @@ export const AICreatorView: React.FC = () => {
                     <label className="block text-xs text-zinc-500 mb-1">{isZh ? '模型' : 'Model'}</label>
                     <select
                       className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
-                      value={String(confirmParams.model || 'kling')}
+                      value={String(confirmParams.model || 'seedance2.0')}
                       onChange={(e) => {
                         const newModel = e.target.value;
-                        let newDuration = Number(confirmParams.duration || 5);
+                        let newDuration = Number(confirmParams.duration || 10);
                         if (newModel.startsWith('sora')) {
                           const soraOptions = [4, 8, 12];
                           newDuration = soraOptions.reduce((prev, curr) =>
@@ -1575,7 +1829,7 @@ export const AICreatorView: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs text-zinc-500 mb-1">{isZh ? '时长（秒）' : 'Duration (seconds)'}</label>
-                    {String(confirmParams.model || 'kling').startsWith('sora') ? (
+                    {String(confirmParams.model || 'seedance2.0').startsWith('sora') ? (
                       <select
                         className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         value={Number(confirmParams.duration || 8)}
@@ -1588,13 +1842,13 @@ export const AICreatorView: React.FC = () => {
                     ) : (
                       <input
                         type="number"
-                        min={String(confirmParams.model || 'kling').startsWith('seedance') ? 4 : 5}
-                        max={String(confirmParams.model || 'kling').startsWith('seedance') ? 15 : 10}
-                        step={String(confirmParams.model || 'kling').startsWith('seedance') ? 1 : 5}
+                        min={String(confirmParams.model || 'seedance2.0').startsWith('seedance') ? 4 : 5}
+                        max={String(confirmParams.model || 'seedance2.0').startsWith('seedance') ? 15 : 10}
+                        step={String(confirmParams.model || 'seedance2.0').startsWith('seedance') ? 1 : 5}
                         className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
-                        value={Number(confirmParams.duration || 5)}
+                        value={Number(confirmParams.duration || 10)}
                         onChange={(e) => {
-                          const model = String(confirmParams.model || 'kling');
+                          const model = String(confirmParams.model || 'seedance2.0');
                           const min = model.startsWith('seedance') ? 4 : 5;
                           const max = model.startsWith('seedance') ? 15 : 10;
                           setConfirmParams({ ...confirmParams, duration: Math.max(min, Math.min(max, Number(e.target.value) || min)) });
@@ -1729,6 +1983,54 @@ export const AICreatorView: React.FC = () => {
                 </div>
               </>
             )}
+          </div>
+        </AppDialog>
+      )}
+
+      {previewImage && (
+        <AppDialog
+          isOpen={true}
+          title={previewImage.name || (isZh ? '图片预览' : 'Image preview')}
+          onClose={() => {
+            if (!savingPreviewAsset) setPreviewImage(null);
+          }}
+          widthClassName="max-w-5xl"
+          contentClassName="overflow-hidden"
+          footer={
+            <div className="flex w-full items-center justify-between gap-3">
+              <div className="min-w-0 truncate text-xs text-zinc-500">
+                {previewImage.name || getPreviewFileName(previewImage)}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <a
+                  href={previewImage.url}
+                  download={getPreviewFileName(previewImage)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm font-bold text-zinc-200 transition hover:bg-zinc-700"
+                >
+                  <Download className="h-4 w-4" />
+                  {isZh ? '下载' : 'Download'}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => void savePreviewImageToLibrary()}
+                  disabled={savingPreviewAsset}
+                  className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savingPreviewAsset ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+                  {isZh ? '添加到素材库' : 'Add to library'}
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div className="flex max-h-[72vh] items-center justify-center overflow-hidden rounded-xl bg-black">
+            <img
+              src={previewImage.url}
+              alt={previewImage.name || 'preview'}
+              className="max-h-[72vh] w-auto max-w-full object-contain"
+            />
           </div>
         </AppDialog>
       )}

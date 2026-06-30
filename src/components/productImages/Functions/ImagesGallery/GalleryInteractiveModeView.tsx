@@ -1,12 +1,45 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Image as ImageIcon, LayoutGrid, PencilLine, RotateCw, Sparkles, UserRound } from 'lucide-react';
+import { ArrowLeft, Download, Image as ImageIcon, LayoutGrid, Minus, PencilLine, Plus, RotateCw, Sparkles, UserRound } from 'lucide-react';
 import { useLanguage } from '../../../../context/LanguageContext';
 import { assetsApi } from '../../../../services/assets';
 import { videoApi } from '../../../../services/video';
 import { ModelSelectorChips, type ModelSelectorValue } from '../../Common/ModelSelectorChips';
+import { GALLERY_RATIOS, ratioDescriptorsForLanguage } from '../../Common';
 
-type InteractiveStep = 'start' | 'gallery_assets' | 'gallery_review' | 'gallery_model' | 'gallery_next';
+type InteractiveStep = 'start' | 'gallery_assets' | 'gallery_review' | 'gallery_output_config' | 'gallery_model' | 'gallery_generating' | 'gallery_result';
+
+type OutputType = 'white_bg' | 'scene' | 'selling_point' | 'cover' | 'poster';
+
+interface OutputTypeItem {
+  outputType: OutputType;
+  enabled: boolean;
+  count: number;
+  aspectRatio: string;
+  resolution: '1k' | '2k' | '4k';
+}
+
+interface GeneratedImage {
+  requestId: string;
+  imageUrl: string;
+  outputType: string;
+}
+
+const OUTPUT_TYPE_META: Record<OutputType, { zh: string; en: string; zhDesc: string; enDesc: string; accent: string }> = {
+  white_bg:  { zh: '白底图', en: 'White Background', zhDesc: '适合主图、标准化电商展示。', enDesc: 'Clean hero shots for catalog use.', accent: 'border-sky-400/30 bg-sky-500/8 text-sky-300' },
+  scene:     { zh: '场景图', en: 'Scene',          zhDesc: '带入使用环境与生活方式氛围。', enDesc: 'Contextual lifestyle scene.',      accent: 'border-emerald-400/30 bg-emerald-500/8 text-emerald-300' },
+  selling_point: { zh: '卖点图', en: 'Selling Point', zhDesc: '一张图聚焦一个核心卖点。', enDesc: 'Focused on one key benefit.',        accent: 'border-amber-400/30 bg-amber-500/10 text-amber-300' },
+  cover:     { zh: '封面图', en: 'Cover',          zhDesc: '适合详情页首屏或合集封面。', enDesc: 'Collection covers and top-of-page.',  accent: 'border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-300' },
+  poster:    { zh: '海报图', en: 'Poster',         zhDesc: '适合促销、活动和长画幅传播。', enDesc: 'Campaign posters and promos.',       accent: 'border-orange-400/30 bg-orange-500/10 text-orange-300' },
+};
+
+const OUTPUT_TYPE_ORDER: OutputType[] = ['white_bg', 'scene', 'selling_point', 'cover', 'poster'];
+
+const RESOLUTION_OPTIONS: { value: OutputTypeItem['resolution']; label: string }[] = [
+  { value: '1k', label: '1K' },
+  { value: '2k', label: '2K' },
+  { value: '4k', label: '4K' },
+];
 
 interface GalleryInteractiveModeViewProps {
   onSelectBoardEditor: () => void;
@@ -40,6 +73,12 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
   const [generationModel, setGenerationModel] = useState<ModelSelectorValue>('nano-banana-pro');
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [outputItems, setOutputItems] = useState<OutputTypeItem[]>(() =>
+    OUTPUT_TYPE_ORDER.map((ot) => ({ outputType: ot, enabled: false, count: 1, aspectRatio: '1:1', resolution: '1k' }))
+  );
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const productInputRef = useRef<HTMLInputElement | null>(null);
   const modelInputRef = useRef<HTMLInputElement | null>(null);
   const sceneInputRef = useRef<HTMLInputElement | null>(null);
@@ -62,6 +101,27 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
       onSelectBoardEditor();
     }
   };
+
+  const handleToggleOutputType = (ot: OutputType) => {
+    setOutputItems((prev) => prev.map((item) => (item.outputType === ot ? { ...item, enabled: !item.enabled } : item)));
+  };
+
+  const handleOutputCount = (ot: OutputType, delta: number) => {
+    setOutputItems((prev) =>
+      prev.map((item) => (item.outputType === ot ? { ...item, count: Math.max(1, Math.min(8, item.count + delta)) } : item))
+    );
+  };
+
+  const handleOutputRatio = (ot: OutputType, ratio: string) => {
+    setOutputItems((prev) => prev.map((item) => (item.outputType === ot ? { ...item, aspectRatio: ratio } : item)));
+  };
+
+  const handleOutputResolution = (ot: OutputType, resolution: OutputTypeItem['resolution']) => {
+    setOutputItems((prev) => prev.map((item) => (item.outputType === ot ? { ...item, resolution } : item)));
+  };
+
+  const enabledOutputItems = useMemo(() => outputItems.filter((it) => it.enabled), [outputItems]);
+  const hasEnabledOutputs = enabledOutputItems.length > 0;
 
   const assetsTitle = isZh ? '我们需要一些素材' : 'We need some assets.';
   const assetsSubtitle = isZh ? '点击卡片上传对应图片（可多选）。' : 'Click a card to upload (multi-select supported).';
@@ -173,6 +233,153 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
       setAnalyzeError(msg);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const collectOutputUrls = (payload: any): string[] => {
+    const urls: string[] = [];
+    const visited = new Set<any>();
+    const queue = [payload];
+    const pushUrl = (v: any) => {
+      if (typeof v !== 'string') return;
+      const raw = v.trim();
+      if (!raw) return;
+      const normalized = raw.startsWith('//')
+        ? `${typeof window !== 'undefined' ? window.location.protocol : 'https:'}${raw}`
+        : raw;
+      if (
+        (normalized.startsWith('http') || normalized.startsWith('/media/'))
+        && !urls.includes(normalized)
+      ) {
+        urls.push(normalized);
+      }
+    };
+    while (queue.length > 0 && urls.length < 8 && visited.size < 80) {
+      const current = queue.shift();
+      if (!current || visited.has(current)) continue;
+      visited.add(current);
+      if (Array.isArray(current)) {
+        current.forEach((item) => {
+          if (typeof item === 'string') {
+            pushUrl(item);
+          } else if (item && typeof item === 'object') {
+            queue.push(item);
+          }
+        });
+        continue;
+      }
+      if (typeof current !== 'object') continue;
+      pushUrl((current as any).url);
+      pushUrl((current as any).image_url);
+      pushUrl((current as any).file_url);
+      pushUrl((current as any).src);
+      pushUrl((current as any).path);
+      for (const key of ['outputs', 'output', 'images', 'result', 'data']) {
+        const v = (current as any)[key];
+        if (v && typeof v === 'object') queue.push(v);
+      }
+    }
+    return urls;
+  };
+
+  const handleStartGenerate = async () => {
+    if (isGenerating) return;
+    setGenerateError(null);
+    setIsGenerating(true);
+    setGeneratedImages([]);
+    setStep('gallery_generating');
+
+    try {
+      // Upload product images
+      const imagePaths: string[] = [];
+      const uploadTargets = productImages.slice(0, 4);
+      for (const file of uploadTargets) {
+        const uploadResp = await assetsApi.uploadTempAsset(file);
+        const path = extractUploadedAssetPath(uploadResp);
+        if (path) imagePaths.push(String(path));
+      }
+      if (imagePaths.length === 0) {
+        throw new Error(isZh ? '图片上传失败，请重试' : 'Upload failed, please retry');
+      }
+
+      const normalizedOutputItems = enabledOutputItems.map((item) => ({
+        id: `${item.outputType}-${Date.now()}`,
+        enabled: true,
+        output_type: item.outputType,
+        aspect_ratio: item.aspectRatio,
+        resolution: item.resolution,
+        count: item.count,
+      }));
+
+      const totalCount = enabledOutputItems.reduce((sum, it) => sum + it.count, 0);
+
+      const createResp = await videoApi.generateProductGallery({
+        imageModel: generationModel,
+        image_paths: imagePaths,
+        product_name: recognized.productName,
+        product_category: recognized.productCategory,
+        core_selling_points: recognized.sellingPoints,
+        model_info: recognized.modelInfo || undefined,
+        count: totalCount,
+        aspect_ratio: enabledOutputItems[0]?.aspectRatio || '1:1',
+        resolution: enabledOutputItems[0]?.resolution || '1k',
+        output_mode: 'custom',
+        output_items: normalizedOutputItems,
+        target_language: language,
+      });
+
+      const list = (createResp as any)?.data?.requests || (createResp as any)?.requests || [];
+      const requests: Array<{ requestId: string; outputType: string }> = (Array.isArray(list) ? list : []).map((r: any) => ({
+        requestId: r.request_id || r.id || '',
+        outputType: r.type || r.output_type || r.image_type || r.kind || '',
+      })).filter((r: any) => r.requestId);
+      // Poll each request
+      const successStatuses = new Set(['ready', 'success', 'succeeded', 'completed', 'done']);
+      const failureStatuses = new Set(['failed', 'error', 'canceled', 'cancelled', 'rejected']);
+
+
+      const results: GeneratedImage[] = [];
+      for (const req of requests) {
+        for (let i = 0; i < 60; i += 1) {
+          try {
+            const statusResp = await videoApi.getProductGalleryResult(req.requestId);
+            const data = (statusResp as any)?.data || statusResp;
+            const status = String(data?.status || '').trim().toLowerCase();
+            const urls = collectOutputUrls(data);
+            const upstreamError = String(data?.error || '').trim();
+
+            if (urls.length > 0) {
+              results.push({ requestId: req.requestId, imageUrl: urls[0], outputType: req.outputType });
+              break;
+            }
+            if (upstreamError && urls.length === 0) {
+              break;
+            }
+            if (failureStatuses.has(status)) {
+              break;
+            }
+            if (successStatuses.has(status) && urls.length === 0) {
+              break;
+            }
+          } catch {
+            // continue polling
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+
+      if (results.length === 0) {
+        throw new Error(isZh ? '生成失败，请重试' : 'Generation failed, please retry');
+      }
+
+      setGeneratedImages(results);
+      setStep('gallery_result');
+    } catch (err: any) {
+      const msg = String(err?.message || '').trim() || (isZh ? '生成失败，请重试' : 'Generation failed, please retry');
+      setGenerateError(msg);
+      setStep('gallery_model');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -585,7 +792,7 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                 <div className="flex items-center justify-end pt-1">
                   <button
                     type="button"
-                    onClick={() => setStep('gallery_model')}
+                    onClick={() => setStep('gallery_output_config')}
                     disabled={!hasRecognition}
                     className={[
                       'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition',
@@ -594,14 +801,14 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                       'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
                     ].join(' ')}
                   >
-                    {isZh ? '确认无误' : 'Confirm'}
+                    {isZh ? '确认无误，下一步' : 'Confirm & Next'}
                   </button>
                 </div>
               </div>
             </motion.div>
-          ) : step === 'gallery_model' ? (
+          ) : step === 'gallery_output_config' ? (
             <motion.div
-              key="step-4"
+              key="step-output-config"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -611,8 +818,147 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
               <div className="space-y-3">
                 <StepHeader
                   onBack={() => setStep('gallery_review')}
+                  title={isZh ? '选择输出类型' : 'Choose output types'}
+                  subtitle={isZh ? '选择需要生成的图片类型并调整参数。' : 'Select types and adjust parameters.'}
+                />
+              </div>
+
+              {/* Output type toggle cards */}
+              <div className="grid gap-3 md:grid-cols-2">
+                {OUTPUT_TYPE_ORDER.map((ot) => {
+                  const meta = OUTPUT_TYPE_META[ot];
+                  const item = outputItems.find((it) => it.outputType === ot)!;
+                  const isEnabled = item.enabled;
+                  return (
+                    <div key={ot} className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleOutputType(ot)}
+                        className={[
+                          'w-full rounded-2xl border px-4 py-3 text-left transition',
+                          isEnabled
+                            ? `${meta.accent} border-current/40 bg-current/5`
+                            : 'border-white/10 bg-black/20 text-zinc-500 hover:border-white/20',
+                        ].join(' ')}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={[
+                            'flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition',
+                            isEnabled ? 'border-current/50 bg-current/20' : 'border-white/20 bg-white/5',
+                          ].join(' ')}>
+                            {isEnabled && (
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-black">{isZh ? meta.zh : meta.en}</div>
+                            <div className="mt-0.5 text-xs opacity-70">{isZh ? meta.zhDesc : meta.enDesc}</div>
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* Inline config for enabled items */}
+                      {isEnabled && (
+                        <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 space-y-3">
+                          {/* Count stepper */}
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-bold text-zinc-400">{isZh ? '数量' : 'Count'}</span>
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => handleOutputCount(ot, -1)} disabled={item.count <= 1}
+                                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 disabled:opacity-30">
+                                <Minus className="h-3 w-3" />
+                              </button>
+                              <span className="w-6 text-center text-sm font-bold text-zinc-100">{item.count}</span>
+                              <button type="button" onClick={() => handleOutputCount(ot, 1)} disabled={item.count >= 8}
+                                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 disabled:opacity-30">
+                                <Plus className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Aspect ratio */}
+                          <div className="space-y-1.5">
+                            <span className="text-xs font-bold text-zinc-400">{isZh ? '比例' : 'Ratio'}</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {GALLERY_RATIOS.primary.map((ratio) => (
+                                <button key={ratio} type="button" onClick={() => handleOutputRatio(ot, ratio)}
+                                  className={[
+                                    'rounded-lg border px-2.5 py-1 text-xs font-bold transition',
+                                    item.aspectRatio === ratio
+                                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
+                                      : 'border-white/10 bg-white/5 text-zinc-400 hover:border-white/20',
+                                  ].join(' ')}>
+                                  {ratio}
+                                </button>
+                              ))}
+                              {GALLERY_RATIOS.more.map((ratio) => (
+                                <button key={ratio} type="button" onClick={() => handleOutputRatio(ot, ratio)}
+                                  className={[
+                                    'rounded-lg border px-2.5 py-1 text-xs font-bold transition',
+                                    item.aspectRatio === ratio
+                                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
+                                      : 'border-white/10 bg-white/5 text-zinc-400 hover:border-white/20',
+                                  ].join(' ')}>
+                                  {ratio}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Resolution */}
+                          <div className="space-y-1.5">
+                            <span className="text-xs font-bold text-zinc-400">{isZh ? '分辨率' : 'Resolution'}</span>
+                            <div className="flex gap-1.5">
+                              {RESOLUTION_OPTIONS.map((opt) => (
+                                <button key={opt.value} type="button" onClick={() => handleOutputResolution(ot, opt.value)}
+                                  className={[
+                                    'rounded-lg border px-3 py-1 text-xs font-bold transition',
+                                    item.resolution === opt.value
+                                      ? 'border-orange-500/50 bg-orange-500/15 text-orange-200'
+                                      : 'border-white/10 bg-white/5 text-zinc-400 hover:border-white/20',
+                                  ].join(' ')}>
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setStep('gallery_model')}
+                  disabled={!hasEnabledOutputs}
+                  className={[
+                    'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition',
+                    'border border-orange-500/40 bg-orange-500/15 text-orange-200 hover:bg-orange-500/20',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                  ].join(' ')}
+                >
+                  {isZh ? '下一步' : 'Next'}
+                </button>
+              </div>
+            </motion.div>
+          ) : step === 'gallery_model' ? (
+            <motion.div
+              key="step-model"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.26, ease: 'easeOut' }}
+              className="space-y-8"
+            >
+              <div className="space-y-3">
+                <StepHeader
+                  onBack={() => setStep('gallery_output_config')}
                   title={modelTitle}
-                  subtitle={isZh ? '选择一个生成模型继续。' : 'Pick a model to continue.'}
+                  subtitle={isZh ? '选择模型后点击开始生成。' : 'Pick a model then start generating.'}
                 />
               </div>
 
@@ -624,24 +970,68 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
                   label={isZh ? '生成模型' : 'Model'}
                 />
 
+                {generateError && (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">{generateError}</div>
+                )}
+
                 <div className="flex items-center justify-end">
                   <button
                     type="button"
-                    onClick={() => setStep('gallery_next')}
+                    onClick={handleStartGenerate}
+                    disabled={isGenerating}
                     className={[
-                      'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition',
-                      'border border-orange-500/40 bg-orange-500/15 text-orange-200 hover:bg-orange-500/20',
+                      'inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-black transition',
+                      'border border-orange-500/50 bg-orange-500/20 text-orange-100 hover:bg-orange-500/30',
+                      'disabled:opacity-50 disabled:cursor-not-allowed',
                       'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
                     ].join(' ')}
                   >
-                    {isZh ? '下一步' : 'Next'}
+                    <Sparkles className="h-4 w-4" />
+                    {isZh ? '开始生成' : 'Generate'}
                   </button>
+                </div>
+              </div>
+            </motion.div>
+          ) : step === 'gallery_generating' ? (
+            <motion.div
+              key="step-generating"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.26, ease: 'easeOut' }}
+              className="min-h-[60vh] flex flex-col items-center justify-center space-y-8"
+            >
+              <div className="flex flex-col items-center gap-4">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                  className="flex h-16 w-16 items-center justify-center rounded-2xl border border-orange-500/30 bg-orange-500/10"
+                >
+                  <Sparkles className="h-8 w-8 text-orange-300" />
+                </motion.div>
+                <h2 className="text-2xl font-black tracking-tight text-zinc-100">
+                  {isZh ? '精彩即将呈现' : 'Something amazing is coming...'}
+                </h2>
+                <p className="text-sm text-zinc-500">
+                  {isZh
+                    ? `正在生成 ${enabledOutputItems.reduce((s, it) => s + it.count, 0)} 张图片，请稍候…`
+                    : `Generating ${enabledOutputItems.reduce((s, it) => s + it.count, 0)} images, please wait...`}
+                </p>
+                <div className="mt-4 flex gap-2">
+                  {[0, 1, 2].map((i) => (
+                    <motion.div
+                      key={i}
+                      className="h-2 w-2 rounded-full bg-orange-400"
+                      animate={{ opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
+                    />
+                  ))}
                 </div>
               </div>
             </motion.div>
           ) : (
             <motion.div
-              key="step-5"
+              key="step-result"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -649,19 +1039,73 @@ export const GalleryInteractiveModeView: React.FC<GalleryInteractiveModeViewProp
               className="space-y-8"
             >
               <div className="space-y-3">
-                <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                  {isZh ? '商品套图 · 下一步' : 'Gallery · Next'}
+                <div className="flex items-start gap-4">
+                  <button
+                    type="button"
+                    onClick={() => { setStep('start'); setGeneratedImages([]); }}
+                    className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-zinc-300 transition hover:border-white/20 hover:bg-black/30 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50"
+                    aria-label={isZh ? '返回' : 'Back'}
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <h2 className="text-3xl font-black tracking-tight text-zinc-100">
+                      {isZh ? '生成完成' : 'Generation Complete'}
+                    </h2>
+                    <p className="text-sm text-zinc-500">
+                      {isZh ? `共生成 ${generatedImages.length} 张图片。` : `Generated ${generatedImages.length} images.`}
+                    </p>
+                  </div>
                 </div>
-                <StepHeader
-                  onBack={() => setStep('gallery_model')}
-                  title={isZh ? '下一步（待定）' : 'Next (TBD)'}
-                  subtitle={isZh ? '这里留给后续流程继续扩展。' : 'Reserved for the next flow.'}
-                />
               </div>
 
-              <div className="rounded-3xl border border-white/10 bg-black/10 px-6 py-6 text-sm text-zinc-400">
-                {isZh ? '已选择生成模型：' : 'Selected model: '}
-                <span className="ml-2 font-bold text-zinc-200">{generationModel}</span>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                {generatedImages.map((img, idx) => {
+                  const meta = OUTPUT_TYPE_META[img.outputType as OutputType];
+                  return (
+                    <div key={img.requestId || idx} className="group relative overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                      <img src={img.imageUrl} alt={img.outputType} className="aspect-square w-full object-cover" />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
+                        <span className="text-xs font-bold text-zinc-200">{meta ? (isZh ? meta.zh : meta.en) : img.outputType}</span>
+                      </div>
+                      <a
+                        href={img.imageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download
+                        className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-zinc-300 opacity-0 transition hover:bg-orange-500/80 hover:text-white group-hover:opacity-100"
+                      >
+                        <Download className="h-4 w-4" />
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setStep('gallery_model'); setGeneratedImages([]); setGenerateError(null); }}
+                  className={[
+                    'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition',
+                    'border border-white/10 bg-black/20 text-zinc-300 hover:bg-black/30',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                  ].join(' ')}
+                >
+                  <RotateCw className="h-4 w-4" />
+                  {isZh ? '重新生成' : 'Regenerate'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setStep('start'); setGeneratedImages([]); }}
+                  className={[
+                    'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition',
+                    'border border-orange-500/40 bg-orange-500/15 text-orange-200 hover:bg-orange-500/20',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                  ].join(' ')}
+                >
+                  {isZh ? '开始新的' : 'Start New'}
+                </button>
               </div>
             </motion.div>
           )}

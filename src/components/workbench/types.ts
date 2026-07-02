@@ -11,6 +11,7 @@ export type ViewType =
   | 'creative_lab_replay'
   | 'creative_lab_script_extract'
   | 'creative_lab_canvas'
+  | 'community'
   | 'templates'
   | 'history'
   | 'agent'

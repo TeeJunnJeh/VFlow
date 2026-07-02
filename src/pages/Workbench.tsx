@@ -52,6 +52,7 @@ import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
 import { AICreatorView } from '../components/workbench/AICreatorView';
+import { CommunityView } from '../components/community/CommunityView';
 import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
 import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
 import { CanvasComingSoon } from '../components/creativeLab/CanvasComingSoon';
@@ -87,6 +88,7 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   profile: 'VFLOW AI - 设置 - GenViewTech',
   billing: 'VFLOW AI - 计费 - GenViewTech',
   ai_creator: 'VFLOW AI - AI 创作 - GenViewTech',
+  community: 'VFLOW AI - 创作者社区 - GenViewTech',
 };
 
 const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
@@ -126,6 +128,8 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'View your plan, balance, invoices, and usage. Manage payments and understand how credits are consumed for video and product image generation in one place.',
   ai_creator:
     'Chat with AI to generate anything — videos, scripts, images, and more. Describe what you want in natural language and create with one click.',
+  community:
+    'Browse creator posts, share videos and creative notes, save assets into your library, and collect reusable inspiration inside the VFLOW AI creator community.',
 };
 
 const isWorkbenchViewType = (value: string | null | undefined): value is ViewType => (
@@ -787,6 +791,12 @@ const Workbench = () => {
 
           <div className={activeView === 'ai_creator' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <AICreatorView />
+          </div>
+
+          <div className={activeView === 'community' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="CommunityView">
+              <CommunityView />
+            </ViewErrorBoundary>
           </div>
 
           {activeView === 'profile' && (

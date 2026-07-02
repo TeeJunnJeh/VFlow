@@ -1696,6 +1696,22 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (isListOnlyTab) setAssetViewLayout('list');
   }, [isListOnlyTab]);
 
+  const getSeedSkillAssetMeta = useCallback((asset: Asset | null | undefined) => {
+    const meta = asset?.meta_data || {};
+    if (meta.asset_subtype !== 'seed_skill' && !(meta as any).seed_skill) return null;
+    const skill = ((meta as any).seed_skill || {}) as Record<string, any>;
+    const tagsRaw = Array.isArray((meta as any).skill_tags)
+      ? (meta as any).skill_tags
+      : (Array.isArray(skill.tags) ? skill.tags : []);
+    return {
+      name: String((meta as any).skill_name || skill.name || asset?.name || 'Seed Skill'),
+      summary: String((meta as any).skill_summary || skill.summary || ''),
+      description: String((meta as any).skill_description || skill.description || (meta as any).skill_summary || skill.summary || ''),
+      seed: String((meta as any).seed || skill.seed || ''),
+      tags: tagsRaw.map((item: any) => String(item || '').trim()).filter(Boolean).slice(0, 6),
+    };
+  }, []);
+
   const subjectOtherViewAssets = useMemo(() => {
     if (!assetPreview) return [] as Asset[];
     const ids = getAssetSubjectOtherViewIds(assetPreview);
@@ -2244,6 +2260,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   //   }
   //   return parts.length > 0 ? parts.join(' / ') : t.assets_move_root;
   // };
+
+  const previewSeedSkillMeta = getSeedSkillAssetMeta(assetPreview);
 
   return (
     <div
@@ -3073,11 +3091,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                     {visibleAssets.map(asset => {
                       const isSelected = selectedAssetIds.has(asset.id);
                       const subjectOtherViewCount = getAssetSubjectOtherViewIds(asset).length;
+                      const seedSkillMeta = getSeedSkillAssetMeta(asset);
                       if (assetViewLayout === 'list') {
                         return (
                           <div
                             key={asset.id}
-                            className={`glass-card rounded-xl p-2 group relative flex items-center gap-3 h-16 ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''} cursor-pointer hover:bg-zinc-800/50 transition`}
+                            className={`glass-card rounded-xl p-2 group relative flex items-center gap-3 min-h-[72px] ${draggingAsset?.id === asset.id ? 'opacity-60' : ''} ${isSelectionMode && isSelected ? 'ring-2 ring-orange-500/70' : ''} cursor-pointer hover:bg-zinc-800/50 transition`}
                             draggable={!isSelectionMode && renamingAssetId !== asset.id}
                             onDragStart={isSelectionMode ? undefined : (e) => { if (renamingAssetId || Date.now() < suppressDragUntilRef.current) { e.preventDefault(); return; } beginDragAsset(asset, e); }}
                             onDragEnd={isSelectionMode ? undefined : endDragAsset}
@@ -3096,7 +3115,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               </button>
                             )}
                             <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800 shrink-0 relative">
-                              {asset.media_kind === 'audio' ? <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-500/20 to-zinc-900"><Music className="w-5 h-5 text-orange-400" /></div> :
+                              {seedSkillMeta ? <div className="w-full h-full flex items-center justify-center bg-fuchsia-500/10"><Sparkles className="w-5 h-5 text-fuchsia-200" /></div> :
+                               asset.media_kind === 'audio' ? <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-500/20 to-zinc-900"><Music className="w-5 h-5 text-orange-400" /></div> :
                                asset.media_kind === 'document' ? <div className="w-full h-full flex items-center justify-center"><FileText className="w-5 h-5 text-sky-300" /></div> :
                                asset.media_kind === 'video' && asset.file_url ? <video src={getDisplayUrl(asset.file_url) || undefined} className="w-full h-full object-cover" muted preload="metadata" /> :
                                asset.file_url ? <img src={getDisplayUrl(asset.thumbnail || asset.file_url) || ASSET_PLACEHOLDER_DATA_URL} className="w-full h-full object-cover" alt={asset.name} onError={(e) => { (e.target as HTMLImageElement).src = ASSET_PLACEHOLDER_DATA_URL; }} /> :
@@ -3115,9 +3135,25 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void commitRenameAsset(asset); } if (e.key === 'Escape') { e.preventDefault(); cancelRenameAsset(); } }}
                                 />
                               ) : (
-                                <div className="text-xs font-bold text-zinc-200 truncate">{asset.name}</div>
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <div className="text-xs font-bold text-zinc-200 truncate">{seedSkillMeta?.name || asset.name}</div>
+                                  {seedSkillMeta && <span className="shrink-0 border border-fuchsia-300/20 bg-fuchsia-500/10 px-1.5 py-0.5 text-[9px] font-bold text-fuchsia-100">Skill</span>}
+                                </div>
                               )}
-                              <div className="text-[11px] text-zinc-500">{asset.size} · {asset.created_at}</div>
+                              {seedSkillMeta ? (
+                                <div className="mt-1 min-w-0">
+                                  <div className="truncate text-[11px] text-zinc-400">{seedSkillMeta.description || seedSkillMeta.summary || `Seed ${seedSkillMeta.seed}`}</div>
+                                  {seedSkillMeta.tags.length > 0 && (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      {seedSkillMeta.tags.slice(0, 4).map((tag: string) => (
+                                        <span key={tag} className="border border-white/10 px-1.5 py-0.5 text-[9px] text-zinc-400">{tag}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-zinc-500">{asset.size} · {asset.created_at}</div>
+                              )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
                               <button onClick={(e) => { e.stopPropagation(); void handleToggleFavorite(asset); }} className={`w-7 h-7 rounded-full flex items-center justify-center ${asset.is_favorited ? 'bg-yellow-500/80 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white'}`} title={asset.is_favorited ? '取消收藏' : '收藏'}><Heart className={`w-3.5 h-3.5 ${asset.is_favorited ? 'fill-current' : ''}`} /></button>
@@ -4081,6 +4117,29 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                       loop
                       playsInline
                     />
+                  ) : previewSeedSkillMeta ? (
+                    <div className="w-full max-w-2xl border border-fuchsia-300/20 bg-fuchsia-500/[0.06] p-6">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center border border-fuchsia-300/25 bg-fuchsia-500/10">
+                          <Sparkles className="h-5 w-5 text-fuchsia-100" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-black uppercase tracking-widest text-fuchsia-200">Seed Skill</div>
+                          <div className="truncate text-base font-bold text-zinc-100">{previewSeedSkillMeta.name}</div>
+                        </div>
+                        {previewSeedSkillMeta.seed && (
+                          <div className="font-mono text-[10px] text-zinc-500">#{previewSeedSkillMeta.seed.slice(-8)}</div>
+                        )}
+                      </div>
+                      <p className="mt-4 text-sm leading-7 text-zinc-200">{previewSeedSkillMeta.description || previewSeedSkillMeta.summary || '这是一组可复现的创作经验，会影响剧情模板、风格气质和素材记忆点。'}</p>
+                      {previewSeedSkillMeta.tags.length > 0 && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {previewSeedSkillMeta.tags.map((tag: string) => (
+                            <span key={tag} className="border border-fuchsia-300/20 bg-fuchsia-500/10 px-2.5 py-1 text-xs font-bold text-fuchsia-100/90">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ) : assetPreview.media_kind === 'document' ? (
                     <div className="w-full max-w-2xl rounded-xl border border-white/10 bg-black/20 p-6">
                       <div className="flex items-center gap-3 mb-4">

@@ -32,6 +32,7 @@ export type ScriptPage = {
   scripts: ScriptItem[];
   fullScript?: string;
   sourceLabel?: string;
+  seedSkill?: any;
   continuityAnchor?: {
     subject?: string;
     scene?: string;

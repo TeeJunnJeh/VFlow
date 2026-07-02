@@ -421,6 +421,33 @@ export const assetsApi = {
     return await response.json();
   },
 
+  createSeedSkillAsset: async (payload: {
+    seed?: string;
+    seed_skill?: Record<string, unknown>;
+    display_name?: string;
+    folder_id?: string | null;
+    video_type?: string;
+    product_category?: string;
+    duration?: number;
+    aspect_ratio?: string;
+    language?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skills/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) throw await parseApiError(response, 'Save seed skill failed');
+    return await response.json();
+  },
+
   // 5. FOLDERS
   getFolders: async (params: { type: LibraryAssetType; parentId: string | null }) => {
     const search = new URLSearchParams();

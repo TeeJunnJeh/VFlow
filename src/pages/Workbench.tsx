@@ -44,6 +44,7 @@ import { PROMO_DEBUG_ALWAYS_SHOW, usePromoEligibility } from '../components/prom
  */
 const ACTIVE_PROMO_CAMPAIGN_ID = 'promo_39_9_598v';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
+import { SeedSkillStudioView } from '../components/workbench/SeedSkillStudioView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
 import { HistoryView } from '../components/workbench/HistoryView';
@@ -71,6 +72,7 @@ import {
 
 const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   workbench: 'VFLOW AI - 工作台 - GenViewTech',
+  seed_skill_studio: 'VFLOW AI - Skill 视频 - GenViewTech',
   assets: 'VFLOW AI - 素材库 - GenViewTech',
   product_images_clothing_swap: 'VFLOW AI - 商品图 - 换装 - GenViewTech',
   product_images_first_frame: 'VFLOW AI - 商品图 - 首帧图 - GenViewTech',
@@ -94,6 +96,8 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
 const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
   workbench:
     'Use the VFLOW AI workspace to generate product videos and images, manage assets and templates, monitor tasks in real time, and export results for publishing.',
+  seed_skill_studio:
+    'Generate simple Seedance videos with a reusable natural-language Seed Skill, minimal options, uploaded materials, script preview, and asset-library reuse.',
   assets:
     'Manage your asset library—products, backgrounds, audio, and virtual models—and reuse them across workflows for faster generation and consistent branding.',
   product_images_clothing_swap:
@@ -728,6 +732,12 @@ const Workbench = () => {
               onNavigateToAssetsLibrary={handleNavigateToAssetsLibrary}
               onNavigateToProfile={() => setActiveView('profile')}
             />
+            </ViewErrorBoundary>
+          </div>
+
+          <div className={activeView === 'seed_skill_studio' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="SeedSkillStudioView">
+              <SeedSkillStudioView />
             </ViewErrorBoundary>
           </div>
 

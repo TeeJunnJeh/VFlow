@@ -390,6 +390,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <InternalNav icon={MessageSquare} view="ai_creator" label={t.wb_nav_ai_creator || 'AI Creator'} />
               <InternalNav icon={UsersRound} view="community" label={(t as any).wb_nav_community || 'Community'} />
               <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
+              <InternalNav icon={Wand2} view="seed_skill_studio" label="Skill 视频" />
               <CreativeLabNav />
             </div>
           </nav>

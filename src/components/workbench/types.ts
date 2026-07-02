@@ -1,6 +1,7 @@
 // This file holds shared types for the Workbench module
 export type ViewType =
   | 'workbench'
+  | 'seed_skill_studio'
   | 'assets'
   | 'product_images_clothing_swap'
   | 'product_images_first_frame'

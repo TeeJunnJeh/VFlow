@@ -1589,6 +1589,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [tiktokCreatorInfo, setTikTokCreatorInfo] = useState<TikTokCreatorInfo | null>(null);
   const [tiktokDirectForm, setTikTokDirectForm] = useState<TikTokDirectPostInfo>(() => buildTikTokDirectPostInfo({}));
   const [isSavingScriptAsset, setIsSavingScriptAsset] = useState(false);
+  const [draftSeedSkill, setDraftSeedSkill] = useState<any>(null);
+  const [isSavingSeedSkill, setIsSavingSeedSkill] = useState(false);
   const [isPreparingDebug, setIsPreparingDebug] = useState(false);
   const [isSendingDebug, setIsSendingDebug] = useState(false);
   const [debugPayloadText, setDebugPayloadText] = useState('');
@@ -5351,6 +5353,67 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const activeFullScript = activeScriptPlan?.fullScript || '';
   const activeCreativeCard = activeScriptPlan?.creativeCard;
   const activeCreativeCardText = activeScriptPlan?.creativeCardText || '';
+  const activeSeedSkill: any = null;
+  const buildSeedSkillDraft = useCallback((seed?: string) => {
+    const bytes = new Uint32Array(2);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      crypto.getRandomValues(bytes);
+    } else {
+      bytes[0] = Math.floor(Math.random() * 0xffffffff);
+      bytes[1] = Date.now() % 0xffffffff;
+    }
+    const nextSeed = seed || `${Date.now().toString(36)}-${bytes[0].toString(36)}${bytes[1].toString(36)}`;
+    const suffix = nextSeed.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase() || 'SEED';
+    const category = (productCategory || selectedTemplate?.product_category || '当前素材').trim();
+    const skill = {
+      seed: nextSeed,
+      name: `Seed Skill ${suffix}`,
+      summary: `这个 skill 会用一组高熵创作经验重新组织${category}：先决定剧情空间、风格气质和记忆点，再交给 Seed-Lite 生成短剧本。`,
+      tags: ['剧情经验', '可复现', 'Seedance', category].filter(Boolean),
+      recipe: {
+        seed: nextSeed,
+        product_category: category,
+        video_type: videoType || 'UGC种草',
+        duration: genDuration,
+        aspect_ratio: aspectRatio,
+        language,
+      },
+    };
+    return skill;
+  }, [aspectRatio, genDuration, language, productCategory, selectedTemplate?.product_category, videoType]);
+
+  const handleShakeSeedSkill = useCallback(() => {
+    const nextSkill = buildSeedSkillDraft();
+    setDraftSeedSkill(nextSkill);
+    openInfo(popupTitles.success, `${nextSkill.name}\n${nextSkill.summary}`);
+  }, [buildSeedSkillDraft, openInfo, popupTitles.success]);
+
+  const handleSaveSeedSkillToLibrary = useCallback(async (skill: any = activeSeedSkill) => {
+    if (!requireAuth()) return;
+    const seed = String(skill?.seed || '').trim();
+    if (!seed) {
+      openInfo(popupTitles.notice, '请先摇出一个 skill。');
+      return;
+    }
+    setIsSavingSeedSkill(true);
+    try {
+      await assetsApi.createSeedSkillAsset({
+        seed,
+        seed_skill: skill,
+        display_name: String(skill?.name || 'Seed Skill').trim(),
+        video_type: videoType || 'UGC种草',
+        product_category: productCategory || selectedTemplate?.product_category || '',
+        duration: genDuration,
+        aspect_ratio: aspectRatio,
+        language,
+      });
+      openInfo(popupTitles.success, 'Seed skill 已保存到素材库。');
+    } catch (err: any) {
+      openInfo(popupTitles.notice, String(err?.message || 'Seed skill 保存失败，请稍后重试。'));
+    } finally {
+      setIsSavingSeedSkill(false);
+    }
+  }, [activeSeedSkill, aspectRatio, genDuration, language, openInfo, popupTitles.notice, popupTitles.success, productCategory, requireAuth, selectedTemplate?.product_category, videoType]);
   const buildVisibleScriptPromptForPage = useCallback((page?: ScriptPage, pageIndex = activeScriptPage) => {
     if (!page) return '';
     if (typeof page.creativeCardText === 'string') return page.creativeCardText;
@@ -6138,6 +6201,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ...(allVideoPaths.length > 1 ? { video_paths: allVideoPaths } : {}),
       ...(singleAudioPaths.length > 0 ? { audio_paths: singleAudioPaths } : {}),
       ...(selectedModel === 'seedance2.0' ? { aspect_ratio: aspectRatio } : {}),
+      ...(activeSeedSkill ? { seed_skill: activeSeedSkill } : {}),
       ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
     };
 
@@ -7948,6 +8012,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         styleTags: parseScriptStringList(scriptContent?.style_tags || parsed?.style_tags),
         creativeCard: normalizedCreativeCard,
         creativeCardText: importedCreativeCardText,
+        seedSkill: scriptContent?.seed_skill || parsed?.seed_skill || undefined,
         sourceLabel: importedSourceLabel,
       };
 
@@ -7981,6 +8046,24 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [buildCreativeCardEditorText, buildFullScriptFallback, formatMessage, normalizeScriptText, openInfo, parseScriptStringList, popupTitles.notice, popupTitles.success, t]);
 
   const handleImportScriptFromLibraryAsset = useCallback(async (asset: LibraryAsset) => {
+    const assetMeta = asset.meta_data || {};
+    if ((assetMeta as any).asset_subtype === 'seed_skill' || (assetMeta as any).seed_skill) {
+      const seedSkill = (assetMeta as any).seed_skill || {
+        seed: (assetMeta as any).seed,
+        name: (assetMeta as any).skill_name || asset.name,
+        summary: (assetMeta as any).skill_summary || '',
+        tags: (assetMeta as any).skill_tags || [],
+      };
+      setDraftSeedSkill(seedSkill);
+      setIsAssetLibraryOpen(false);
+      setAssetLibraryPickMode('default');
+      openInfo(
+        popupTitles.success,
+        `已应用 Seed Skill：${String(seedSkill?.name || asset.name || 'Seed Skill')}`
+      );
+      return;
+    }
+
     const assetUrl = toDisplayUrl(asset.file_url) || asset.file_url;
     if (!assetUrl) {
       openInfo(popupTitles.notice, t.wb_script_import_failed || '脚本地址无效，无法导入。');
@@ -8006,7 +8089,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         String(err?.message || t.wb_script_import_failed || '脚本读取失败，请稍后重试。')
       );
     }
-  }, [applyImportedScriptText, openInfo, popupTitles.notice, t]);
+  }, [applyImportedScriptText, openInfo, popupTitles.notice, popupTitles.success, t]);
 
   // Script import from asset library — fetch script content and apply as new ScriptPage
   useEffect(() => {
@@ -8082,6 +8165,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       selling_points: activeScriptPlan?.sellingPoints || [],
       scene_suggestions: activeScriptPlan?.sceneSuggestions || [],
       style_tags: activeScriptPlan?.styleTags || [],
+      seed_skill: activeScriptPlan?.seedSkill || activeSeedSkill || null,
       saved_at: new Date().toISOString(),
     };
     const fileName = `${displayName}.json`;
@@ -8122,7 +8206,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     } finally {
       setIsSavingScriptAsset(false);
     }
-  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptSaveNameDraft, scripts, t.wb_script_save_need_content, t.wb_script_save_failed, t.wb_script_saved_to_library, t.wb_script_save_name_required]);
+  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.seedSkill, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, activeSeedSkill, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptSaveNameDraft, scripts, t.wb_script_save_need_content, t.wb_script_save_failed, t.wb_script_saved_to_library, t.wb_script_save_name_required]);
 
   const saveCurrentWorkspaceScriptsToLibrary = useCallback(async () => {
     const fallbackName = scriptPages[activeScriptPage]?.name || `${t.wb_script_page_prefix} ${activeScriptPage + 1}`;
@@ -8145,6 +8229,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       selling_points: activeScriptPlan?.sellingPoints || [],
       scene_suggestions: activeScriptPlan?.sceneSuggestions || [],
       style_tags: activeScriptPlan?.styleTags || [],
+      seed_skill: activeScriptPlan?.seedSkill || activeSeedSkill || null,
       saved_at: new Date().toISOString(),
     };
 
@@ -8165,7 +8250,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     } finally {
       setIsSavingScriptAsset(false);
     }
-  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptPages, scripts, t.wb_script_page_prefix, t.wb_script_save_failed, t.wb_script_save_need_content, t.wb_script_saved_to_library]);
+  }, [activeCreativeCard, activeCreativeCardText, activeFullScript, activeScriptPage, activeScriptPlan?.continuityAnchor, activeScriptPlan?.sceneSuggestions, activeScriptPlan?.scriptStructure, activeScriptPlan?.seedSkill, activeScriptPlan?.sellingPoints, activeScriptPlan?.styleTags, activeSeedSkill, buildCombinedScriptPrompt, normalizeScriptAssetName, openInfo, popupTitles.notice, popupTitles.success, scriptPages, scripts, t.wb_script_page_prefix, t.wb_script_save_failed, t.wb_script_save_need_content, t.wb_script_saved_to_library]);
 
   const parseScriptPage = useCallback((raw: any, idx: number): ScriptPage => {
     const shots = buildScriptsFromShots(raw?.shots || raw?.script_content?.shots || []);
@@ -8224,6 +8309,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       styleTags: parseScriptStringList(scriptContent?.style_tags),
       creativeCard: normalizedCreativeCard,
       creativeCardText,
+      seedSkill: scriptContent?.seed_skill || undefined,
       sourceLabel: String(raw?.sourceLabel || '').trim() || undefined,
     };
   }, [buildCreativeCardEditorText, buildFullScriptFallback, buildScriptsFromShots, normalizeScriptText, parseScriptStringList, t.wb_script_page_prefix]);
@@ -8793,6 +8879,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           : {}),
         ...(referenceAssets.length > 0 ? { reference_assets: referenceAssets } : {}),
         ...(imagePath ? { product_image_path: imagePath } : {}),
+        ...(activeSeedSkill?.seed ? { seed_skill_enabled: true, seed_skill_seed: activeSeedSkill.seed, seed_skill: activeSeedSkill } : {}),
         ...(videoType ? { video_type: videoType } : {}),
       };
       const reportPayload = {
@@ -8843,6 +8930,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
             flushSync(() => {
               if (!isMountedRef.current) return;
               appendGeneratedScriptPage({ script_content: scriptContent }, { replaceExisting: isFirstVariant });
+              if (scriptContent?.seed_skill) {
+                setDraftSeedSkill(scriptContent.seed_skill);
+              }
             });
             appendGeneratedScriptPageToWorkspace(generationProjectId, { script_content: scriptContent }, { replaceExisting: isFirstVariant });
             void finishScriptGenerationProgress();
@@ -13273,6 +13363,40 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                 </div>
                 )}
+                {false && selectedModel === 'seedance2.0' && !isSeedanceReplayMode && (
+                  <div className="flex items-center gap-1 border-l border-white/10 pl-3">
+                    <button
+                      type="button"
+                      onClick={handleShakeSeedSkill}
+                      className="h-9 rounded-lg border border-fuchsia-300/25 bg-fuchsia-500/10 px-3 text-xs font-bold text-fuchsia-100 transition hover:border-fuchsia-300/45 hover:bg-fuchsia-500/15 inline-flex items-center gap-2"
+                      title="随机摇出一个可复现的创意 skill"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      {!isScriptsHeaderCompact && <span>摇一摇 Skill</span>}
+                    </button>
+                    {activeSeedSkill?.seed && (
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveSeedSkillToLibrary(activeSeedSkill)}
+                        disabled={isSavingSeedSkill}
+                        className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60 inline-flex items-center gap-2"
+                        title="保存 skill 到素材库"
+                      >
+                        {isSavingSeedSkill ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookmarkPlus className="w-4 h-4" />}
+                        {!isScriptsHeaderCompact && <span>保存 Skill</span>}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={openScriptLibraryPicker}
+                      className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition hover:bg-white/10 inline-flex items-center gap-2"
+                      title="从素材库应用已保存的 skill"
+                    >
+                      <Library className="w-4 h-4" />
+                      {!isScriptsHeaderCompact && <span>应用 Skill</span>}
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <div className="relative group/cost-video">
@@ -13505,6 +13629,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                 if (!Number.isFinite(rate) || rate <= 0 || batchGenerateCountForPage <= 0) return 0;
                 return roundCreditTenths(rate * pageGenerationDuration * batchGenerateCountForPage);
               })();
+              const pageSeedSkill: any = null;
+              const pageSeedSkillTags = Array.isArray(pageSeedSkill?.tags)
+                ? pageSeedSkill.tags.map((item: any) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+                : [];
 
               return (
                 <section
@@ -13576,6 +13704,49 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
 
                   <div className="relative z-10 mt-4">
+                    {pageSeedSkill?.seed && (
+                      <div className="mb-4 border-y border-fuchsia-300/20 bg-fuchsia-500/[0.06] py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3 px-1">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-fuchsia-200">
+                                <Sparkles className="h-3.5 w-3.5" />
+                                Seed Skill
+                              </span>
+                              <span className="truncate text-xs font-bold text-zinc-100">{pageSeedSkill.name || 'Seed Skill'}</span>
+                              <span className="font-mono text-[10px] text-zinc-500">#{String(pageSeedSkill.seed).slice(-8)}</span>
+                            </div>
+                            <p className="mt-2 text-xs leading-relaxed text-zinc-300">
+                              {pageSeedSkill.summary || '这是一组可复现的创作经验，会影响剧情模板、风格气质和素材记忆点。'}
+                            </p>
+                            {pageSeedSkillTags.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {pageSeedSkillTags.map((tag: string) => (
+                                  <span key={tag} className="border border-fuchsia-300/20 bg-fuchsia-500/10 px-2 py-0.5 text-[10px] font-bold text-fuchsia-100/90">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {active && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleSaveSeedSkillToLibrary(pageSeedSkill);
+                              }}
+                              disabled={isSavingSeedSkill}
+                              className="shrink-0 inline-flex h-8 items-center gap-1.5 border border-white/10 bg-white/5 px-2.5 text-[11px] font-bold text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                              title="保存这个 skill 到素材库"
+                            >
+                              {isSavingSeedSkill ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookmarkPlus className="h-3.5 w-3.5" />}
+                              <span>保存 Skill</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div className={cardThemeClass.shell}>
                       <div className={cardThemeClass.panel}>
                         <textarea

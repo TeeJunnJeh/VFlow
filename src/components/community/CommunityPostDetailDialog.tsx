@@ -1,5 +1,28 @@
-import { Bookmark, Flag, Heart, Library, X } from 'lucide-react';
-import type { CommunityPost } from '../../services/community';
+import React from 'react';
+import { Bookmark, Flag, Heart, Library, Sparkles, X } from 'lucide-react';
+import { assetsApi } from '../../services/assets';
+import type { CommunityPost, CommunitySharedSkill } from '../../services/community';
+
+const formatSharedSkill = (skill: CommunitySharedSkill): string => {
+  const lines: string[] = [];
+  if (skill.name) lines.push(`【${String(skill.name)}】`);
+  if (skill.summary) lines.push(String(skill.summary));
+  if (skill.description) lines.push(String(skill.description));
+  const tags = Array.isArray(skill.tags) ? skill.tags.filter(Boolean) : [];
+  if (tags.length) lines.push(`标签：${tags.map(String).join('、')}`);
+  const recipe = (skill.recipe && typeof skill.recipe === 'object') ? (skill.recipe as Record<string, unknown>) : null;
+  if (recipe) {
+    const labelMap: Record<string, string> = { hook: '开场钩子', structure: '分镜结构', pacing: '节奏', tone: '调性', camera: '运镜', lighting: '光线', music: '音乐' };
+    lines.push('创作配方：');
+    Object.entries(recipe).forEach(([k, v]) => {
+      const label = labelMap[k] || k;
+      const val = Array.isArray(v) ? v.map(String).join(' / ') : String(v ?? '');
+      if (val) lines.push(`· ${label}：${val}`);
+    });
+  }
+  if (skill.seed) lines.push(`种子 Seed：#${String(skill.seed)}`);
+  return lines.join('\n');
+};
 
 interface CommunityPostDetailDialogProps {
   post: CommunityPost | null;
@@ -27,6 +50,36 @@ export const CommunityPostDetailDialog = ({
   onCollectMaterial,
   onReport,
 }: CommunityPostDetailDialogProps) => {
+  const [savingSkill, setSavingSkill] = React.useState(false);
+  const [skillSaved, setSkillSaved] = React.useState(false);
+  const [skillMsg, setSkillMsg] = React.useState('');
+
+  React.useEffect(() => {
+    setSavingSkill(false);
+    setSkillSaved(false);
+    setSkillMsg('');
+  }, [post?.id]);
+
+  const saveSharedSkill = React.useCallback(async () => {
+    const skill = post?.shared_skill;
+    if (!skill) return;
+    setSavingSkill(true);
+    setSkillMsg('');
+    try {
+      await assetsApi.createSeedSkillAsset({
+        seed: skill.seed !== undefined && skill.seed !== null ? String(skill.seed) : '',
+        seed_skill: skill as Record<string, unknown>,
+        display_name: String(skill.name || 'Seed Skill'),
+      });
+      setSkillSaved(true);
+      setSkillMsg('已保存到素材库');
+    } catch (err) {
+      setSkillMsg(err instanceof Error ? err.message : '保存失败，请确认已登录');
+    } finally {
+      setSavingSkill(false);
+    }
+  }, [post?.shared_skill, post?.id]);
+
   if (!post) return null;
 
   const primaryMedia = post.media.find((item) => item.kind === 'video') || post.media[0];
@@ -60,6 +113,31 @@ export const CommunityPostDetailDialog = ({
 
           <div className="custom-scroll flex-1 overflow-y-auto px-5 py-4">
             <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">{post.body}</p>
+
+            {post.shared_skill ? (
+              <div className="mt-5 border-t border-dashed border-white/15 pt-4">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-200">
+                    <Sparkles className="h-3.5 w-3.5" /> 分享的创作 Skill
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void saveSharedSkill()}
+                    disabled={savingSkill || skillSaved}
+                    className="rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-100 hover:bg-amber-400/20 disabled:opacity-60"
+                  >
+                    {skillSaved ? '已保存到素材库' : savingSkill ? '保存中...' : '保存到素材库'}
+                  </button>
+                </div>
+                <div
+                  className="whitespace-pre-wrap rounded-lg bg-white/[0.03] px-4 py-3 text-xs leading-6 text-zinc-300"
+                  style={{ fontFamily: '"楷体", KaiTi, STKaiti, "楷体_GB2312", serif' }}
+                >
+                  {formatSharedSkill(post.shared_skill)}
+                </div>
+                {skillMsg ? <div className="mt-1.5 text-[11px] font-bold text-amber-200/80">{skillMsg}</div> : null}
+              </div>
+            ) : null}
 
             {post.materials.length > 0 ? (
               <div className="mt-6 grid gap-2">

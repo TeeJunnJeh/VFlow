@@ -32,6 +32,16 @@ export interface CommunityMaterial {
   can_collect?: boolean;
 }
 
+export interface CommunitySharedSkill {
+  seed?: string | number;
+  name?: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  recipe?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 export interface CommunityPost {
   id: string;
   is_placeholder?: boolean;
@@ -42,6 +52,7 @@ export interface CommunityPost {
   cover_url?: string;
   media: CommunityMedia[];
   materials: CommunityMaterial[];
+  shared_skill?: CommunitySharedSkill | null;
   like_count: number;
   favorite_count: number;
   collect_count: number;
@@ -64,14 +75,26 @@ export interface CommunityListResponse {
   total?: number;
 }
 
+export interface CommunityMediaRef {
+  kind: CommunityMediaKind;
+  url: string;
+  name?: string;
+  thumbnail_url?: string;
+  source_asset_id?: string;
+  source_project_id?: string;
+}
+
 export interface CommunityCreateDraft {
   title: string;
   body: string;
-  postType: CommunityPostType;
-  video: File;
-  images?: File[];
-  audio?: File | null;
+  // 空字符串或省略 = 由后端按“是否分享 skill”自动决定帖子类型
+  postType?: CommunityPostType | '';
+  // 帖子展示媒体：仅来自素材库/生成历史的引用（不再本地上传）
+  media?: CommunityMediaRef[];
+  // 可被他人收集的素材（素材库 DigitalAsset id）
   materialAssetIds?: string[];
+  // 同时分享的创作 skill（seed_skill）
+  sharedSkill?: CommunitySharedSkill | null;
 }
 
 const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
@@ -119,6 +142,7 @@ export const normalizeCommunityPost = (item: any): CommunityPost => ({
     preview_url: toDisplayUrl(material.preview_url || material.thumbnail || material.file_url || material.url || ''),
     can_collect: material.can_collect !== false,
   })),
+  shared_skill: (item.shared_skill && typeof item.shared_skill === 'object') ? (item.shared_skill as CommunitySharedSkill) : null,
   like_count: Number(item.like_count || 0),
   favorite_count: Number(item.favorite_count || item.star_count || 0),
   collect_count: Number(item.collect_count || 0),
@@ -172,23 +196,31 @@ export const communityApi = {
 
   createPost: async (draft: CommunityCreateDraft): Promise<CommunityPost> => {
     const csrftoken = getCookie('csrftoken');
-    const formData = new FormData();
-    formData.append('title', draft.title);
-    formData.append('body', draft.body);
-    formData.append('post_type', draft.postType);
-    formData.append('video', draft.video);
-    (draft.images || []).forEach((file) => formData.append('images', file));
-    if (draft.audio) formData.append('audio', draft.audio);
-    (draft.materialAssetIds || []).forEach((id) => formData.append('material_asset_ids', id));
+    const payload: Record<string, unknown> = {
+      title: draft.title || '',
+      body: draft.body || '',
+      media: (draft.media || []).map((m) => ({
+        kind: m.kind,
+        url: m.url,
+        name: m.name || '',
+        thumbnail_url: m.thumbnail_url || '',
+        source_asset_id: m.source_asset_id,
+        source_project_id: m.source_project_id,
+      })),
+      material_asset_ids: draft.materialAssetIds || [],
+    };
+    if (draft.postType) payload.post_type = draft.postType;
+    if (draft.sharedSkill && typeof draft.sharedSkill === 'object') payload.shared_skill = draft.sharedSkill;
 
     const response = await fetch(`${API_BASE_URL}/posts/`, {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'X-CSRFToken': csrftoken || '',
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body: formData,
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) await throwCommunityApiError(response, 'Request failed');

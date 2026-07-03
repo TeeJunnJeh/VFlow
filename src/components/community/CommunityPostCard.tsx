@@ -24,9 +24,30 @@ export const CommunityPostCard = React.memo(({
   onFavorite,
   onCollectFirstMaterial,
 }: CommunityPostCardProps) => {
-  const firstMedia = post.media[0];
-  const previewUrl = post.cover_url || firstMedia?.thumbnail_url || firstMedia?.url || '';
+  // 优先选视频作为卡片主媒体（与详情弹窗一致）
+  const videoMedia = post.media.find((m) => m.kind === 'video');
+  const firstMedia = videoMedia || post.media[0];
+  const isVideo = firstMedia?.kind === 'video' && Boolean(firstMedia?.url);
+  const posterUrl = post.cover_url || firstMedia?.thumbnail_url || '';
+  const imageUrl = !isVideo ? (post.cover_url || firstMedia?.thumbnail_url || firstMedia?.url || '') : '';
   const canCollect = post.materials.length > 0;
+
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const [isPlaying, setIsPlaying] = React.useState(false);
+
+  const handleMouseEnter = React.useCallback(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const p = el.play();
+    if (p && typeof p.then === 'function') p.then(() => setIsPlaying(true)).catch(() => {});
+  }, []);
+  const handleMouseLeave = React.useCallback(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    el.pause();
+    try { el.currentTime = 0; } catch { /* noop */ }
+    setIsPlaying(false);
+  }, []);
 
   return (
     <article className="group relative overflow-hidden rounded-lg border border-white/10 bg-zinc-950">
@@ -35,10 +56,25 @@ export const CommunityPostCard = React.memo(({
         onClick={() => onOpen(post)}
         className="block w-full text-left"
       >
-        <div className="relative aspect-[4/5] overflow-hidden bg-zinc-900">
-          {previewUrl ? (
+        <div
+          className="relative aspect-[4/5] overflow-hidden bg-zinc-900"
+          onMouseEnter={isVideo ? handleMouseEnter : undefined}
+          onMouseLeave={isVideo ? handleMouseLeave : undefined}
+        >
+          {isVideo ? (
+            <video
+              ref={videoRef}
+              src={firstMedia!.url}
+              poster={posterUrl || undefined}
+              muted
+              loop
+              playsInline
+              preload={posterUrl ? 'none' : 'metadata'}
+              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+            />
+          ) : imageUrl ? (
             <img
-              src={previewUrl}
+              src={imageUrl}
               alt={post.title}
               loading="lazy"
               decoding="async"
@@ -47,12 +83,12 @@ export const CommunityPostCard = React.memo(({
           ) : (
             <div className="h-full w-full bg-zinc-900" />
           )}
-          {firstMedia?.kind === 'video' ? (
-            <div className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white">
+          {isVideo && !isPlaying ? (
+            <div className="pointer-events-none absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white">
               <Play className="h-4 w-4 fill-current" />
             </div>
           ) : null}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3">
             <div className="line-clamp-2 text-sm font-black leading-5 text-white">{post.title}</div>
           </div>
         </div>

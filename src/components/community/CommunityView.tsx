@@ -308,6 +308,16 @@ export const CommunityView = () => {
     }
   }, [labels.publishError, labels.publishSuccess, requireAuth, showToast]);
 
+  // 稳定引用，避免每次父组件渲染都让所有卡片重渲染（滚动流畅、防卡顿）
+  const cardLabels = React.useMemo(() => ({
+    like: labels.like,
+    favorite: labels.favorite,
+    collect: labels.collect,
+    uncollect: labels.uncollect,
+  }), [labels.like, labels.favorite, labels.collect, labels.uncollect]);
+  const handleLike = React.useCallback((item: CommunityPost) => { void handleReaction(item, 'like'); }, [handleReaction]);
+  const handleFavorite = React.useCallback((item: CommunityPost) => { void handleReaction(item, 'favorite'); }, [handleReaction]);
+
   const hasPosts = posts.length > 0;
 
   return (
@@ -402,10 +412,10 @@ export const CommunityView = () => {
                 <CommunityPostCard
                   key={post.id}
                   post={post}
-                  labels={{ like: labels.like, favorite: labels.favorite, collect: labels.collect, uncollect: labels.uncollect }}
+                  labels={cardLabels}
                   onOpen={openPost}
-                  onLike={(item) => void handleReaction(item, 'like')}
-                  onFavorite={(item) => void handleReaction(item, 'favorite')}
+                  onLike={handleLike}
+                  onFavorite={handleFavorite}
                   onCollectFirstMaterial={handleCollectFirstMaterial}
                 />
               ))}

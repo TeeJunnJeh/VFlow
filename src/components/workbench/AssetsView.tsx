@@ -11,7 +11,7 @@ import { getSubjectGuideContent } from './subjectGuideContent';
 import { addTransferStationItems } from '../../utils/workbenchTransferStation';
 import { formatCreditAmount } from '../../utils/credits';
 
-type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'subject';
+type AssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'skill' | 'subject';
 type PlazaCategory = 'model' | 'product' | 'scene' | 'motion' | 'audio';
 type AssetsNavigationIntent =
   | 'open_assets_for_subject_creation'
@@ -77,7 +77,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
   const docFormats = DOC_EXTS.join('/');
-  const formatHint = `${t.wb_upload_image}: ${imageFormats} (≤30MB)\n${t.wb_upload_video}: ${videoFormats} (≤50MB)\n${t.wb_upload_audio}: ${audioFormats} (≤15MB)\n${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)`;
+  const formatHint = `${t.wb_upload_image}: ${imageFormats} (≤30MB)\n${t.wb_upload_video}: ${videoFormats} (≤50MB)\n${t.wb_upload_audio}: ${audioFormats} (≤15MB)\n${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)\n${(t as any).assets_tab_skills || 'Skill'}: ${docFormats} (≤10MB)`;
 
   const getFileExtension = (name: string) => name.split('.').pop()?.toLowerCase() || '';
   const loadAudioDurationSeconds = (file: File): Promise<number | null> => new Promise((resolve) => {
@@ -178,6 +178,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     motion: t.assets_tab_videos || '视频',
     audio: t.assets_tab_audio || '音频',
     script: t.assets_tab_scripts || '脚本/Prompt',
+    skill: (t as any).assets_tab_skills || 'Skill',
     subject: t.assets_tab_subjects || 'Subjects',
   };
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
@@ -205,7 +206,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const [activeAssetTab, setActiveAssetTab] = useState<AssetType>(() => getInitialAssetTabFromNavigationIntent(navigationIntent));
 
   useEffect(() => {
-    if (viewMode === 'plaza' && (activeAssetTab === 'script' || activeAssetTab === 'subject')) {
+    if (viewMode === 'plaza' && (activeAssetTab === 'script' || activeAssetTab === 'skill' || activeAssetTab === 'subject')) {
       setActiveAssetTab('product');
     }
   }, [activeAssetTab, viewMode]);
@@ -222,6 +223,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     if (activeAssetTab === 'motion' && !isVideo) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     if (activeAssetTab === 'audio' && !isAudio) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     if (activeAssetTab === 'script' && !isDocument) return `${t.assets_upload_error_unsupported}: ${file.name}`;
+    if (activeAssetTab === 'skill' && !isDocument) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     if (activeAssetTab === 'model' && !isImage) return `${t.assets_upload_error_unsupported}: ${file.name}`;
     // Per-type size check
     if (isImage && file.size > IMAGE_MAX_BYTES) return `${t.assets_upload_error_too_large}: ${file.name} (>30MB)`;
@@ -237,7 +239,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       case 'model': return '.jpg,.jpeg,.png,.webp,image/*';
       case 'motion': return '.mp4,.mov,.mkv,.webm,.avi,video/*';
       case 'audio': return '.mp3,.wav,.flac,audio/*';
-      case 'script': return '.txt,.md,.json,text/plain,application/json';
+      case 'script':
+      case 'skill': return '.txt,.md,.json,text/plain,application/json';
       default: return '';
     }
   }, [activeAssetTab]);
@@ -249,6 +252,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       case 'motion': return `${t.wb_upload_video}: ${videoFormats} (≤50MB)`;
       case 'audio': return `${t.wb_upload_audio}: ${audioFormats} (≤15MB)`;
       case 'script': return `${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)`;
+      case 'skill': return `${(t as any).assets_tab_skills || 'Skill'}: ${docFormats} (≤10MB)`;
       default: return '';
     }
   }, [activeAssetTab, imageFormats, videoFormats, audioFormats, docFormats, formatHint, t]);
@@ -721,7 +725,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     setPlazaLoading(true);
     try {
       const resp = await assetsApi.getPlazaAssets({
-        category: activeAssetTab === 'script' || activeAssetTab === 'subject' ? 'product' : activeAssetTab,
+        category: activeAssetTab === 'script' || activeAssetTab === 'skill' || activeAssetTab === 'subject' ? 'product' : activeAssetTab,
         source: plazaSource,
         q: plazaSearch.trim(),
         limit: 120,
@@ -1321,7 +1325,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     try {
       await Promise.all(list.map((file) => assetsApi.uploadPlazaAsset({
         file,
-        category: activeAssetTab === 'script' || activeAssetTab === 'subject' ? 'product' : activeAssetTab,
+        category: activeAssetTab === 'script' || activeAssetTab === 'skill' || activeAssetTab === 'subject' ? 'product' : activeAssetTab,
         keywords: plazaKeywordDraft,
       })));
       setPlazaKeywordDraft('');
@@ -1690,8 +1694,8 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     ))
   ), [folderList, matchesAssetNameSearch, showOnlyFavorites]);
 
-  // Force list view for audio / script tabs
-  const isListOnlyTab = activeAssetTab === 'audio' || activeAssetTab === 'script';
+  // Force list view for audio / document-like tabs
+  const isListOnlyTab = activeAssetTab === 'audio' || activeAssetTab === 'script' || activeAssetTab === 'skill';
   useEffect(() => {
     if (isListOnlyTab) setAssetViewLayout('list');
   }, [isListOnlyTab]);
@@ -2431,7 +2435,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
        <div className="flex-1 flex flex-col px-10 pt-4 pb-10 overflow-hidden">
          {/* Tabs */}
          <div className="flex items-center gap-1 mb-8 border-b border-white/5 pb-2">
-             {((['product', 'motion', 'audio', 'model', 'script'] as AssetType[]).map(type => (
+             {((['product', 'motion', 'audio', 'model', 'script', 'skill'] as AssetType[]).map(type => (
                 <button
                   key={type}
                   onClick={() => {

@@ -291,7 +291,7 @@ export const SeedSkillStudioView: React.FC = () => {
     setIsLibraryOpen(true);
     setIsLoadingLibrary(true);
     try {
-      const assets = await assetsApi.getAssets({ type: 'script' });
+      const assets = await assetsApi.getAssets({ type: 'skill' });
       setLibrarySkills(assets.filter((asset) => Boolean(skillFromAsset(asset))));
     } catch (error: any) {
       setStatusText(String(error?.message || '读取素材库 Skill 失败'));

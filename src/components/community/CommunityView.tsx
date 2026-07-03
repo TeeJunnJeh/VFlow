@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useRequireAuth } from '../../utils/useRequireAuth';
 import { communityApi, isCommunityApiUnavailableError, type CommunityCreateDraft, type CommunityPost, type CommunityPostType, type CommunityReactionAction } from '../../services/community';
 import { CommunityComposerDialog } from './CommunityComposerDialog';
 import { CommunityPostCard } from './CommunityPostCard';
@@ -30,6 +31,7 @@ const getErrorMessage = (err: unknown, fallback: string) => {
 
 export const CommunityView = () => {
   const { t } = useLanguage();
+  const { requireAuth } = useRequireAuth();
   const [query, setQuery] = React.useState('');
   const [debouncedQuery, setDebouncedQuery] = React.useState('');
   const [filter, setFilter] = React.useState<CommunityFilter>('all');
@@ -196,6 +198,7 @@ export const CommunityView = () => {
   }, [replacePost]);
 
   const handleReaction = React.useCallback(async (post: CommunityPost, action: CommunityReactionAction) => {
+    if (!requireAuth()) return;
     const previous = post;
     const nextValue = action === 'like' ? !post.is_liked : !post.is_favorited;
 
@@ -224,10 +227,11 @@ export const CommunityView = () => {
       updatePost(post.id, () => previous);
       setErrorMessage(getErrorMessage(err, labels.actionError));
     }
-  }, [labels.actionError, updatePost]);
+  }, [labels.actionError, requireAuth, updatePost]);
 
   const handleCollectMaterial = React.useCallback(async (post: CommunityPost, materialId: string) => {
     if (!materialId) return;
+    if (!requireAuth()) return;
     const previous = post;
     const nextValue = !post.is_collected;
 
@@ -258,7 +262,7 @@ export const CommunityView = () => {
       updatePost(post.id, () => previous);
       setErrorMessage(getErrorMessage(err, labels.actionError));
     }
-  }, [labels.actionError, labels.collectSuccess, labels.uncollectSuccess, showToast, updatePost]);
+  }, [labels.actionError, labels.collectSuccess, labels.uncollectSuccess, requireAuth, showToast, updatePost]);
 
   const handleCollectFirstMaterial = React.useCallback((post: CommunityPost) => {
     const material = post.materials.find((item) => item.can_collect !== false) || post.materials[0];
@@ -267,6 +271,7 @@ export const CommunityView = () => {
 
   const handleReport = React.useCallback(async (post: CommunityPost) => {
     if (typeof window === 'undefined') return;
+    if (!requireAuth()) return;
     const reason = window.prompt(labels.reportPrompt, labels.reportDefaultReason);
     if (reason === null) return;
 
@@ -281,9 +286,10 @@ export const CommunityView = () => {
     } catch (err) {
       setErrorMessage(getErrorMessage(err, labels.actionError));
     }
-  }, [labels.actionError, labels.reportDefaultReason, labels.reportPrompt, labels.reportSuccess, showToast]);
+  }, [labels.actionError, labels.reportDefaultReason, labels.reportPrompt, labels.reportSuccess, requireAuth, showToast]);
 
   const handleSubmitPost = React.useCallback(async (draft: CommunityCreateDraft) => {
+    if (!requireAuth()) return;
     setIsSubmittingPost(true);
     setErrorMessage(null);
     try {
@@ -300,7 +306,7 @@ export const CommunityView = () => {
     } finally {
       setIsSubmittingPost(false);
     }
-  }, [labels.publishError, labels.publishSuccess, showToast]);
+  }, [labels.publishError, labels.publishSuccess, requireAuth, showToast]);
 
   const hasPosts = posts.length > 0;
 
@@ -311,7 +317,10 @@ export const CommunityView = () => {
           <h1 className="text-2xl font-black tracking-tight text-zinc-100">{labels.title}</h1>
           <button
             type="button"
-            onClick={() => setIsComposerOpen(true)}
+            onClick={() => {
+              if (!requireAuth()) return;
+              setIsComposerOpen(true);
+            }}
             className="inline-flex h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white shadow-lg shadow-orange-950/30 hover:bg-orange-400"
           >
             <Plus className="h-4 w-4" />

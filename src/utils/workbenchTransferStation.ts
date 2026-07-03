@@ -1,6 +1,6 @@
 export type TransferStationMediaKind = 'image' | 'video' | 'audio' | 'file' | 'script';
 
-export type TransferStationAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script';
+export type TransferStationAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'skill';
 
 export type TransferStationSource = 'assets' | 'history' | 'replay';
 
@@ -119,7 +119,8 @@ export const loadTransferStationItems = (userId?: string | number | null): Trans
           next.type === 'scene' ||
           next.type === 'motion' ||
           next.type === 'audio' ||
-          next.type === 'script'
+          next.type === 'script' ||
+          next.type === 'skill'
             ? next.type
             : inferTypeByMediaKind(normalizedMediaKind);
 
@@ -214,7 +215,8 @@ export const addTransferStationItems = (
       rawInput.type === 'scene' ||
       rawInput.type === 'motion' ||
       rawInput.type === 'audio' ||
-      rawInput.type === 'script'
+      rawInput.type === 'script' ||
+      rawInput.type === 'skill'
         ? rawInput.type
         : inferTypeByMediaKind(normalizedMediaKind);
 

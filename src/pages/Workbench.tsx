@@ -44,6 +44,7 @@ import { PROMO_DEBUG_ALWAYS_SHOW, usePromoEligibility } from '../components/prom
  */
 const ACTIVE_PROMO_CAMPAIGN_ID = 'promo_39_9_598v';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
+import { SeedSkillStudioView } from '../components/workbench/SeedSkillStudioView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
 import { HistoryView } from '../components/workbench/HistoryView';
@@ -52,6 +53,7 @@ import { EditorView } from '../components/workbench/EditorView';
 import { ProfileView } from '../components/workbench/ProfileView';
 import { BillingView } from '../components/workbench/BillingView';
 import { AICreatorView } from '../components/workbench/AICreatorView';
+import { CommunityView } from '../components/community/CommunityView';
 import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
 import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
 import { CanvasComingSoon } from '../components/creativeLab/CanvasComingSoon';
@@ -70,6 +72,7 @@ import {
 
 const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   workbench: 'VFLOW AI - 工作台 - GenViewTech',
+  seed_skill_studio: 'VFLOW AI - Skill 视频 - GenViewTech',
   assets: 'VFLOW AI - 素材库 - GenViewTech',
   product_images_clothing_swap: 'VFLOW AI - 商品图 - 换装 - GenViewTech',
   product_images_first_frame: 'VFLOW AI - 商品图 - 首帧图 - GenViewTech',
@@ -87,11 +90,14 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   profile: 'VFLOW AI - 设置 - GenViewTech',
   billing: 'VFLOW AI - 计费 - GenViewTech',
   ai_creator: 'VFLOW AI - AI 创作 - GenViewTech',
+  community: 'VFLOW AI - 创作者社区 - GenViewTech',
 };
 
 const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
   workbench:
     'Use the VFLOW AI workspace to generate product videos and images, manage assets and templates, monitor tasks in real time, and export results for publishing.',
+  seed_skill_studio:
+    'Generate simple Seedance videos with a reusable natural-language Seed Skill, minimal options, uploaded materials, script preview, and asset-library reuse.',
   assets:
     'Manage your asset library—products, backgrounds, audio, and virtual models—and reuse them across workflows for faster generation and consistent branding.',
   product_images_clothing_swap:
@@ -126,6 +132,8 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'View your plan, balance, invoices, and usage. Manage payments and understand how credits are consumed for video and product image generation in one place.',
   ai_creator:
     'Chat with AI to generate anything — videos, scripts, images, and more. Describe what you want in natural language and create with one click.',
+  community:
+    'Browse creator posts, share videos and creative notes, save assets into your library, and collect reusable inspiration inside the VFLOW AI creator community.',
 };
 
 const isWorkbenchViewType = (value: string | null | undefined): value is ViewType => (
@@ -727,6 +735,12 @@ const Workbench = () => {
             </ViewErrorBoundary>
           </div>
 
+          <div className={activeView === 'seed_skill_studio' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="SeedSkillStudioView">
+              <SeedSkillStudioView />
+            </ViewErrorBoundary>
+          </div>
+
           <div className={activeView === 'creative_lab_replay' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <ViewErrorBoundary label="CreativeLabReplayView">
               <CreativeLabReplayView />
@@ -787,6 +801,12 @@ const Workbench = () => {
 
           <div className={activeView === 'ai_creator' ? 'flex-1 h-full min-h-0' : 'hidden'}>
             <AICreatorView />
+          </div>
+
+          <div className={activeView === 'community' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="CommunityView">
+              <CommunityView />
+            </ViewErrorBoundary>
           </div>
 
           {activeView === 'profile' && (

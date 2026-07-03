@@ -15,7 +15,7 @@ const API_BASE_URL = '/api/assets';
 // In development, keep it empty so Vite's `/media` proxy works.
 const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
-export type LibraryAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'multimodal' | 'subject';
+export type LibraryAssetType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'skill' | 'multimodal' | 'subject';
 export type LibraryMediaKind = 'image' | 'video' | 'audio' | 'document' | 'file';
 
 function toDisplayUrl(pathOrUrl: string | null | undefined): string {
@@ -168,7 +168,7 @@ export const assetsApi = {
             let mediaKind: Asset['media_kind'] = 'file';
             if (lowerType === 'motion' || /\.(mp4|mov|mkv|webm|avi)$/.test(rawPathLower)) mediaKind = 'video';
             else if (lowerType === 'audio' || /\.(mp3|wav|flac)$/.test(rawPathLower)) mediaKind = 'audio';
-            else if (lowerType === 'script' || /\.(txt|md|json|csv)$/.test(rawPathLower)) mediaKind = 'document';
+            else if (lowerType === 'script' || lowerType === 'skill' || /\.(txt|md|json|csv)$/.test(rawPathLower)) mediaKind = 'document';
             else if (/\.(jpg|jpeg|png|webp|gif)$/.test(rawPathLower)) mediaKind = 'image';
 
             return {
@@ -418,6 +418,33 @@ export const assetsApi = {
     });
 
     if (!response.ok) throw await parseApiError(response, 'Request failed');
+    return await response.json();
+  },
+
+  createSeedSkillAsset: async (payload: {
+    seed?: string;
+    seed_skill?: Record<string, unknown>;
+    display_name?: string;
+    folder_id?: string | null;
+    video_type?: string;
+    product_category?: string;
+    duration?: number;
+    aspect_ratio?: string;
+    language?: string;
+  }) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skills/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) throw await parseApiError(response, 'Save seed skill failed');
     return await response.json();
   },
 

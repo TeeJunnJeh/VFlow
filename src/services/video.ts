@@ -1097,6 +1097,27 @@ export const videoApi = {
     return await response.json();
   },
 
+  previewSeedSkill: async (payload: unknown): Promise<ApiEnvelope<{ seed_skill: Record<string, unknown> }>> => {
+    const csrftoken = getCookie('csrftoken');
+
+    const response = await fetch(`${API_BASE_URL}/seed-skill/preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Seed skill preview failed');
+    }
+
+    return await response.json();
+  },
+
   // 2. Generate Script
   generateScript: async (userId: string | number, payload: unknown) => {
     const csrftoken = getCookie('csrftoken');

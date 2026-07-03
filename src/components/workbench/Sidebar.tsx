@@ -23,6 +23,7 @@ import {
   Wand2,
   Wrench,
   MessageSquare,
+  UsersRound,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
@@ -387,7 +388,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex flex-col gap-1 w-full">
               <ProductImagesNav />
               <InternalNav icon={MessageSquare} view="ai_creator" label={t.wb_nav_ai_creator || 'AI Creator'} />
+              <InternalNav icon={UsersRound} view="community" label={(t as any).wb_nav_community || 'Community'} />
               <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
+              <InternalNav icon={Wand2} view="seed_skill_studio" label="Skill 视频" />
               <CreativeLabNav />
             </div>
           </nav>

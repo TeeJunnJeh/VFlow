@@ -8,6 +8,8 @@ import { AppDialog } from '../common/AppDialog';
 import { ErrorModal } from './workflow/ErrorModal';
 import TextSeparationDemoView, { type TextSeparationBlock } from './TextSeparationDemoView';
 import GalleryBoardEditor, { type GalleryBoardAsset, type GalleryBoardDraft } from './GalleryBoardEditor';
+import { GalleryInteractiveModeView } from '../productImages/Functions/ImagesGallery/GalleryInteractiveModeView';
+import { DynamicInteractiveBackground } from '../productImages/Functions/ImagesGallery/DynamicInteractiveBackground';
 import { buildGalleryBoardExampleDraft } from '../productImages/Functions/ImagesGallery/galleryBoardExampleLayout';
 import { assetsApi, seedanceApi, type SeedanceCharacter } from '../../services/assets';
 import { videoApi } from '../../services/video';
@@ -1059,7 +1061,20 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
     activeView === 'product_images_ai_model';
 
   const currentValue: ViewType = isProductView ? activeView : 'product_images_first_frame';
-  const panelClassName = (view: ViewType) => (currentValue === view ? 'block' : 'hidden');
+  const [galleryMode, setGalleryMode] = useState<'manual' | 'interactive'>('manual');
+
+  useEffect(() => {
+    if (currentValue !== 'product_images_gallery') {
+      setGalleryMode('manual');
+    }
+  }, [currentValue]);
+
+  const panelClassName = (view: ViewType) => {
+    if (view === 'product_images_gallery') {
+      return currentValue === view && galleryMode === 'manual' ? 'block' : 'hidden';
+    }
+    return currentValue === view ? 'block' : 'hidden';
+  };
   const [firstFrameHeaderActionsContainer, setFirstFrameHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
 
   const currentHeader = useMemo(() => {
@@ -4959,7 +4974,10 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
   };
 
   return (
-    <div className="flex flex-col h-full z-10">
+    <div className="relative flex flex-col h-full z-10 overflow-hidden">
+      {currentValue === 'product_images_gallery' && galleryMode === 'interactive' ? (
+        <DynamicInteractiveBackground />
+      ) : null}
       <ErrorModal
         isOpen={Boolean(galleryErrorModalData)}
         title={galleryErrorModalData?.title || ''}
@@ -6363,17 +6381,51 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
         </div>
         <div className="flex items-center gap-3 shrink-0">
       {currentValue === 'product_images_gallery' && (
-        <button
-          type="button"
-          onClick={() => {
-            window.dispatchEvent(new CustomEvent('vflow:open-product-gallery-guide'));
-          }}
-          className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
-          title={t.pg_img_guide_modal_title}
-        >
-          <Sparkles className="w-4 h-4" />
-          {t.wb_guide_button_label}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('vflow:open-product-gallery-guide'));
+            }}
+            className="px-3 py-2 rounded-xl text-xs font-bold transition border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/15 inline-flex items-center gap-2"
+            title={t.pg_img_guide_modal_title}
+          >
+            <Sparkles className="w-4 h-4" />
+            {t.wb_guide_button_label}
+          </button>
+
+          <div className="relative isolate flex items-stretch gap-2">
+            <button
+              type="button"
+              onClick={() => setGalleryMode('manual')}
+              className={[
+                'relative z-10 min-w-[92px] rounded-xl border px-3 py-1.5 text-xs transition active:scale-[0.98]',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                galleryMode === 'manual'
+                  ? 'font-bold text-zinc-100 border-orange-500/60 ring-1 ring-orange-500/25'
+                  : 'font-bold text-zinc-400 border-white/10 hover:text-zinc-200 hover:border-white/20',
+              ].join(' ')}
+              aria-pressed={galleryMode === 'manual'}
+            >
+              {isZh ? '手动模式' : 'Manual'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setGalleryMode('interactive')}
+              className={[
+                'relative z-10 min-w-[92px] rounded-xl border px-3 py-1.5 text-xs transition active:scale-[0.98]',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
+                galleryMode === 'interactive'
+                  ? 'font-bold text-zinc-100 border-orange-500/60 ring-1 ring-orange-500/25'
+                  : 'font-bold text-zinc-400 border-white/10 hover:text-zinc-200 hover:border-white/20',
+              ].join(' ')}
+              aria-pressed={galleryMode === 'interactive'}
+            >
+              {isZh ? '交互模式' : 'Interactive'}
+            </button>
+          </div>
+        </>
       )}
           {currentValue === 'product_images_first_frame' && <div ref={setFirstFrameHeaderActionsContainer} className="flex items-center gap-3" />}
           <LanguageSwitcher />
@@ -6383,7 +6435,9 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
       <main
         className={
           currentValue === 'product_images_gallery'
-            ? 'flex-1 overflow-hidden p-0'
+            ? (galleryMode === 'manual'
+              ? 'flex-1 overflow-hidden p-0'
+              : 'flex-1 overflow-y-auto custom-scroll px-10 py-6')
             : currentValue === 'product_images_clothing_swap'
               ? 'flex-1 overflow-hidden px-10 py-6'
               : 'flex-1 overflow-y-auto custom-scroll px-10 py-6'
@@ -6647,8 +6701,17 @@ const ProductImagesView: React.FC<ProductImagesViewProps> = ({ activeView, setAc
           )}
         </div>
 
+        <div className={currentValue === 'product_images_gallery' && galleryMode === 'interactive' ? 'block' : 'hidden'}>
+          <GalleryInteractiveModeView
+            onSelectBoardEditor={() => {
+              setGalleryMode('manual');
+              openGalleryBoardEditor({ onboarding: true });
+            }}
+          />
+        </div>
+
         <ImagesGalleryView
-          isVisible={currentValue === 'product_images_gallery'}
+          isVisible={currentValue === 'product_images_gallery' && galleryMode === 'manual'}
           panelClassName={panelClassName}
           t={t}
           galleryExamples={galleryExampleTemplates.map((template) => ({

@@ -1616,3 +1616,172 @@ html.theme-dim .hist-workbar-toggle-active {
   --xy-selection-border: 1.5px dashed rgba(234, 88, 12, 0.5);
   --xy-node-boxshadow-selected: 0 0 0 2px rgba(234, 88, 12, 0.45);
 }
+
+/* ===== Interactive Mode Dynamic Background ===== */
+@keyframes int-orb-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%  { transform: translate(6%, -4%) scale(1.06); }
+  50%  { transform: translate(-3%, 5%) scale(0.94); }
+  75%  { transform: translate(-5%, -3%) scale(1.03); }
+}
+
+@keyframes int-orb-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(-5%, -5%) scale(1.05); }
+  66%  { transform: translate(4%, 6%) scale(0.95); }
+}
+
+@keyframes int-orb-float-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(7%, 5%) scale(1.08); }
+}
+
+@keyframes int-orb-float-4 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  30%  { transform: translate(-8%, 3%) scale(1.04); }
+  70%  { transform: translate(5%, -6%) scale(0.96); }
+}
+
+@keyframes int-particle-twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(1.3); }
+}
+
+@keyframes int-particle-drift {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-100vh); }
+}
+
+@keyframes int-shimmer-sweep {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.int-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.int-orb--1 {
+  width: 420px;
+  height: 420px;
+  top: -10%;
+  left: -5%;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.18) 0%, transparent 70%);
+  animation: int-orb-float-1 18s ease-in-out infinite;
+}
+
+.int-orb--2 {
+  width: 360px;
+  height: 360px;
+  top: 50%;
+  right: -8%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+  animation: int-orb-float-2 22s ease-in-out infinite;
+}
+
+.int-orb--3 {
+  width: 480px;
+  height: 480px;
+  bottom: -15%;
+  left: 20%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.14) 0%, transparent 70%);
+  animation: int-orb-float-3 20s ease-in-out infinite;
+}
+
+.int-orb--4 {
+  width: 300px;
+  height: 300px;
+  top: 30%;
+  left: 40%;
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.10) 0%, transparent 70%);
+  animation: int-orb-float-4 24s ease-in-out infinite;
+}
+
+.int-particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+  background-color: rgba(255, 255, 255, 0.40);
+}
+
+.theme-light .int-particle {
+  background-color: rgba(249, 115, 22, 0.18);
+}
+
+.theme-dim .int-particle {
+  background-color: rgba(226, 232, 240, 0.35);
+}
+
+.int-starfield {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.int-shimmer-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.015) 45%,
+    rgba(255, 255, 255, 0.03) 50%,
+    rgba(255, 255, 255, 0.015) 55%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  animation: int-shimmer-sweep 8s ease-in-out infinite;
+}
+
+/* Light theme overrides */
+.theme-light .int-orb--1 {
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.12) 0%, transparent 70%);
+}
+.theme-light .int-orb--2 {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.10) 0%, transparent 70%);
+}
+.theme-light .int-orb--3 {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.09) 0%, transparent 70%);
+}
+.theme-light .int-orb--4 {
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.07) 0%, transparent 70%);
+}
+.theme-light .int-shimmer-overlay {
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(249, 115, 22, 0.02) 45%,
+    rgba(249, 115, 22, 0.04) 50%,
+    rgba(249, 115, 22, 0.02) 55%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+}
+
+/* Dim theme — slightly more visible */
+.theme-dim .int-orb--1 {
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.17) 0%, transparent 70%);
+}
+.theme-dim .int-orb--2 {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.14) 0%, transparent 70%);
+}
+.theme-dim .int-orb--3 {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .int-orb,
+  .int-shimmer-overlay {
+    animation: none;
+  }
+  .int-particle {
+    display: none;
+  }
+}

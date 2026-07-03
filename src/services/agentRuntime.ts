@@ -22,7 +22,7 @@ export interface AgentAttachment {
 }
 
 export interface AgentSkill {
-  source: 'system' | 'workflow';
+  source: 'system';
   id?: string;
   name: string;
   version?: string;
@@ -30,6 +30,25 @@ export interface AgentSkill {
   description?: string;
   trigger_actions?: string[];
 }
+
+export interface AgentExperienceRecipe {
+  source: 'experience_recipe';
+  id: string;
+  name: string;
+  title?: string;
+  label: string;
+  description?: string;
+  tool_name?: string;
+  content?: string;
+  params_template?: Record<string, any>;
+  tags?: string[];
+  usage_count?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type AgentRequestedHint = AgentSkill | AgentExperienceRecipe;
 
 export interface AgentMessage {
   id?: string;
@@ -48,6 +67,7 @@ export interface AgentMessage {
     task_ids?: Array<string | number>;
     project_id?: string;
     error_message?: string;
+    data?: Record<string, any>;
   } | null;
   run_id?: string | null;
   created_at?: string;
@@ -162,7 +182,7 @@ export const agentRuntimeApi = {
     message: string;
     conversation_id?: string;
     attachments?: AgentAttachment[];
-    requested_skills?: AgentSkill[];
+    requested_hints?: AgentRequestedHint[];
   }): Promise<AgentChatResponse> => {
     const json = await apiRequest('/api/agent/chat/', {
       method: 'POST',
@@ -185,7 +205,7 @@ export const agentRuntimeApi = {
       message: string;
       conversation_id?: string;
       attachments?: AgentAttachment[];
-      requested_skills?: AgentSkill[];
+      requested_hints?: AgentRequestedHint[];
     },
     handlers: AgentChatStreamHandlers = {}
   ): Promise<AgentChatResponse> => {
@@ -302,7 +322,7 @@ export const agentRuntimeApi = {
     return json?.data || [];
   },
 
-  listSkills: async (): Promise<{ system_skills: AgentSkill[]; workflow_skills: AgentSkill[] }> => {
+  listSkills: async (): Promise<{ system_skills: AgentSkill[]; experience_recipes: AgentExperienceRecipe[] }> => {
     const json = await apiRequest('/api/agent/skills/', {
       method: 'GET',
       fallbackMessage: 'Failed to load skills',
@@ -310,8 +330,38 @@ export const agentRuntimeApi = {
     const data = json?.data || {};
     return {
       system_skills: Array.isArray(data.system_skills) ? data.system_skills : [],
-      workflow_skills: Array.isArray(data.workflow_skills) ? data.workflow_skills : [],
+      experience_recipes: Array.isArray(data.experience_recipes) ? data.experience_recipes : [],
     };
+  },
+
+  listExperienceRecipes: async (): Promise<AgentExperienceRecipe[]> => {
+    const json = await apiRequest('/api/agent/experience-recipes/', {
+      method: 'GET',
+      fallbackMessage: 'Failed to load experience recipes',
+    });
+    return json?.data || [];
+  },
+
+  saveExperienceRecipe: async (payload: {
+    run_id: string;
+    name?: string;
+    description?: string;
+  }): Promise<AgentExperienceRecipe> => {
+    const json = await apiRequest('/api/agent/experience-recipes/', {
+      method: 'POST',
+      body: payload,
+      fallbackMessage: 'Failed to save experience recipe',
+    });
+    return json?.data;
+  },
+
+  updateExperienceRecipe: async (id: string, payload: { is_active?: boolean }): Promise<AgentExperienceRecipe> => {
+    const json = await apiRequest(`/api/agent/experience-recipes/${id}/`, {
+      method: 'PATCH',
+      body: payload,
+      fallbackMessage: 'Failed to update experience recipe',
+    });
+    return json?.data;
   },
 
   saveWorkflowSkill: async (payload: {

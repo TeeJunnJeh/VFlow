@@ -20,7 +20,13 @@ import {
   Menu,
   Download,
   FolderPlus,
+  ChevronDown,
+  ChevronRight,
+  SquarePen,
+  Check,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -30,6 +36,8 @@ import {
   type AgentConversation as AiCreatorConversation,
   type AgentAttachment,
   type AgentSkill,
+  type AgentExperienceRecipe,
+  type AgentRequestedHint,
 } from '../../services/agentRuntime';
 import { assetsApi } from '../../services/assets';
 import { ApiError } from '../../services/errors';
@@ -86,6 +94,10 @@ type SlashSkillRange = {
   query: string;
 };
 
+type SlashSelectableItem =
+  | { kind: 'skill'; value: AgentSkill }
+  | { kind: 'recipe'; value: AgentExperienceRecipe };
+
 const WELCOME_MESSAGE: AiCreatorMessage = {
   role: 'assistant',
   content:
@@ -128,6 +140,41 @@ const hasPendingToolAssets = (items: AiCreatorMessage[]) =>
     return [...assets, ...attachments].some(isPendingToolAsset);
   });
 
+const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
+  <ReactMarkdown
+    remarkPlugins={[remarkGfm]}
+    components={{
+      p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+      ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>,
+      ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>,
+      li: ({ children }) => <li className="pl-1">{children}</li>,
+      h1: ({ children }) => <h1 className="mb-3 text-xl font-bold text-zinc-100">{children}</h1>,
+      h2: ({ children }) => <h2 className="mb-2 text-lg font-bold text-zinc-100">{children}</h2>,
+      h3: ({ children }) => <h3 className="mb-2 text-base font-bold text-zinc-100">{children}</h3>,
+      a: ({ children, href }) => (
+        <a href={href} target="_blank" rel="noreferrer" className="text-orange-300 underline decoration-orange-400/40 underline-offset-4 hover:text-orange-200">
+          {children}
+        </a>
+      ),
+      code: ({ children, className }) => {
+        const inline = !className;
+        return inline ? (
+          <code className="rounded bg-black/35 px-1.5 py-0.5 text-[0.9em] text-orange-100">{children}</code>
+        ) : (
+          <code className={`${className} block overflow-x-auto whitespace-pre rounded-lg bg-black/40 p-3 text-xs text-zinc-200`}>{children}</code>
+        );
+      },
+      pre: ({ children }) => <pre className="mb-3 overflow-x-auto rounded-lg bg-black/40 last:mb-0">{children}</pre>,
+      blockquote: ({ children }) => <blockquote className="mb-3 border-l-2 border-orange-400/50 pl-3 text-zinc-400 last:mb-0">{children}</blockquote>,
+      table: ({ children }) => <div className="mb-3 overflow-x-auto rounded-lg border border-white/10"><table className="w-full text-left text-sm">{children}</table></div>,
+      th: ({ children }) => <th className="border-b border-white/10 bg-white/5 px-3 py-2 font-semibold text-zinc-200">{children}</th>,
+      td: ({ children }) => <td className="border-b border-white/5 px-3 py-2 text-zinc-300">{children}</td>,
+    }}
+  >
+    {content}
+  </ReactMarkdown>
+);
+
 export const AICreatorView: React.FC = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -147,8 +194,13 @@ export const AICreatorView: React.FC = () => {
 
   const [messages, setMessages] = useState<AiCreatorMessage[]>([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
   const [input, setInput] = useState('');
-  const [availableSkills, setAvailableSkills] = useState<{ system_skills: AgentSkill[]; workflow_skills: AgentSkill[] }>({ system_skills: [], workflow_skills: [] });
+  const [availableSkills, setAvailableSkills] = useState<{ system_skills: AgentSkill[]; experience_recipes: AgentExperienceRecipe[] }>({ system_skills: [], experience_recipes: [] });
   const [selectedSkills, setSelectedSkills] = useState<AgentSkill[]>([]);
+  const [selectedRecipe, setSelectedRecipe] = useState<AgentExperienceRecipe | null>(null);
+  const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
+  const [recipeSectionOpen, setRecipeSectionOpen] = useState(false);
+  const [historySectionOpen, setHistorySectionOpen] = useState(true);
+  const [recipePendingDisable, setRecipePendingDisable] = useState<AgentExperienceRecipe | null>(null);
   const [slashRange, setSlashRange] = useState<SlashSkillRange | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -256,6 +308,7 @@ export const AICreatorView: React.FC = () => {
     setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
     setUploadedImages([]);
     setSelectedSkills([]);
+    setSelectedRecipe(null);
     setSlashRange(null);
     setEditingIdx(null);
     setEditText('');
@@ -327,7 +380,7 @@ export const AICreatorView: React.FC = () => {
       setAvailableSkills(skills);
     } catch (e) {
       console.error('Failed to load skills:', e);
-      setAvailableSkills({ system_skills: [], workflow_skills: [] });
+      setAvailableSkills({ system_skills: [], experience_recipes: [] });
     }
   };
 
@@ -362,6 +415,7 @@ export const AICreatorView: React.FC = () => {
     setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
     setUploadedImages([]);
     setSelectedSkills([]);
+    setSelectedRecipe(null);
     setSlashRange(null);
     setEditingIdx(null);
     setEditText('');
@@ -403,6 +457,7 @@ export const AICreatorView: React.FC = () => {
       setEditingIdx(null);
       setEditText('');
       setSelectedSkills([]);
+      setSelectedRecipe(null);
       setSlashRange(null);
     } catch (e: any) {
       const isNotFound = (e instanceof ApiError && e.status === 404)
@@ -413,6 +468,7 @@ export const AICreatorView: React.FC = () => {
         setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
         setUploadedImages([]);
         setSelectedSkills([]);
+        setSelectedRecipe(null);
         setSlashRange(null);
         setEditingIdx(null);
         setEditText('');
@@ -491,10 +547,15 @@ export const AICreatorView: React.FC = () => {
   };
 
   const getSkillKey = (skill: AgentSkill) =>
-    `${skill.source}:${skill.source === 'workflow' ? skill.id || skill.name : `${skill.name}:${skill.version || ''}`}`;
+    `${skill.source}:${skill.name}:${skill.version || ''}`;
 
   const getSkillLabel = (skill: AgentSkill) =>
     String(skill.label || skill.name || '').trim() || (isZh ? '未命名技能' : 'Untitled skill');
+
+  const getRecipeKey = (recipe: AgentExperienceRecipe) => `experience_recipe:${recipe.id}`;
+
+  const getRecipeLabel = (recipe: AgentExperienceRecipe) =>
+    String(recipe.label || recipe.title || recipe.name || '').trim() || (isZh ? '未命名经验' : 'Untitled recipe');
 
   const detectSlashSkillRange = (value: string, cursor: number | null | undefined): SlashSkillRange | null => {
     const end = typeof cursor === 'number' ? cursor : value.length;
@@ -524,13 +585,9 @@ export const AICreatorView: React.FC = () => {
     setSelectedSkills((prev) => prev.filter((item) => getSkillKey(item) !== key));
   };
 
-  const selectSkill = (skill: AgentSkill) => {
-    const key = getSkillKey(skill);
-    const alreadySelected = selectedSkills.some((item) => getSkillKey(item) === key);
-    if (!alreadySelected && selectedSkills.length >= 2) return;
-    if (!alreadySelected) {
-      setSelectedSkills((prev) => [...prev, skill].slice(0, 2));
-    }
+  const removeSelectedRecipe = () => setSelectedRecipe(null);
+
+  const clearSlashToken = () => {
     if (slashRange) {
       const before = input.slice(0, slashRange.start);
       const after = input.slice(slashRange.end);
@@ -546,6 +603,21 @@ export const AICreatorView: React.FC = () => {
     setSlashRange(null);
   };
 
+  const selectSkill = (skill: AgentSkill) => {
+    const key = getSkillKey(skill);
+    const alreadySelected = selectedSkills.some((item) => getSkillKey(item) === key);
+    if (!alreadySelected && selectedSkills.length >= 2) return;
+    if (!alreadySelected) {
+      setSelectedSkills((prev) => [...prev, skill].slice(0, 2));
+    }
+    clearSlashToken();
+  };
+
+  const selectRecipe = (recipe: AgentExperienceRecipe) => {
+    setSelectedRecipe(recipe);
+    clearSlashToken();
+  };
+
   const skillMatchesQuery = (skill: AgentSkill, query: string) => {
     if (!query) return true;
     const haystack = [
@@ -557,23 +629,38 @@ export const AICreatorView: React.FC = () => {
     return haystack.includes(query);
   };
 
+  const recipeMatchesQuery = (recipe: AgentExperienceRecipe, query: string) => {
+    if (!query) return true;
+    const haystack = [
+      recipe.label,
+      recipe.title,
+      recipe.name,
+      recipe.description,
+      recipe.tool_name,
+      ...(Array.isArray(recipe.tags) ? recipe.tags : []),
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  };
+
   const filteredSystemSkills = React.useMemo(
     () => availableSkills.system_skills.filter((skill) => skillMatchesQuery(skill, slashRange?.query || '')),
     [availableSkills.system_skills, slashRange]
   );
 
-  const filteredWorkflowSkills = React.useMemo(
-    () => availableSkills.workflow_skills.filter((skill) => skillMatchesQuery(skill, slashRange?.query || '')),
-    [availableSkills.workflow_skills, slashRange]
+  const filteredRecipes = React.useMemo(
+    () => availableSkills.experience_recipes.filter((recipe) => recipeMatchesQuery(recipe, slashRange?.query || '')),
+    [availableSkills.experience_recipes, slashRange]
   );
 
-  const firstSelectableSkill = React.useMemo(
-    () => [...filteredSystemSkills, ...filteredWorkflowSkills].find((skill) => {
-      const selected = selectedSkills.some((item) => getSkillKey(item) === getSkillKey(skill));
+  const firstSelectableItem = React.useMemo<SlashSelectableItem | null>(() => {
+    const skill = filteredSystemSkills.find((candidate) => {
+      const selected = selectedSkills.some((item) => getSkillKey(item) === getSkillKey(candidate));
       return selected || selectedSkills.length < 2;
-    }) || null,
-    [filteredSystemSkills, filteredWorkflowSkills, selectedSkills]
-  );
+    });
+    if (skill) return { kind: 'skill', value: skill };
+    const recipe = filteredRecipes.find((candidate) => !selectedRecipe || selectedRecipe.id === candidate.id);
+    return recipe ? { kind: 'recipe', value: recipe } : null;
+  }, [filteredSystemSkills, filteredRecipes, selectedSkills, selectedRecipe]);
 
   const renderSkillChip = (skill: AgentSkill, removable = false) => (
     <span
@@ -589,6 +676,27 @@ export const AICreatorView: React.FC = () => {
           onClick={() => removeSelectedSkill(skill)}
           className="rounded p-0.5 text-orange-100/75 transition hover:bg-white/15 hover:text-white"
           title={isZh ? '移除技能' : 'Remove skill'}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </span>
+  );
+
+  const renderRecipeChip = (recipe: AgentExperienceRecipe, removable = false) => (
+    <span
+      key={getRecipeKey(recipe)}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-emerald-300/45 bg-emerald-700/75 px-2.5 py-1 text-xs font-semibold text-emerald-50 shadow-sm shadow-black/20"
+      title={recipe.description || getRecipeLabel(recipe)}
+    >
+      <Save className="h-3 w-3 shrink-0" />
+      <span className="truncate">{isZh ? `经验：${getRecipeLabel(recipe)}` : `Recipe: ${getRecipeLabel(recipe)}`}</span>
+      {removable && (
+        <button
+          type="button"
+          onClick={removeSelectedRecipe}
+          className="rounded p-0.5 text-emerald-100/75 transition hover:bg-white/15 hover:text-white"
+          title={isZh ? '移除经验' : 'Remove recipe'}
         >
           <X className="h-3 w-3" />
         </button>
@@ -639,6 +747,8 @@ export const AICreatorView: React.FC = () => {
     const text = (overrideText || input).trim();
     const attachments = uploadedImagesToAttachments(uploadedImages);
     const requestedSkills = selectedSkills.slice(0, 2);
+    const requestedRecipes = selectedRecipe ? [selectedRecipe] : [];
+    const requestedHints: AgentRequestedHint[] = [...requestedSkills, ...requestedRecipes];
     if ((!text && attachments.length === 0) || loading) return;
 
     if (!overrideText) {
@@ -651,9 +761,10 @@ export const AICreatorView: React.FC = () => {
       role: 'user',
       content: messageContent,
       attachments,
-      metadata: requestedSkills.length > 0 ? { requested_skills: requestedSkills } : {},
+      metadata: requestedHints.length > 0 ? { requested_hints: requestedHints } : {},
     };
     setMessages((prev) => [...prev, userMsg]);
+    setUploadedImages([]);
     setLoading(true);
 
     try {
@@ -662,7 +773,7 @@ export const AICreatorView: React.FC = () => {
           message: messageContent,
           conversation_id: activeConversationId || undefined,
           attachments,
-          requested_skills: requestedSkills,
+          requested_hints: requestedHints,
         },
         {
           onConversation: (data) => {
@@ -701,8 +812,8 @@ export const AICreatorView: React.FC = () => {
         loadConversations();
       }
 
-      setUploadedImages([]);
       setSelectedSkills([]);
+      setSelectedRecipe(null);
     } catch (err: any) {
       openInfo(
         (t as any).ai_creator_title || 'AI Creator',
@@ -721,8 +832,12 @@ export const AICreatorView: React.FC = () => {
     }
     if (slashRange && e.key === 'Enter') {
       e.preventDefault();
-      if (firstSelectableSkill) {
-        selectSkill(firstSelectableSkill);
+      if (firstSelectableItem) {
+        if (firstSelectableItem.kind === 'skill') {
+          selectSkill(firstSelectableItem.value);
+        } else {
+          selectRecipe(firstSelectableItem.value);
+        }
       }
       return;
     }
@@ -732,19 +847,20 @@ export const AICreatorView: React.FC = () => {
     }
   };
 
-  const saveToolResultAsWorkflow = async (msg: AiCreatorMessage) => {
+  const saveToolResultAsRecipe = async (msg: AiCreatorMessage) => {
     const runId = msg.tool_result?.run_id || msg.run_id || '';
     if (!runId) return;
     const toolName = String(msg.tool_result?.tool_name || msg.metadata?.tool_name || 'tool');
     try {
-      await agentRuntimeApi.saveWorkflowSkill({
+      await agentRuntimeApi.saveExperienceRecipe({
         run_id: runId,
-        name: `${getActionLabel(toolName)} workflow`,
+        name: `${getActionLabel(toolName)}经验`,
         description: msg.content ? msg.content.slice(0, 200) : '',
       });
-      openInfo(isZh ? '已保存' : 'Saved', isZh ? '已保存为可复用工作流。' : 'Saved as a reusable workflow.');
+      await loadSkills();
+      openInfo(isZh ? '已保存' : 'Saved', isZh ? '已保存为经验配方。' : 'Saved as an experience recipe.');
     } catch (err: any) {
-      openInfo(isZh ? '保存失败' : 'Save failed', err?.message || 'Failed to save workflow');
+      openInfo(isZh ? '保存失败' : 'Save failed', err?.message || 'Failed to save experience recipe');
     }
   };
 
@@ -998,6 +1114,86 @@ export const AICreatorView: React.FC = () => {
     return Array.from(videoByUrl.values());
   };
 
+  const readScriptText = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+    if (Array.isArray(value)) return value.map(readScriptText).filter(Boolean).join(' / ');
+    if (typeof value === 'object') {
+      return ['text', 'content', 'description', 'value', 'line']
+        .map((key) => readScriptText(value[key]))
+        .find(Boolean) || '';
+    }
+    return '';
+  };
+
+  const renderScriptToolResult = (msg: AiCreatorMessage): React.ReactNode => {
+    const data = msg.tool_result?.data || {};
+    const primary = Array.isArray(data.script_contents) ? data.script_contents[0] : null;
+    const scriptContent = primary?.script_content || {};
+    const shots: any[] = Array.isArray(scriptContent?.shots) ? scriptContent.shots : [];
+    const duration = scriptContent?.duration || '';
+    const title = scriptContent?.video_master_script || scriptContent?.title || scriptContent?.input || scriptContent?.custom || '';
+    const summary = scriptContent?.creative_card_text || scriptContent?.video_description || title || '';
+
+    if (shots.length === 0) {
+      const compact = summary || JSON.stringify(data, null, 2);
+      if (!compact || compact === '{}') return null;
+      return (
+        <div className="border-t border-white/10 px-5 py-4">
+          <div className="mb-2 text-xs font-bold uppercase tracking-wide text-zinc-500">{isZh ? '脚本内容' : 'Script'}</div>
+          <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/25 p-3 text-xs leading-relaxed text-zinc-300">
+            {compact.length > 1600 ? `${compact.slice(0, 1600)}...` : compact}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="border-t border-white/10 px-5 py-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-bold uppercase tracking-wide text-zinc-500">{isZh ? '脚本内容' : 'Script'}</div>
+            {title && <div className="mt-1 line-clamp-2 text-sm font-semibold text-zinc-100">{readScriptText(title)}</div>}
+          </div>
+          <div className="shrink-0 rounded-md bg-white/5 px-2 py-1 text-[11px] font-semibold text-zinc-400">
+            {duration ? `${duration}s · ` : ''}{shots.length} {isZh ? '镜头' : 'shots'}
+          </div>
+        </div>
+        {summary && summary !== title && (
+          <div className="mb-3 line-clamp-3 rounded-lg bg-black/20 px-3 py-2 text-xs leading-relaxed text-zinc-400">
+            {readScriptText(summary)}
+          </div>
+        )}
+        <div className="space-y-2">
+          {shots.slice(0, 8).map((shot, idx) => {
+            const start = shot?.start_sec ?? shot?.start ?? '';
+            const end = shot?.end_sec ?? shot?.end ?? '';
+            const time = start !== '' || end !== '' ? `${start || 0}s-${end || ''}s` : '';
+            const beat = readScriptText(shot?.beat || shot?.title || shot?.action);
+            const visual = readScriptText(shot?.visual || shot?.visual_description || shot?.scene || shot?.picture);
+            const voiceover = readScriptText(shot?.voiceover || shot?.audio || shot?.narration || shot?.line);
+            return (
+              <div key={`${idx}_${time}_${beat}`} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs">
+                  <span className="rounded bg-orange-500/15 px-2 py-0.5 font-bold text-orange-200">#{shot?.shot_index || idx + 1}</span>
+                  {time && <span className="text-zinc-500">{time}</span>}
+                  {beat && <span className="min-w-0 truncate font-semibold text-zinc-300">{beat}</span>}
+                </div>
+                {visual && <div className="mb-1 text-xs leading-relaxed text-zinc-400"><span className="text-zinc-500">{isZh ? '画面：' : 'Visual: '}</span>{visual}</div>}
+                {voiceover && <div className="text-xs leading-relaxed text-zinc-300"><span className="text-zinc-500">{isZh ? '旁白：' : 'Voiceover: '}</span>{voiceover}</div>}
+              </div>
+            );
+          })}
+          {shots.length > 8 && (
+            <div className="text-center text-xs text-zinc-500">
+              {isZh ? `还有 ${shots.length - 8} 个镜头未展开` : `${shots.length - 8} more shots`}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const isImageToolMessage = (msg: AiCreatorMessage) => {
     if (msg.role !== 'tool') return false;
     const toolName = getToolName(msg);
@@ -1060,6 +1256,7 @@ export const AICreatorView: React.FC = () => {
     const imageAttachments = getToolImageAttachments(msg);
     const videoAttachments = getToolVideoAttachments(msg);
     const hasPreviewAssets = imageAttachments.length > 0 || videoAttachments.length > 0;
+    const hasScriptResult = toolName === 'generate_script' && !isRunning && !isFailed;
     const hasWorkflowRun = Boolean(toolResult?.run_id || msg.run_id);
     const statusLabel = isFailed
       ? (isZh ? '失败' : 'Failed')
@@ -1076,10 +1273,10 @@ export const AICreatorView: React.FC = () => {
       : isRunning
         ? 'border-amber-500/20 bg-zinc-900 text-zinc-300'
         : 'border-white/10 bg-zinc-900 text-zinc-300';
-    const showContent = Boolean(msg.content) && (isFailed || isRunning || !hasPreviewAssets);
+    const showContent = Boolean(msg.content) && (isFailed || isRunning);
 
     const card = (
-      <div className={`w-full max-w-[360px] overflow-hidden rounded-2xl border text-sm ${cardClass}`}>
+      <div className={`w-full ${hasScriptResult ? 'max-w-[560px]' : 'max-w-[360px]'} overflow-hidden rounded-2xl border text-sm ${cardClass}`}>
           <div className="flex items-center gap-2 bg-zinc-950/60 px-5 py-3">
             {ACTION_ICONS[toolName] || <Wand2 className="w-4 h-4" />}
             <span className="font-semibold text-zinc-200">{getActionLabel(toolName)}</span>
@@ -1088,11 +1285,11 @@ export const AICreatorView: React.FC = () => {
             </span>
             {hasWorkflowRun && !isFailed && !isRunning && (
               <button
-                onClick={() => saveToolResultAsWorkflow(msg)}
+                onClick={() => saveToolResultAsRecipe(msg)}
                 className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-700"
               >
                 <Save className="h-3.5 w-3.5" />
-                {isZh ? '保存为工作流' : 'Save workflow'}
+                {isZh ? '保存为经验配方' : 'Save recipe'}
               </button>
             )}
           </div>
@@ -1105,10 +1302,17 @@ export const AICreatorView: React.FC = () => {
             <div className="flex aspect-[4/3] items-center justify-center border-t border-white/10 bg-black/30">
               <div className="flex flex-col items-center gap-3 text-amber-400">
                 <Loader2 className="h-7 w-7 animate-spin" />
-                <span className="text-xs">{toolName === 'generate_video' ? (isZh ? '视频生成中…' : 'Generating video...') : (isZh ? '图片生成中…' : 'Generating image...')}</span>
+                <span className="text-xs">
+                  {toolName === 'generate_video'
+                    ? (isZh ? '视频生成中…' : 'Generating video...')
+                    : toolName === 'generate_script'
+                      ? (isZh ? '脚本生成中…' : 'Generating script...')
+                      : (isZh ? '图片生成中…' : 'Generating image...')}
+                </span>
               </div>
             </div>
           )}
+          {hasScriptResult && renderScriptToolResult(msg)}
           {videoAttachments.length > 0 && (
             <div>
               {videoAttachments.map((attachment, idx) => (
@@ -1163,11 +1367,23 @@ export const AICreatorView: React.FC = () => {
   );
 
   const getMessageRequestedSkills = (msg: AiCreatorMessage): AgentSkill[] => {
-    const raw = msg.metadata?.requested_skills;
+    const raw = Array.isArray(msg.metadata?.requested_hints)
+      ? msg.metadata?.requested_hints
+      : msg.metadata?.requested_skills;
     if (!Array.isArray(raw)) return [];
     return raw
-      .filter((item): item is AgentSkill => item && typeof item === 'object' && typeof item.name === 'string')
+      .filter((item): item is AgentSkill => item && typeof item === 'object' && item.source === 'system' && typeof item.name === 'string')
       .slice(0, 2);
+  };
+
+  const getMessageRequestedRecipes = (msg: AiCreatorMessage): AgentExperienceRecipe[] => {
+    const raw = Array.isArray(msg.metadata?.requested_hints)
+      ? msg.metadata?.requested_hints
+      : msg.metadata?.requested_recipes;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((item): item is AgentExperienceRecipe => item && typeof item === 'object' && item.source === 'experience_recipe' && typeof item.id === 'string')
+      .slice(0, 1);
   };
 
   const chatRenderItems = React.useMemo<ChatRenderItem[]>(() => {
@@ -1299,15 +1515,58 @@ export const AICreatorView: React.FC = () => {
     );
   };
 
+  const renderRecipeMenuGroup = (title: string, recipes: AgentExperienceRecipe[]) => {
+    if (recipes.length === 0) return null;
+    return (
+      <div className="py-1">
+        <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500">{title}</div>
+        <div className="space-y-1">
+          {recipes.map((recipe) => {
+            const selected = selectedRecipe?.id === recipe.id;
+            const disabled = !selected && Boolean(selectedRecipe);
+            return (
+              <button
+                key={getRecipeKey(recipe)}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (!disabled) selectRecipe(recipe);
+                }}
+                disabled={disabled}
+                className={`flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left transition ${
+                  selected
+                    ? 'bg-emerald-700/60 text-emerald-50 shadow-sm shadow-black/20 ring-1 ring-emerald-300/25'
+                    : disabled
+                      ? 'cursor-not-allowed text-zinc-600'
+                      : 'text-zinc-200 hover:bg-zinc-800 hover:text-emerald-100 hover:ring-1 hover:ring-emerald-400/25'
+                }`}
+                title={disabled ? (isZh ? '每次最多选择 1 个经验配方' : 'Select up to 1 recipe') : recipe.description || getRecipeLabel(recipe)}
+              >
+                <Save className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? 'text-emerald-300' : 'text-zinc-500'}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{getRecipeLabel(recipe)}</span>
+                  {recipe.description && (
+                    <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500">{recipe.description}</span>
+                  )}
+                </span>
+                {selected && <span className="text-xs font-semibold text-emerald-300">{isZh ? '已选' : 'Selected'}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const renderSkillMenu = () => {
     if (!slashRange) return null;
-    const hasSkills = filteredSystemSkills.length > 0 || filteredWorkflowSkills.length > 0;
+    const hasSkills = filteredSystemSkills.length > 0 || filteredRecipes.length > 0;
     return (
       <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl shadow-black/40">
         {hasSkills ? (
           <>
             {renderSkillMenuGroup(isZh ? '系统技能' : 'System skills', filteredSystemSkills)}
-            {renderSkillMenuGroup(isZh ? '我的工作流' : 'My workflows', filteredWorkflowSkills)}
+            {renderRecipeMenuGroup(isZh ? '我的经验' : 'My recipes', filteredRecipes)}
           </>
         ) : (
           <div className="px-4 py-5 text-center text-sm text-zinc-500">
@@ -1317,6 +1576,124 @@ export const AICreatorView: React.FC = () => {
         {selectedSkills.length >= 2 && (
           <div className="border-t border-white/10 px-3 py-2 text-xs text-amber-400">
             {isZh ? '最多选择 2 个技能。' : 'Select up to 2 skills.'}
+          </div>
+        )}
+        {selectedRecipe && (
+          <div className="border-t border-white/10 px-3 py-2 text-xs text-emerald-300">
+            {isZh ? '每次最多选择 1 个经验配方。' : 'Select up to 1 recipe.'}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const disableRecipe = async (recipe: AgentExperienceRecipe) => {
+    try {
+      await agentRuntimeApi.updateExperienceRecipe(recipe.id, { is_active: false });
+      if (selectedRecipe?.id === recipe.id) setSelectedRecipe(null);
+      if (expandedRecipeId === recipe.id) setExpandedRecipeId(null);
+      setRecipePendingDisable(null);
+      await loadSkills();
+    } catch (err: any) {
+      openInfo(isZh ? '停用失败' : 'Disable failed', err?.message || 'Failed to disable recipe');
+    }
+  };
+
+  const renderSidebarSectionHeader = (title: string, count: number, open: boolean, onToggle: () => void) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex w-full items-center justify-between px-5 py-3 text-left text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500 transition hover:bg-zinc-900/60 hover:text-zinc-300"
+    >
+      <span>{title}</span>
+      <span className="flex items-center gap-2">
+        <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] tracking-normal text-zinc-600">{count}</span>
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+      </span>
+    </button>
+  );
+
+  const renderRecipeManager = () => {
+    const recipes = availableSkills.experience_recipes;
+    return (
+      <div className="border-b border-white/5">
+        {renderSidebarSectionHeader('RECIPE', recipes.length, recipeSectionOpen, () => setRecipeSectionOpen((open) => !open))}
+        {recipeSectionOpen && (
+          <div className="space-y-1.5 px-3 pb-3">
+            {recipes.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-white/10 px-3 py-3 text-xs leading-relaxed text-zinc-600">
+                {isZh ? '成功结果可保存为经验配方。' : 'Save successful results as recipes.'}
+              </div>
+            ) : (
+              recipes.slice(0, 8).map((recipe) => {
+                const selected = selectedRecipe?.id === recipe.id;
+                const expanded = expandedRecipeId === recipe.id;
+                return (
+                  <div
+                    key={recipe.id}
+                    className={`overflow-hidden rounded-md border transition ${
+                      selected ? 'border-emerald-400/45 bg-emerald-950/30' : 'border-white/5 bg-zinc-900/35 hover:border-emerald-500/25 hover:bg-zinc-900/60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRecipeId(expanded ? null : recipe.id)}
+                        className="min-w-0 flex-1 px-3 py-2 text-left"
+                        title={recipe.description || getRecipeLabel(recipe)}
+                      >
+                        <span className={`block truncate text-xs font-semibold ${selected ? 'text-emerald-100' : 'text-zinc-300'}`}>
+                          {getRecipeLabel(recipe)}
+                        </span>
+                        {recipe.description && <span className="mt-0.5 line-clamp-1 block text-[11px] text-zinc-600">{recipe.description}</span>}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedRecipe(selected ? null : recipe);
+                        }}
+                        className={`mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${
+                          selected ? 'bg-emerald-500/20 text-emerald-200' : 'text-zinc-500 hover:bg-emerald-500/10 hover:text-emerald-300'
+                        }`}
+                        title={selected ? (isZh ? '取消选择' : 'Unselect recipe') : (isZh ? '添加到本次发送' : 'Use for next send')}
+                      >
+                        {selected ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRecipePendingDisable(recipe);
+                        }}
+                        className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 transition hover:bg-red-500/10 hover:text-red-300"
+                        title={isZh ? '删除经验' : 'Delete recipe'}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {expanded && (
+                      <div className="space-y-2 border-t border-white/5 px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
+                        {recipe.content && <div><span className="text-zinc-400">{isZh ? '经验：' : 'Recipe: '}</span>{recipe.content}</div>}
+                        {recipe.params_template && Object.keys(recipe.params_template).length > 0 && (
+                          <div>
+                            <span className="text-zinc-400">{isZh ? '参数：' : 'Params: '}</span>
+                            {Object.entries(recipe.params_template).slice(0, 3).map(([key, value]) => `${key}: ${String(value)}`).join(' / ')}
+                          </div>
+                        )}
+                        {Array.isArray(recipe.tags) && recipe.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {recipe.tags.slice(0, 4).map((tag) => (
+                              <span key={tag} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-zinc-500">{tag}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
       </div>
@@ -1332,70 +1709,73 @@ export const AICreatorView: React.FC = () => {
         }`}
       >
         {/* Sidebar header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <span className="text-sm font-bold text-zinc-300 uppercase tracking-wider">
-            {(t as any).ai_creator_history || 'History'}
-          </span>
+        <div className="flex items-center justify-end px-5 py-4 border-b border-white/5">
           <button
             onClick={startNewChat}
-            className="p-2 rounded-lg bg-zinc-800 text-zinc-300 hover:text-orange-400 hover:bg-zinc-700 transition"
+            className="p-2 rounded-lg bg-zinc-900 text-zinc-300 hover:text-orange-400 hover:bg-zinc-800 transition"
             title="New chat"
           >
-            <Plus className="w-4 h-4" />
+            <SquarePen className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto py-3 space-y-1">
-          {conversations.map((conv) => (
-            <div
-              key={conv.id}
-              onClick={() => loadConversation(conv.id)}
-              className={`group mx-3 flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition ${
-                activeConversationId === conv.id
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
-              }`}
-            >
-              <MessageSquare className="w-4 h-4 shrink-0 opacity-60" />
-              {renamingId === conv.id ? (
-                <input
-                  autoFocus
-                  value={renameText}
-                  onChange={(e) => setRenameText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') confirmRename(conv.id);
-                    if (e.key === 'Escape') setRenamingId(null);
-                  }}
-                  onBlur={() => confirmRename(conv.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex-1 min-w-0 bg-zinc-900 border border-white/10 rounded-lg px-3 py-1 text-sm text-zinc-200 outline-none focus:border-orange-500/50"
-                />
-              ) : (
-                <span className="flex-1 min-w-0 text-sm font-medium truncate">{conv.title}</span>
-              )}
+        {renderRecipeManager()}
 
-              {renamingId !== conv.id && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  <button
-                    onClick={(e) => startRename(conv, e)}
-                    className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={(e) => deleteConversation(conv.id, e)}
-                    className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-red-400"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {renderSidebarSectionHeader('HISTORY', conversations.length, historySectionOpen, () => setHistorySectionOpen((open) => !open))}
+          {historySectionOpen && (
+            <div className="flex-1 overflow-y-auto py-3 space-y-1">
+              {conversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  onClick={() => loadConversation(conv.id)}
+                  className={`group mx-3 flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition ${
+                    activeConversationId === conv.id
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4 shrink-0 opacity-60" />
+                  {renamingId === conv.id ? (
+                    <input
+                      autoFocus
+                      value={renameText}
+                      onChange={(e) => setRenameText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') confirmRename(conv.id);
+                        if (e.key === 'Escape') setRenamingId(null);
+                      }}
+                      onBlur={() => confirmRename(conv.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex-1 min-w-0 bg-zinc-900 border border-white/10 rounded-lg px-3 py-1 text-sm text-zinc-200 outline-none focus:border-orange-500/50"
+                    />
+                  ) : (
+                    <span className="flex-1 min-w-0 text-sm font-medium truncate">{conv.title}</span>
+                  )}
+
+                  {renamingId !== conv.id && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        onClick={(e) => startRename(conv, e)}
+                        className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => deleteConversation(conv.id, e)}
+                        className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-red-400"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {conversations.length === 0 && (
+                <div className="px-4 py-8 text-sm text-zinc-600 text-center">
+                  {(t as any).ai_creator_no_history || 'No conversations yet'}
                 </div>
               )}
-            </div>
-          ))}
-          {conversations.length === 0 && (
-            <div className="px-4 py-8 text-sm text-zinc-600 text-center">
-              {(t as any).ai_creator_no_history || 'No conversations yet'}
             </div>
           )}
         </div>
@@ -1427,7 +1807,7 @@ export const AICreatorView: React.FC = () => {
               onClick={startNewChat}
               className="px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm text-zinc-300 hover:border-orange-500/50 hover:text-orange-400 transition flex items-center gap-2"
             >
-              <Plus className="w-4 h-4" />
+              <SquarePen className="w-4 h-4" />
               {(t as any).ai_creator_new_chat || 'New Chat'}
             </button>
             <div className="px-4 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/40 text-sm text-orange-400 font-bold flex items-center gap-1.5">
@@ -1489,8 +1869,38 @@ export const AICreatorView: React.FC = () => {
                 ) : (
                   <>
                 <div className={`flex ${item.message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`flex max-w-[80%] flex-col gap-2 ${item.message.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    {item.message.role === 'user' && Array.isArray(item.message.attachments) && item.message.attachments.length > 0 && (
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {item.message.attachments.map((attachment, attachmentIdx) => {
+                          const isImage = String(attachment.media_kind || '').toLowerCase() === 'image';
+                          return (
+                            <a
+                              key={`${attachment.url}_${attachmentIdx}`}
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block overflow-hidden rounded-xl border border-white/10 bg-zinc-950/80 shadow-lg shadow-black/20"
+                              title={attachment.name || attachment.url}
+                            >
+                              {isImage ? (
+                                <img
+                                  src={attachment.url}
+                                  alt={attachment.name || 'attachment'}
+                                  className="h-24 w-24 object-cover"
+                                />
+                              ) : (
+                                <div className="h-24 w-24 px-3 py-2 text-xs text-zinc-300 truncate">
+                                  {attachment.name || attachment.url}
+                                </div>
+                              )}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   <div
-                    className={`max-w-[80%] rounded-2xl px-6 py-4 text-base leading-relaxed group relative ${
+                    className={`w-fit max-w-full rounded-2xl px-6 py-4 text-base leading-relaxed group relative ${
                       item.message.role === 'user'
                         ? 'bg-orange-500 text-white'
                         : 'bg-zinc-900 border border-white/10 text-zinc-200'
@@ -1526,13 +1936,22 @@ export const AICreatorView: React.FC = () => {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {item.message.role === 'user' && getMessageRequestedSkills(item.message).length > 0 && (
+                        {item.message.role === 'user' && (getMessageRequestedSkills(item.message).length > 0 || getMessageRequestedRecipes(item.message).length > 0) && (
                           <div className="flex flex-wrap justify-end gap-1.5">
                             {getMessageRequestedSkills(item.message).map((skill) => renderSkillChip(skill))}
+                            {getMessageRequestedRecipes(item.message).map((recipe) => renderRecipeChip(recipe))}
                           </div>
                         )}
-                        {item.message.content && <div className="whitespace-pre-wrap">{item.message.content}</div>}
-                        {Array.isArray(item.message.attachments) && item.message.attachments.length > 0 && (
+                        {item.message.content && (
+                          item.message.role === 'assistant' ? (
+                            <div className="min-w-0">
+                              <MarkdownMessage content={item.message.content} />
+                            </div>
+                          ) : (
+                            <div className="whitespace-pre-wrap">{item.message.content}</div>
+                          )
+                        )}
+                        {item.message.role !== 'user' && Array.isArray(item.message.attachments) && item.message.attachments.length > 0 && (
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {item.message.attachments.map((attachment, attachmentIdx) => {
                               const isImage = String(attachment.media_kind || '').toLowerCase() === 'image';
@@ -1554,9 +1973,9 @@ export const AICreatorView: React.FC = () => {
                                       {attachment.name || attachment.url}
                                     </div>
                                   )}
-                                  {(attachment.role || attachment.name) && (
+                                  {attachment.name && (
                                     <div className={`px-2 py-1 text-[11px] truncate ${item.message.role === 'user' ? 'text-orange-50/80' : 'text-zinc-400'}`}>
-                                      {attachment.role || attachment.name}
+                                      {attachment.name}
                                     </div>
                                   )}
                                 </a>
@@ -1640,6 +2059,7 @@ export const AICreatorView: React.FC = () => {
                       </div>
                     )}
                   </div>
+                  </div>
                 </div>
                   </>
                 )}
@@ -1700,8 +2120,9 @@ export const AICreatorView: React.FC = () => {
             )}
 
             <div className="relative">
-              {selectedSkills.length > 0 && (
+              {(selectedSkills.length > 0 || selectedRecipe) && (
                 <div className="mb-2 flex flex-wrap items-center gap-2">
+                  {selectedRecipe && renderRecipeChip(selectedRecipe, true)}
                   {selectedSkills.map((skill) => renderSkillChip(skill, true))}
                 </div>
               )}
@@ -2031,6 +2452,36 @@ export const AICreatorView: React.FC = () => {
               alt={previewImage.name || 'preview'}
               className="max-h-[72vh] w-auto max-w-full object-contain"
             />
+          </div>
+        </AppDialog>
+      )}
+
+      {recipePendingDisable && (
+        <AppDialog
+          isOpen={true}
+          title={isZh ? '删除经验配方' : 'Delete recipe'}
+          onClose={() => setRecipePendingDisable(null)}
+          footer={
+            <div className="flex items-center gap-2">
+              <button
+                className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg text-sm font-bold hover:bg-zinc-700"
+                onClick={() => setRecipePendingDisable(null)}
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-500"
+                onClick={() => void disableRecipe(recipePendingDisable)}
+              >
+                {isZh ? '删除' : 'Delete'}
+              </button>
+            </div>
+          }
+        >
+          <div className="text-sm leading-relaxed text-zinc-300">
+            {isZh
+              ? `确认隐藏经验配方“${getRecipeLabel(recipePendingDisable)}”？隐藏后不会再出现在我的经验列表中。`
+              : `Hide recipe "${getRecipeLabel(recipePendingDisable)}"? It will no longer appear in your recipe list.`}
           </div>
         </AppDialog>
       )}

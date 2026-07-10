@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ChevronRight,
   SquarePen,
+  Square,
   Check,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -38,9 +39,11 @@ import {
   type AgentSkill,
   type AgentExperienceRecipe,
   type AgentRequestedHint,
+  type AgentAssistantDelta,
+  type AgentStreamStatus,
 } from '../../services/agentRuntime';
 import { assetsApi } from '../../services/assets';
-import { ApiError } from '../../services/errors';
+import { ApiError, formatApiError } from '../../services/errors';
 import { AppDialog } from '../common/AppDialog';
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
@@ -203,6 +206,7 @@ export const AICreatorView: React.FC = () => {
   const [recipePendingDisable, setRecipePendingDisable] = useState<AgentExperienceRecipe | null>(null);
   const [slashRange, setSlashRange] = useState<SlashSkillRange | null>(null);
   const [loading, setLoading] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<AgentStreamStatus | null>(null);
   const [uploading, setUploading] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
@@ -225,10 +229,16 @@ export const AICreatorView: React.FC = () => {
   const [selectedImageGroupItems, setSelectedImageGroupItems] = useState<Record<string, string>>({});
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
   const nextScrollBehaviorRef = useRef<ScrollBehavior>('smooth');
   const suppressNextScrollRef = useRef(false);
+  const shouldFollowStreamRef = useRef(true);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const streamRequestTokenRef = useRef(0);
+  const streamBuffersRef = useRef<Map<string, string>>(new Map());
+  const streamFrameRef = useRef<number | null>(null);
 
   // 按会话缓存临时状态（待发送上传图片），切回时恢复（持久化到 localStorage）
   const uploadedImagesRef = useRef<UploadedImage[]>([]);
@@ -236,6 +246,71 @@ export const AICreatorView: React.FC = () => {
 
   useEffect(() => { uploadedImagesRef.current = uploadedImages; }, [uploadedImages]);
   useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
+
+  const upsertStreamDrafts = (
+    current: AiCreatorMessage[],
+    entries: Array<[string, string]>,
+  ): AiCreatorMessage[] => {
+    const next = [...current];
+    entries.forEach(([streamKey, content]) => {
+      const draft: AiCreatorMessage = {
+        role: 'assistant',
+        content,
+        stream_key: streamKey,
+        metadata: { stream_key: streamKey, is_streaming: true },
+      };
+      const index = next.findIndex((message) => message.stream_key === streamKey);
+      if (index >= 0) {
+        next[index] = { ...next[index], ...draft };
+      } else {
+        next.push(draft);
+      }
+    });
+    return next;
+  };
+
+  const flushStreamDrafts = () => {
+    streamFrameRef.current = null;
+    const entries = Array.from(streamBuffersRef.current.entries());
+    if (entries.length === 0) return;
+    setMessages((prev) => upsertStreamDrafts(prev, entries));
+  };
+
+  const queueStreamDelta = (data: AgentAssistantDelta) => {
+    const current = streamBuffersRef.current.get(data.stream_key) || '';
+    streamBuffersRef.current.set(data.stream_key, current + data.delta);
+    if (streamFrameRef.current === null) {
+      streamFrameRef.current = window.requestAnimationFrame(flushStreamDrafts);
+    }
+  };
+
+  const stopActiveStream = () => {
+    const controller = streamAbortRef.current;
+    if (!controller) return;
+    streamRequestTokenRef.current += 1;
+    controller.abort();
+    streamAbortRef.current = null;
+    if (streamFrameRef.current !== null) {
+      window.cancelAnimationFrame(streamFrameRef.current);
+      streamFrameRef.current = null;
+    }
+    const entries = Array.from(streamBuffersRef.current.entries());
+    streamBuffersRef.current.clear();
+    setMessages((prev) => upsertStreamDrafts(prev, entries).map((message) => (
+      message.metadata?.is_streaming
+        ? {
+            ...message,
+            metadata: {
+              ...message.metadata,
+              is_streaming: false,
+              finish_reason: 'cancelled',
+            },
+          }
+        : message
+    )));
+    setStreamStatus(null);
+    setLoading(false);
+  };
 
   const getSessionStorageKey = (conversationId: string) => `vflow_ai_creator_session_${user?.id || 'anon'}_${conversationId}`;
 
@@ -282,8 +357,16 @@ export const AICreatorView: React.FC = () => {
     nextScrollBehaviorRef.current = 'smooth';
   };
 
+  const handleChatScroll = () => {
+    const element = chatScrollRef.current;
+    if (!element) return;
+    shouldFollowStreamRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+  };
+
   useLayoutEffect(() => {
-    scrollToBottom();
+    if (shouldFollowStreamRef.current) {
+      scrollToBottom();
+    }
   }, [messages]);
 
   // 自动保存当前会话尚未发送的上传图片
@@ -336,7 +419,7 @@ export const AICreatorView: React.FC = () => {
   // 只刷新消息，不恢复缓存，避免覆盖当前正在编辑的状态
   useEffect(() => {
     const onVisible = () => {
-      if (!document.hidden && activeConversationId && conversations.some((c) => c.id === activeConversationId)) {
+      if (!document.hidden && !streamAbortRef.current && activeConversationId && conversations.some((c) => c.id === activeConversationId)) {
         void loadConversation(activeConversationId, { skipStateRestore: true, silent: true });
       }
     };
@@ -346,7 +429,7 @@ export const AICreatorView: React.FC = () => {
   }, [activeConversationId, conversations]);
 
   useEffect(() => {
-    if (!activeConversationId || generatingType || !hasPendingToolAssets(messages) || document.hidden) return;
+    if (!activeConversationId || streamAbortRef.current || generatingType || !hasPendingToolAssets(messages) || document.hidden) return;
     const timer = window.setTimeout(() => {
       void loadConversation(activeConversationId, { skipStateRestore: true, silent: true, preserveScroll: true });
     }, 6000);
@@ -357,6 +440,12 @@ export const AICreatorView: React.FC = () => {
   // 组件卸载时保存当前会话状态
   useEffect(() => {
     return () => {
+      streamRequestTokenRef.current += 1;
+      streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
+      if (streamFrameRef.current !== null) {
+        window.cancelAnimationFrame(streamFrameRef.current);
+      }
       const convoId = activeConversationIdRef.current;
       if (convoId) {
         saveSessionState(convoId, { uploadedImages: uploadedImagesRef.current });
@@ -403,6 +492,7 @@ export const AICreatorView: React.FC = () => {
   };
 
   const startNewChat = async () => {
+    stopActiveStream();
     if (activeConversationId) {
       saveSessionState(activeConversationId, { uploadedImages: [...uploadedImages] });
     }
@@ -424,6 +514,10 @@ export const AICreatorView: React.FC = () => {
 
   const loadConversation = async (id: string, options?: { skipStateRestore?: boolean; silent?: boolean; instantScroll?: boolean; preserveScroll?: boolean }) => {
     if (convoLoading) return;
+    if (streamAbortRef.current) {
+      if (options?.silent && id === activeConversationIdRef.current) return;
+      stopActiveStream();
+    }
     const showLoading = !options?.silent;
 
     // 切走前先把当前会话的临时状态缓存下来
@@ -439,6 +533,7 @@ export const AICreatorView: React.FC = () => {
       if (options?.preserveScroll) {
         suppressNextScrollRef.current = true;
       } else {
+        shouldFollowStreamRef.current = true;
         nextScrollBehaviorRef.current = options?.instantScroll === false ? 'smooth' : 'auto';
       }
       setActiveConversationId(data.id);
@@ -544,6 +639,20 @@ export const AICreatorView: React.FC = () => {
   const getActionLabel = (type: string) => {
     const map = isZh ? ACTION_LABELS_ZH : ACTION_LABELS_EN;
     return map[type] || type;
+  };
+
+  const getStreamStatusLabel = (status: AgentStreamStatus | null) => {
+    if (!status || status.phase === 'thinking') {
+      return (t as any).ai_creator_status_thinking || (t as any).ai_creator_thinking || 'Thinking...';
+    }
+    if (status.phase === 'loading_skill') {
+      return (t as any).ai_creator_status_loading_skill || 'Loading a creation skill...';
+    }
+    if (status.phase === 'preparing_action') {
+      const template = (t as any).ai_creator_status_preparing_action || 'Preparing {action}...';
+      return String(template).replace('{action}', getActionLabel(status.action_type || 'chat'));
+    }
+    return (t as any).ai_creator_status_responding || 'Writing a response...';
   };
 
   const getSkillKey = (skill: AgentSkill) =>
@@ -765,7 +874,14 @@ export const AICreatorView: React.FC = () => {
     };
     setMessages((prev) => [...prev, userMsg]);
     setUploadedImages([]);
+    shouldFollowStreamRef.current = true;
+    streamBuffersRef.current.clear();
+    setStreamStatus(null);
     setLoading(true);
+    const controller = new AbortController();
+    const requestToken = streamRequestTokenRef.current + 1;
+    streamRequestTokenRef.current = requestToken;
+    streamAbortRef.current = controller;
 
     try {
       const res = await agentRuntimeApi.chatStream(
@@ -777,6 +893,7 @@ export const AICreatorView: React.FC = () => {
         },
         {
           onConversation: (data) => {
+            if (streamRequestTokenRef.current !== requestToken) return;
             const conversationId = data.conversation_id || data.conversation?.id || '';
             if (!conversationId) return;
             if (conversationId !== activeConversationId) {
@@ -789,10 +906,51 @@ export const AICreatorView: React.FC = () => {
               }
             }
           },
-          onMessage: (message) => {
-            setMessages((prev) => [...prev, message]);
+          onStatus: (status) => {
+            if (streamRequestTokenRef.current !== requestToken) return;
+            setStreamStatus(status);
           },
-        }
+          onDelta: (delta) => {
+            if (streamRequestTokenRef.current !== requestToken) return;
+            queueStreamDelta(delta);
+          },
+          onDiscard: ({ stream_key: streamKey }) => {
+            if (streamRequestTokenRef.current !== requestToken) return;
+            streamBuffersRef.current.delete(streamKey);
+            setMessages((prev) => prev.filter((message) => message.stream_key !== streamKey));
+          },
+          onMessage: (message) => {
+            if (streamRequestTokenRef.current !== requestToken) return;
+            const streamKey = message.stream_key || '';
+            if (streamKey) {
+              streamBuffersRef.current.delete(streamKey);
+            }
+            setMessages((prev) => {
+              const streamIndex = streamKey
+                ? prev.findIndex((item) => item.stream_key === streamKey)
+                : -1;
+              if (streamIndex >= 0) {
+                const next = [...prev];
+                next[streamIndex] = message;
+                return next;
+              }
+              const idIndex = message.id
+                ? prev.findIndex((item) => item.id === message.id)
+                : -1;
+              if (idIndex >= 0) {
+                const next = [...prev];
+                next[idIndex] = message;
+                return next;
+              }
+              return [...prev, message];
+            });
+          },
+          onDone: () => {
+            if (streamRequestTokenRef.current !== requestToken) return;
+            setStreamStatus(null);
+          },
+        },
+        { signal: controller.signal },
       );
 
       // Update active conversation if backend created/returned one
@@ -815,12 +973,20 @@ export const AICreatorView: React.FC = () => {
       setSelectedSkills([]);
       setSelectedRecipe(null);
     } catch (err: any) {
-      openInfo(
-        (t as any).ai_creator_title || 'AI Creator',
-        err?.message || (t as any).ai_creator_error || 'Something went wrong. Please try again.'
-      );
+      const wasAborted = controller.signal.aborted || err?.name === 'AbortError';
+      if (!wasAborted && streamRequestTokenRef.current === requestToken) {
+        openInfo(
+          (t as any).ai_creator_title || 'AI Creator',
+          formatApiError(err, (t as any).ai_creator_error || 'Something went wrong. Please try again.'),
+        );
+      }
     } finally {
-      setLoading(false);
+      if (streamRequestTokenRef.current === requestToken) {
+        streamAbortRef.current = null;
+        streamBuffersRef.current.clear();
+        setStreamStatus(null);
+        setLoading(false);
+      }
     }
   };
 
@@ -1204,7 +1370,7 @@ export const AICreatorView: React.FC = () => {
   };
 
   const getMessageIdentity = (msg: AiCreatorMessage, index: number) =>
-    String(msg.id || `${msg.role}_${index}_${msg.run_id || ''}_${msg.created_at || ''}`);
+    String(msg.id || msg.stream_key || `${msg.role}_${index}_${msg.run_id || ''}_${msg.created_at || ''}`);
 
   const getPreviewFileName = (attachment: AgentAttachment | null) => {
     const explicitName = String(attachment?.name || '').trim();
@@ -1850,7 +2016,11 @@ export const AICreatorView: React.FC = () => {
         </div>
 
         {/* Chat area */}
-        <main className="flex-1 overflow-y-auto px-8 py-8 space-y-8">
+        <main
+          ref={chatScrollRef}
+          onScroll={handleChatScroll}
+          className="flex-1 overflow-y-auto px-8 py-8 space-y-8"
+        >
           {convoLoading && (
             <div className="flex justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
@@ -1946,10 +2116,18 @@ export const AICreatorView: React.FC = () => {
                           item.message.role === 'assistant' ? (
                             <div className="min-w-0">
                               <MarkdownMessage content={item.message.content} />
+                              {item.message.metadata?.is_streaming && (
+                                <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-orange-400 align-text-bottom" />
+                              )}
                             </div>
                           ) : (
                             <div className="whitespace-pre-wrap">{item.message.content}</div>
                           )
+                        )}
+                        {item.message.role === 'assistant' && item.message.metadata?.finish_reason === 'cancelled' && (
+                          <div className="text-xs text-zinc-500">
+                            {(t as any).ai_creator_stopped || 'Stopped'}
+                          </div>
                         )}
                         {item.message.role !== 'user' && Array.isArray(item.message.attachments) && item.message.attachments.length > 0 && (
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -2087,11 +2265,11 @@ export const AICreatorView: React.FC = () => {
               </div>
             ))}
 
-          {loading && (
+          {loading && streamStatus?.phase !== 'responding' && (
             <div className="flex justify-start">
               <div className="bg-zinc-900 border border-white/10 rounded-2xl px-6 py-4 text-base text-zinc-400 flex items-center gap-3">
                 <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
-                {(t as any).ai_creator_thinking || 'Thinking...'}
+                {getStreamStatusLabel(streamStatus)}
               </div>
             </div>
           )}
@@ -2167,11 +2345,15 @@ export const AICreatorView: React.FC = () => {
 
               {/* Send button */}
               <button
-                onClick={() => handleSend()}
-                disabled={loading || (!input.trim() && uploadedImages.length === 0)}
-                className="shrink-0 w-10 h-10 rounded-full bg-orange-600 text-white flex items-center justify-center hover:bg-orange-500 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => loading ? stopActiveStream() : handleSend()}
+                disabled={!loading && !input.trim() && uploadedImages.length === 0}
+                title={loading ? ((t as any).ai_creator_stop_generation || 'Stop generating') : undefined}
+                aria-label={loading ? ((t as any).ai_creator_stop_generation || 'Stop generating') : undefined}
+                className={`shrink-0 w-10 h-10 rounded-full text-white flex items-center justify-center transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                  loading ? 'bg-zinc-700 hover:bg-zinc-600' : 'bg-orange-600 hover:bg-orange-500'
+                }`}
               >
-                <Send className="w-5 h-5" />
+                {loading ? <Square className="w-4 h-4 fill-current" /> : <Send className="w-5 h-5" />}
               </button>
             </div>
             </div>

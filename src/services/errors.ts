@@ -25,6 +25,7 @@ export class ApiError extends Error {
   status: number;
   errorCode?: string;
   trackingId?: string;
+  errorStage?: string;
   data?: Record<string, unknown> | null;
   actionRequired?: ApiActionRequired;
 
@@ -34,6 +35,7 @@ export class ApiError extends Error {
       status: number;
       errorCode?: string;
       trackingId?: string;
+      errorStage?: string;
       data?: Record<string, unknown> | null;
       actionRequired?: ApiActionRequired;
     },
@@ -43,6 +45,7 @@ export class ApiError extends Error {
     this.status = opts.status;
     this.errorCode = opts.errorCode;
     this.trackingId = opts.trackingId;
+    this.errorStage = opts.errorStage;
     this.data = opts.data;
     this.actionRequired = opts.actionRequired;
   }
@@ -54,6 +57,33 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object') return null;
   return value as Record<string, unknown>;
 };
+
+export function apiErrorFromPayload(
+  value: unknown,
+  fallbackMessage: string,
+  status = 200,
+): ApiError {
+  const rec = asRecord(value);
+  const data = asRecord(rec?.data);
+  const action = data ? asRecord(data.action_required) : null;
+  const classified = data ? asRecord(data.error_classification) : null;
+  const preferredMessage = data?.user_error ?? classified?.user_message ?? classified?.safe_message;
+  const rawMessage = typeof preferredMessage === 'string'
+    ? preferredMessage
+    : rec?.message ?? rec?.error;
+  const message = typeof rawMessage === 'string' && rawMessage.trim()
+    ? rawMessage.trim()
+    : fallbackMessage;
+
+  return new ApiError(message, {
+    status,
+    errorCode: typeof rec?.error_code === 'string' ? rec.error_code : undefined,
+    trackingId: typeof rec?.tracking_id === 'string' ? rec.tracking_id : undefined,
+    errorStage: typeof rec?.error_stage === 'string' ? rec.error_stage : undefined,
+    data,
+    actionRequired: action as ApiActionRequired,
+  });
+}
 
 /**
  * 从一个非 200 Response 中解析出统一的 ApiError
@@ -70,6 +100,7 @@ export async function parseApiError(
   let message = fallbackMessage;
   let errorCode: string | undefined;
   let trackingId: string | undefined;
+  let errorStage: string | undefined;
   let data: Record<string, unknown> | null = null;
   let actionRequired: ApiActionRequired = null;
 
@@ -96,6 +127,9 @@ export async function parseApiError(
         // 提取 tracking_id
         if (typeof rec.tracking_id === 'string' && rec.tracking_id.trim()) {
           trackingId = rec.tracking_id.trim();
+        }
+        if (typeof rec.error_stage === 'string' && rec.error_stage.trim()) {
+          errorStage = rec.error_stage.trim();
         }
 
         // 提取 data 和 action_required
@@ -131,6 +165,7 @@ export async function parseApiError(
     status: response.status,
     errorCode,
     trackingId,
+    errorStage,
     data,
     actionRequired,
   });

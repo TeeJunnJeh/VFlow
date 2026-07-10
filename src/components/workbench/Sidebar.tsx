@@ -349,9 +349,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className={`flex flex-col mb-2 gap-2 ${collapsed ? 'items-center px-0' : 'px-4'}`}>
           <div className={`flex h-10 w-full items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
             <img
-              src="/vflow-logo.svg"
+              src="/vflow-logo-transparent.png"
               alt="VFlow"
-              className="w-10 h-10 rounded-xl bg-white object-contain shadow-lg shadow-blue-500/20 shrink-0"
+              className="w-10 h-10 object-contain shrink-0"
             />
             {!collapsed ? (
               <button

@@ -1,4 +1,5 @@
 import { apiRequest, getCookie } from './apiClient';
+import { ApiError, apiErrorFromPayload, parseApiError } from './errors';
 
 export type AgentActionType =
   | 'generate_script'
@@ -52,6 +53,7 @@ export type AgentRequestedHint = AgentSkill | AgentExperienceRecipe;
 
 export interface AgentMessage {
   id?: string;
+  stream_key?: string;
   role: 'user' | 'assistant' | 'tool' | 'event';
   content: string;
   attachments?: AgentAttachment[];
@@ -113,11 +115,32 @@ export interface AgentChatResponse {
   run?: AgentRun | null;
 }
 
+export type AgentStreamPhase = 'thinking' | 'loading_skill' | 'preparing_action' | 'responding';
+
+export interface AgentStreamStatus {
+  stream_id: string;
+  phase: AgentStreamPhase;
+  action_type?: string;
+}
+
+export interface AgentAssistantDelta {
+  stream_id: string;
+  stream_key: string;
+  delta: string;
+}
+
 export type AgentChatStreamHandlers = {
-  onConversation?: (data: { conversation_id?: string; conversation?: AgentConversation }) => void;
+  onConversation?: (data: { conversation_id?: string; conversation?: AgentConversation; stream_id?: string }) => void;
+  onStatus?: (status: AgentStreamStatus) => void;
+  onDelta?: (delta: AgentAssistantDelta) => void;
+  onDiscard?: (data: { stream_id: string; stream_key: string }) => void;
   onMessage?: (message: AgentMessage) => void;
   onDone?: (data: AgentChatResponse) => void;
 };
+
+export interface AgentChatStreamOptions {
+  signal?: AbortSignal;
+}
 
 export interface AgentTool {
   name: string;
@@ -207,7 +230,8 @@ export const agentRuntimeApi = {
       attachments?: AgentAttachment[];
       requested_hints?: AgentRequestedHint[];
     },
-    handlers: AgentChatStreamHandlers = {}
+    handlers: AgentChatStreamHandlers = {},
+    options: AgentChatStreamOptions = {},
   ): Promise<AgentChatResponse> => {
     const headers: Record<string, string> = {
       'Accept': 'text/event-stream',
@@ -222,23 +246,13 @@ export const agentRuntimeApi = {
       headers,
       credentials: 'include',
       body: JSON.stringify(payload),
+      signal: options.signal,
     });
     if (!response.ok) {
-      let message = 'Agent chat failed';
-      try {
-        const json = await response.json();
-        message = json?.message || json?.error || message;
-      } catch {
-        try {
-          message = (await response.text()) || message;
-        } catch {
-          // ignore
-        }
-      }
-      throw new Error(message);
+      throw await parseApiError(response, 'Agent chat failed');
     }
     if (!response.body) {
-      throw new Error('Agent stream is not readable');
+      throw new ApiError('Agent stream is not readable', { status: response.status });
     }
 
     const reader = response.body.getReader();
@@ -261,6 +275,12 @@ export const agentRuntimeApi = {
       const data = JSON.parse(dataLines.join('\n'));
       if (eventName === 'conversation') {
         handlers.onConversation?.(data);
+      } else if (eventName === 'status') {
+        handlers.onStatus?.(data as AgentStreamStatus);
+      } else if (eventName === 'assistant_delta') {
+        handlers.onDelta?.(data as AgentAssistantDelta);
+      } else if (eventName === 'assistant_discard') {
+        handlers.onDiscard?.(data as { stream_id: string; stream_key: string });
       } else if (eventName === 'message') {
         handlers.onMessage?.(data as AgentMessage);
       } else if (eventName === 'done') {
@@ -274,21 +294,28 @@ export const agentRuntimeApi = {
         };
         handlers.onDone?.(donePayload);
       } else if (eventName === 'error') {
-        throw new Error(data?.message || 'Agent stream failed');
+        throw apiErrorFromPayload(data, 'Agent stream failed', 200);
       }
     };
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (value) {
-        buffer += decoder.decode(value, { stream: !done });
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+        if (done) {
+          buffer += decoder.decode();
+        }
         const blocks = buffer.split(/\r?\n\r?\n/);
         buffer = blocks.pop() || '';
         blocks.forEach((block) => {
           if (block.trim()) handleBlock(block);
         });
+        if (done) break;
       }
-      if (done) break;
+    } finally {
+      reader.releaseLock();
     }
     if (buffer.trim()) handleBlock(buffer);
     if (!donePayload) {

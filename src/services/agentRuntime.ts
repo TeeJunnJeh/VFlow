@@ -1,4 +1,5 @@
 import { apiRequest, getCookie } from './apiClient';
+import { ApiError, apiErrorFromPayload, parseApiError } from './errors';
 
 export type AgentActionType =
   | 'generate_script'
@@ -52,6 +53,7 @@ export type AgentRequestedHint = AgentSkill | AgentExperienceRecipe;
 
 export interface AgentMessage {
   id?: string;
+  stream_key?: string;
   role: 'user' | 'assistant' | 'tool' | 'event';
   content: string;
   attachments?: AgentAttachment[];
@@ -70,6 +72,8 @@ export interface AgentMessage {
     data?: Record<string, any>;
   } | null;
   run_id?: string | null;
+  run_status?: AgentRunStatus | null;
+  run_finish_reason?: string | null;
   created_at?: string;
 }
 
@@ -93,10 +97,12 @@ export interface AgentStep {
   project_id?: string;
 }
 
+export type AgentRunStatus = 'pending' | 'running' | 'waiting_confirmation' | 'succeeded' | 'failed' | 'cancelled';
+
 export interface AgentRun {
   id: string;
   conversation_id: string;
-  status: 'pending' | 'running' | 'waiting_confirmation' | 'succeeded' | 'failed' | 'cancelled';
+  status: AgentRunStatus;
   plan: Array<Record<string, unknown>>;
   output_payload?: Record<string, any>;
   error_message?: string;
@@ -113,11 +119,64 @@ export interface AgentChatResponse {
   run?: AgentRun | null;
 }
 
+export type AgentStreamPhase = 'thinking' | 'loading_skill' | 'preparing_action' | 'responding';
+
+export interface AgentStreamStatus {
+  stream_id: string;
+  phase: AgentStreamPhase;
+  action_type?: string;
+}
+
+export interface AgentAssistantDelta {
+  stream_id: string;
+  stream_key: string;
+  delta: string;
+}
+
 export type AgentChatStreamHandlers = {
-  onConversation?: (data: { conversation_id?: string; conversation?: AgentConversation }) => void;
+  onConversation?: (data: { conversation_id?: string; conversation?: AgentConversation; stream_id?: string }) => void;
+  onStatus?: (status: AgentStreamStatus) => void;
+  onDelta?: (delta: AgentAssistantDelta) => void;
+  onDiscard?: (data: { stream_id: string; stream_key: string }) => void;
   onMessage?: (message: AgentMessage) => void;
   onDone?: (data: AgentChatResponse) => void;
 };
+
+export interface AgentChatStreamOptions {
+  signal?: AbortSignal;
+}
+
+export type AgentSuggestionLanguage = 'en' | 'zh' | 'ms' | 'vi' | 'ko';
+
+export type AgentSuggestionBranch = 'continue' | 'improve' | 'asset';
+
+export type AgentSuggestionAction =
+  | { type: 'fill_prompt'; prompt: string }
+  | { type: 'open_upload'; role: string; accept?: string; max_files?: number; after_upload?: 'analyze_reference' }
+  | { type: 'focus_confirmation'; run_id: string };
+
+export interface AgentSuggestionItem {
+  id: string;
+  branch: AgentSuggestionBranch;
+  text: string;
+  action: AgentSuggestionAction;
+}
+
+export interface AgentNextSuggestion {
+  status: 'ready' | 'processing';
+  suggestion: string | null;
+  source: 'model' | 'fallback' | 'none';
+  stage: string | null;
+  can_apply: boolean;
+  suggestions: AgentSuggestionItem[];
+}
+
+export interface AgentReferencePrompt {
+  status: 'ready';
+  prompt: string;
+  source: 'model';
+  analyzed_image_count: number;
+}
 
 export interface AgentTool {
   name: string;
@@ -170,6 +229,79 @@ export const agentRuntimeApi = {
     return json?.data;
   },
 
+  getNextSuggestion: async (
+    id: string,
+    language: AgentSuggestionLanguage,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AgentNextSuggestion> => {
+    const json = await apiRequest(`/api/agent/conversations/${id}/next-suggestion/`, {
+      method: 'POST',
+      body: { language },
+      fallbackMessage: 'Failed to load the next suggestion',
+      fetchOptions: { signal: options.signal },
+    });
+    const data = json?.data || {};
+    const suggestions: AgentSuggestionItem[] = Array.isArray(data.suggestions)
+      ? data.suggestions.flatMap((item: unknown) => {
+          if (!item || typeof item !== 'object') return [];
+          const value = item as Record<string, unknown>;
+          const branch = value.branch;
+          const action = value.action;
+          if (
+            (branch !== 'continue' && branch !== 'improve' && branch !== 'asset')
+            || typeof value.id !== 'string'
+            || typeof value.text !== 'string'
+            || !action
+            || typeof action !== 'object'
+          ) return [];
+          const actionValue = action as Record<string, unknown>;
+          let parsedAction: AgentSuggestionAction | null = null;
+          if (actionValue.type === 'fill_prompt' && typeof actionValue.prompt === 'string') {
+            parsedAction = { type: 'fill_prompt', prompt: actionValue.prompt };
+          } else if (actionValue.type === 'open_upload' && typeof actionValue.role === 'string') {
+            parsedAction = {
+              type: 'open_upload',
+              role: actionValue.role,
+              ...(typeof actionValue.accept === 'string' ? { accept: actionValue.accept } : {}),
+              ...(typeof actionValue.max_files === 'number' ? { max_files: actionValue.max_files } : {}),
+              ...(actionValue.after_upload === 'analyze_reference' ? { after_upload: 'analyze_reference' as const } : {}),
+            };
+          } else if (actionValue.type === 'focus_confirmation' && typeof actionValue.run_id === 'string') {
+            parsedAction = { type: 'focus_confirmation', run_id: actionValue.run_id };
+          }
+          if (!parsedAction) return [];
+          return [{ id: value.id, branch, text: value.text, action: parsedAction }];
+        })
+      : [];
+    return {
+      status: data.status === 'processing' ? 'processing' : 'ready',
+      suggestion: typeof data.suggestion === 'string' ? data.suggestion : null,
+      source: data.source === 'model' || data.source === 'fallback' ? data.source : 'none',
+      stage: typeof data.stage === 'string' ? data.stage : null,
+      can_apply: data.can_apply !== false && typeof data.suggestion === 'string',
+      suggestions,
+    };
+  },
+
+  createReferencePrompt: async (
+    id: string,
+    payload: {
+      language: AgentSuggestionLanguage;
+      image_urls: string[];
+      role: string;
+      draft?: string;
+    },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AgentReferencePrompt> => {
+    const json = await apiRequest(`/api/agent/conversations/${id}/reference-prompt/`, {
+      method: 'POST',
+      body: payload,
+      fallbackMessage: 'Failed to analyze reference images',
+      fetchOptions: { signal: options.signal },
+    });
+    return json?.data;
+  },
+
   truncateMessages: async (conversationId: string, messageId: string): Promise<void> => {
     await apiRequest(`/api/agent/conversations/${conversationId}/messages/truncate/`, {
       method: 'POST',
@@ -207,7 +339,8 @@ export const agentRuntimeApi = {
       attachments?: AgentAttachment[];
       requested_hints?: AgentRequestedHint[];
     },
-    handlers: AgentChatStreamHandlers = {}
+    handlers: AgentChatStreamHandlers = {},
+    options: AgentChatStreamOptions = {},
   ): Promise<AgentChatResponse> => {
     const headers: Record<string, string> = {
       'Accept': 'text/event-stream',
@@ -222,23 +355,13 @@ export const agentRuntimeApi = {
       headers,
       credentials: 'include',
       body: JSON.stringify(payload),
+      signal: options.signal,
     });
     if (!response.ok) {
-      let message = 'Agent chat failed';
-      try {
-        const json = await response.json();
-        message = json?.message || json?.error || message;
-      } catch {
-        try {
-          message = (await response.text()) || message;
-        } catch {
-          // ignore
-        }
-      }
-      throw new Error(message);
+      throw await parseApiError(response, 'Agent chat failed');
     }
     if (!response.body) {
-      throw new Error('Agent stream is not readable');
+      throw new ApiError('Agent stream is not readable', { status: response.status });
     }
 
     const reader = response.body.getReader();
@@ -261,6 +384,12 @@ export const agentRuntimeApi = {
       const data = JSON.parse(dataLines.join('\n'));
       if (eventName === 'conversation') {
         handlers.onConversation?.(data);
+      } else if (eventName === 'status') {
+        handlers.onStatus?.(data as AgentStreamStatus);
+      } else if (eventName === 'assistant_delta') {
+        handlers.onDelta?.(data as AgentAssistantDelta);
+      } else if (eventName === 'assistant_discard') {
+        handlers.onDiscard?.(data as { stream_id: string; stream_key: string });
       } else if (eventName === 'message') {
         handlers.onMessage?.(data as AgentMessage);
       } else if (eventName === 'done') {
@@ -274,21 +403,28 @@ export const agentRuntimeApi = {
         };
         handlers.onDone?.(donePayload);
       } else if (eventName === 'error') {
-        throw new Error(data?.message || 'Agent stream failed');
+        throw apiErrorFromPayload(data, 'Agent stream failed', 200);
       }
     };
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (value) {
-        buffer += decoder.decode(value, { stream: !done });
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+        if (done) {
+          buffer += decoder.decode();
+        }
         const blocks = buffer.split(/\r?\n\r?\n/);
         buffer = blocks.pop() || '';
         blocks.forEach((block) => {
           if (block.trim()) handleBlock(block);
         });
+        if (done) break;
       }
-      if (done) break;
+    } finally {
+      reader.releaseLock();
     }
     if (buffer.trim()) handleBlock(buffer);
     if (!donePayload) {

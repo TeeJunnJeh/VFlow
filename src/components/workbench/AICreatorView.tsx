@@ -41,6 +41,8 @@ import {
   type AgentRequestedHint,
   type AgentAssistantDelta,
   type AgentStreamStatus,
+  type AgentNextSuggestion,
+  type AgentSuggestionItem,
 } from '../../services/agentRuntime';
 import { assetsApi } from '../../services/assets';
 import { ApiError, formatApiError } from '../../services/errors';
@@ -90,6 +92,33 @@ type ImageToolGroupEntry = {
 type ChatRenderItem =
   | { type: 'message'; key: string; message: AiCreatorMessage; index: number }
   | { type: 'image_group'; key: string; entries: ImageToolGroupEntry[] };
+
+const EMPTY_NEXT_SUGGESTION: AgentNextSuggestion = {
+  status: 'ready',
+  suggestion: null,
+  source: 'none',
+  stage: null,
+  can_apply: false,
+  suggestions: [],
+};
+
+type ReferenceAnalysisStatus = 'idle' | 'analyzing' | 'ready' | 'error' | 'stale';
+
+type ReferenceAnalysisState = {
+  status: ReferenceAnalysisStatus;
+  prompt: string;
+  imageIds: string[];
+  role: string;
+  draft: string;
+};
+
+const EMPTY_REFERENCE_ANALYSIS: ReferenceAnalysisState = {
+  status: 'idle',
+  prompt: '',
+  imageIds: [],
+  role: 'reference_image',
+  draft: '',
+};
 
 type SlashSkillRange = {
   start: number;
@@ -143,6 +172,39 @@ const hasPendingToolAssets = (items: AiCreatorMessage[]) =>
     return [...assets, ...attachments].some(isPendingToolAsset);
   });
 
+const isSupersededActionMessage = (message: AiCreatorMessage) =>
+  message.run_status === 'cancelled' && message.run_finish_reason === 'superseded';
+
+const buildSuggestionContextKey = (
+  conversationId: string,
+  language: string,
+  items: AiCreatorMessage[],
+) => JSON.stringify({
+  conversationId,
+  language,
+  messages: items.slice(-12).map((message) => ({
+    id: message.id || message.stream_key || '',
+    role: message.role,
+    content: message.content.slice(0, 160),
+    action: message.action?.type || '',
+    runId: message.run_id || message.action?.run_id || '',
+    toolName: message.tool_result?.tool_name || '',
+    toolStatus: message.tool_result?.status || '',
+    assets: [
+      ...(Array.isArray(message.tool_result?.assets) ? message.tool_result.assets : []),
+      ...(Array.isArray(message.attachments) ? message.attachments : []),
+    ].slice(0, 8).map((asset) => {
+      const record = asset as Record<string, unknown>;
+      return {
+        requestId: String(record.request_id || record.requestId || record.external_task_id || ''),
+        status: String(record.status || ''),
+        type: String(record.media_kind || record.mediaKind || record.type || ''),
+        hasUrl: Boolean(readAssetUrl(record)),
+      };
+    }),
+  })),
+});
+
 const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
   <ReactMarkdown
     remarkPlugins={[remarkGfm]}
@@ -179,7 +241,7 @@ const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
 );
 
 export const AICreatorView: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user } = useAuth();
   const isZh = (t as any).ai_creator_title === 'AI 创作助手';
 
@@ -207,6 +269,11 @@ export const AICreatorView: React.FC = () => {
   const [slashRange, setSlashRange] = useState<SlashSkillRange | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState<AgentStreamStatus | null>(null);
+  const [nextSuggestionResult, setNextSuggestionResult] = useState<AgentNextSuggestion>(EMPTY_NEXT_SUGGESTION);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+  const [highlightedRunId, setHighlightedRunId] = useState<string | null>(null);
+  const [referenceAnalysis, setReferenceAnalysis] = useState<ReferenceAnalysisState>(EMPTY_REFERENCE_ANALYSIS);
+  const [statusPhraseIndex, setStatusPhraseIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
@@ -231,7 +298,7 @@ export const AICreatorView: React.FC = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
   const nextScrollBehaviorRef = useRef<ScrollBehavior>('smooth');
   const suppressNextScrollRef = useRef(false);
   const shouldFollowStreamRef = useRef(true);
@@ -239,6 +306,16 @@ export const AICreatorView: React.FC = () => {
   const streamRequestTokenRef = useRef(0);
   const streamBuffersRef = useRef<Map<string, string>>(new Map());
   const streamFrameRef = useRef<number | null>(null);
+  const suggestionAbortRef = useRef<AbortController | null>(null);
+  const suggestionRequestTokenRef = useRef(0);
+  const suggestionContextKeyRef = useRef('');
+  const referenceAnalysisAbortRef = useRef<AbortController | null>(null);
+  const referenceAnalysisTokenRef = useRef(0);
+  const inputHistoryIndexRef = useRef<number | null>(null);
+  const inputHistoryDraftRef = useRef('');
+  const pendingUploadRoleRef = useRef<AgentAttachment['role']>('reference_image');
+  const pendingUploadMaxFilesRef = useRef(0);
+  const highlightTimerRef = useRef<number | null>(null);
 
   // 按会话缓存临时状态（待发送上传图片），切回时恢复（持久化到 localStorage）
   const uploadedImagesRef = useRef<UploadedImage[]>([]);
@@ -246,6 +323,39 @@ export const AICreatorView: React.FC = () => {
 
   useEffect(() => { uploadedImagesRef.current = uploadedImages; }, [uploadedImages]);
   useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
+
+  const nextSuggestions = nextSuggestionResult.suggestions;
+  const activeNextSuggestion: AgentSuggestionItem | null = nextSuggestions[activeSuggestionIndex] || null;
+  const referenceStatusText = referenceAnalysis.status === 'analyzing'
+    ? (t.ai_creator_reference_analyzing || 'Understanding the reference images and preparing a prompt...')
+    : referenceAnalysis.status === 'error'
+      ? (t.ai_creator_reference_retry || 'Reference analysis failed. Press → or click to retry.')
+      : referenceAnalysis.status === 'stale'
+        ? (t.ai_creator_reference_stale || 'The draft or images changed. Click to analyze again.')
+        : '';
+  const nextSuggestion = referenceStatusText || activeNextSuggestion?.text || nextSuggestionResult.suggestion || '';
+  const canApplyNextSuggestion = Boolean(activeNextSuggestion) && nextSuggestionResult.can_apply;
+
+  const resetNextSuggestion = (resetContext = true) => {
+    suggestionRequestTokenRef.current += 1;
+    suggestionAbortRef.current?.abort();
+    suggestionAbortRef.current = null;
+    if (resetContext) suggestionContextKeyRef.current = '';
+    setNextSuggestionResult(EMPTY_NEXT_SUGGESTION);
+    setActiveSuggestionIndex(0);
+  };
+
+  const resetReferenceAnalysis = () => {
+    referenceAnalysisTokenRef.current += 1;
+    referenceAnalysisAbortRef.current?.abort();
+    referenceAnalysisAbortRef.current = null;
+    setReferenceAnalysis(EMPTY_REFERENCE_ANALYSIS);
+  };
+
+  const resetInputHistory = () => {
+    inputHistoryIndexRef.current = null;
+    inputHistoryDraftRef.current = '';
+  };
 
   const upsertStreamDrafts = (
     current: AiCreatorMessage[],
@@ -369,6 +479,13 @@ export const AICreatorView: React.FC = () => {
     }
   }, [messages]);
 
+  useLayoutEffect(() => {
+    const textarea = textInputRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  }, [input, nextSuggestion]);
+
   // 自动保存当前会话尚未发送的上传图片
   useEffect(() => {
     if (activeConversationId) {
@@ -393,6 +510,7 @@ export const AICreatorView: React.FC = () => {
     setSelectedSkills([]);
     setSelectedRecipe(null);
     setSlashRange(null);
+    resetInputHistory();
     setEditingIdx(null);
     setEditText('');
     try {
@@ -437,14 +555,100 @@ export const AICreatorView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId, messages, generatingType]);
 
+  useEffect(() => {
+    const hasPersistedMessage = messages.some((message) => Boolean(message.id));
+    const hasPendingAssets = hasPendingToolAssets(messages);
+    if (loading || generatingType || hasPendingAssets) {
+      suggestionRequestTokenRef.current += 1;
+      suggestionAbortRef.current?.abort();
+      suggestionAbortRef.current = null;
+      referenceAnalysisTokenRef.current += 1;
+      referenceAnalysisAbortRef.current?.abort();
+      referenceAnalysisAbortRef.current = null;
+      setReferenceAnalysis(EMPTY_REFERENCE_ANALYSIS);
+      suggestionContextKeyRef.current = '';
+      setNextSuggestionResult({
+        ...EMPTY_NEXT_SUGGESTION,
+        status: 'processing',
+        suggestion: t.ai_creator_suggestion_processing || 'Content is being generated. The next suggestion will appear when it is ready.',
+      });
+      setActiveSuggestionIndex(0);
+      return;
+    }
+    const blocked = !activeConversationId
+      || !hasPersistedMessage
+      || convoLoading
+      || document.hidden;
+    if (blocked) {
+      suggestionRequestTokenRef.current += 1;
+      suggestionAbortRef.current?.abort();
+      suggestionAbortRef.current = null;
+      setNextSuggestionResult(EMPTY_NEXT_SUGGESTION);
+      setActiveSuggestionIndex(0);
+      suggestionContextKeyRef.current = '';
+      return;
+    }
+
+    const contextKey = buildSuggestionContextKey(activeConversationId, language, messages);
+    if (suggestionContextKeyRef.current === contextKey) return;
+    suggestionContextKeyRef.current = contextKey;
+    suggestionAbortRef.current?.abort();
+    const controller = new AbortController();
+    const requestToken = suggestionRequestTokenRef.current + 1;
+    suggestionRequestTokenRef.current = requestToken;
+    suggestionAbortRef.current = controller;
+    setNextSuggestionResult(EMPTY_NEXT_SUGGESTION);
+    setActiveSuggestionIndex(0);
+
+    void agentRuntimeApi.getNextSuggestion(activeConversationId, language, { signal: controller.signal })
+      .then((result) => {
+        if (
+          controller.signal.aborted
+          || suggestionRequestTokenRef.current !== requestToken
+          || activeConversationIdRef.current !== activeConversationId
+        ) return;
+        setNextSuggestionResult(result);
+        setActiveSuggestionIndex(0);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return;
+        console.warn('Failed to load Agent next suggestion:', error);
+      })
+      .finally(() => {
+        if (suggestionRequestTokenRef.current === requestToken) {
+          suggestionAbortRef.current = null;
+        }
+      });
+
+    return () => controller.abort();
+  }, [activeConversationId, convoLoading, generatingType, language, loading, messages, t.ai_creator_suggestion_processing]);
+
+  useEffect(() => {
+    setStatusPhraseIndex(0);
+    if (!loading || streamStatus?.phase === 'responding') return;
+    const timer = window.setInterval(() => {
+      setStatusPhraseIndex((current) => current + 1);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [loading, streamStatus?.phase, streamStatus?.stream_id]);
+
   // 组件卸载时保存当前会话状态
   useEffect(() => {
     return () => {
       streamRequestTokenRef.current += 1;
       streamAbortRef.current?.abort();
       streamAbortRef.current = null;
+      suggestionRequestTokenRef.current += 1;
+      suggestionAbortRef.current?.abort();
+      suggestionAbortRef.current = null;
+      referenceAnalysisTokenRef.current += 1;
+      referenceAnalysisAbortRef.current?.abort();
+      referenceAnalysisAbortRef.current = null;
       if (streamFrameRef.current !== null) {
         window.cancelAnimationFrame(streamFrameRef.current);
+      }
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
       }
       const convoId = activeConversationIdRef.current;
       if (convoId) {
@@ -493,6 +697,9 @@ export const AICreatorView: React.FC = () => {
 
   const startNewChat = async () => {
     stopActiveStream();
+    resetNextSuggestion();
+    resetReferenceAnalysis();
+    resetInputHistory();
     if (activeConversationId) {
       saveSessionState(activeConversationId, { uploadedImages: [...uploadedImages] });
     }
@@ -514,6 +721,12 @@ export const AICreatorView: React.FC = () => {
 
   const loadConversation = async (id: string, options?: { skipStateRestore?: boolean; silent?: boolean; instantScroll?: boolean; preserveScroll?: boolean }) => {
     if (convoLoading) return;
+    const switchingConversation = id !== activeConversationIdRef.current;
+    if (switchingConversation) {
+      resetNextSuggestion();
+      resetReferenceAnalysis();
+      resetInputHistory();
+    }
     if (streamAbortRef.current) {
       if (options?.silent && id === activeConversationIdRef.current) return;
       stopActiveStream();
@@ -565,6 +778,7 @@ export const AICreatorView: React.FC = () => {
         setSelectedSkills([]);
         setSelectedRecipe(null);
         setSlashRange(null);
+        resetInputHistory();
         setEditingIdx(null);
         setEditText('');
         try {
@@ -642,17 +856,20 @@ export const AICreatorView: React.FC = () => {
   };
 
   const getStreamStatusLabel = (status: AgentStreamStatus | null) => {
-    if (!status || status.phase === 'thinking') {
-      return (t as any).ai_creator_status_thinking || (t as any).ai_creator_thinking || 'Thinking...';
-    }
-    if (status.phase === 'loading_skill') {
-      return (t as any).ai_creator_status_loading_skill || 'Loading a creation skill...';
-    }
-    if (status.phase === 'preparing_action') {
-      const template = (t as any).ai_creator_status_preparing_action || 'Preparing {action}...';
-      return String(template).replace('{action}', getActionLabel(status.action_type || 'chat'));
-    }
-    return (t as any).ai_creator_status_responding || 'Writing a response...';
+    const phase = status?.phase || 'thinking';
+    const fallback = phase === 'loading_skill'
+      ? 'Looking through the creation cookbook...|Loading a specialist recipe...'
+      : phase === 'preparing_action'
+        ? 'Preparing the creation tools...|Calibrating {action}...|Checking the ingredient list...'
+        : 'Cooking up a creative recipe...|Gathering creative sparks...|Mapping the next scene...|Tuning the story rhythm...';
+    const rawPool = phase === 'loading_skill'
+      ? t.ai_creator_status_loading_skill_pool
+      : phase === 'preparing_action'
+        ? t.ai_creator_status_preparing_action_pool
+        : t.ai_creator_status_thinking_pool;
+    const pool = String(rawPool || fallback).split('|').map((item) => item.trim()).filter(Boolean);
+    const template = pool[statusPhraseIndex % Math.max(pool.length, 1)] || 'Thinking...';
+    return template.replace('{action}', getActionLabel(status?.action_type || 'chat'));
   };
 
   const getSkillKey = (skill: AgentSkill) =>
@@ -683,10 +900,230 @@ export const AICreatorView: React.FC = () => {
     setSlashRange(detectSlashSkillRange(value, cursor));
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
+    if (
+      referenceAnalysis.status !== 'idle'
+      && referenceAnalysis.imageIds.length > 0
+      && value !== referenceAnalysis.draft
+    ) {
+      referenceAnalysisTokenRef.current += 1;
+      referenceAnalysisAbortRef.current?.abort();
+      referenceAnalysisAbortRef.current = null;
+      setReferenceAnalysis((current) => ({ ...current, status: 'stale', prompt: '', draft: value }));
+    }
+    resetInputHistory();
     setInput(value);
     updateSlashRange(value, e.target.selectionStart);
+  };
+
+  const ensureReferenceConversation = async (draft: string): Promise<string> => {
+    const currentId = activeConversationIdRef.current;
+    if (currentId) return currentId;
+    const title = draft.trim().slice(0, 30) || t.ai_creator_reference_chat_title || 'Reference image creation';
+    const conversation = await agentRuntimeApi.createConversation(title);
+    activeConversationIdRef.current = conversation.id;
+    setActiveConversationId(conversation.id);
+    ensureConversationInList(conversation.id, title);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, conversation.id);
+    } catch {
+      // ignore
+    }
+    return conversation.id;
+  };
+
+  const setReferencePromptSuggestion = (prompt: string) => {
+    const existingAssetIndex = nextSuggestions.findIndex((item) => item.branch === 'asset');
+    const targetIndex = existingAssetIndex >= 0 ? existingAssetIndex : 0;
+    setNextSuggestionResult((current) => {
+      const suggestions = current.suggestions.length > 0
+        ? current.suggestions.map((item) => item.branch === 'asset'
+          ? { ...item, text: prompt, action: { type: 'fill_prompt' as const, prompt } }
+          : item)
+        : [{
+            id: 'asset',
+            branch: 'asset' as const,
+            text: prompt,
+            action: { type: 'fill_prompt' as const, prompt },
+          }];
+      return {
+        ...current,
+        status: 'ready',
+        source: 'model',
+        suggestions,
+        suggestion: suggestions[0]?.text || prompt,
+        can_apply: true,
+      };
+    });
+    setActiveSuggestionIndex(targetIndex);
+  };
+
+  const analyzeReferenceImages = async (
+    images: UploadedImage[],
+    role: AgentAttachment['role'],
+    draft: string,
+  ) => {
+    const candidates = images.filter((image) => image.url).slice(-3);
+    if (candidates.length === 0) return;
+    referenceAnalysisTokenRef.current += 1;
+    referenceAnalysisAbortRef.current?.abort();
+    const controller = new AbortController();
+    const requestToken = referenceAnalysisTokenRef.current;
+    referenceAnalysisAbortRef.current = controller;
+    setReferenceAnalysis({
+      status: 'analyzing',
+      prompt: '',
+      imageIds: candidates.map((image) => image.id),
+      role: role || 'reference_image',
+      draft,
+    });
+    const assetIndex = nextSuggestions.findIndex((item) => item.branch === 'asset');
+    if (!draft.trim() && assetIndex >= 0) setActiveSuggestionIndex(assetIndex);
+    try {
+      const conversationId = await ensureReferenceConversation(draft);
+      const result = await agentRuntimeApi.createReferencePrompt(
+        conversationId,
+        {
+          language,
+          image_urls: candidates.map((image) => image.url),
+          role: role || 'reference_image',
+          draft,
+        },
+        { signal: controller.signal },
+      );
+      if (
+        controller.signal.aborted
+        || referenceAnalysisTokenRef.current !== requestToken
+        || activeConversationIdRef.current !== conversationId
+      ) return;
+      setReferenceAnalysis({
+        status: 'ready',
+        prompt: result.prompt,
+        imageIds: candidates.map((image) => image.id),
+        role: role || 'reference_image',
+        draft,
+      });
+      setReferencePromptSuggestion(result.prompt);
+    } catch (error: unknown) {
+      if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return;
+      if (referenceAnalysisTokenRef.current !== requestToken) return;
+      console.warn('Failed to analyze Agent reference images:', error);
+      setReferenceAnalysis({
+        status: 'error',
+        prompt: '',
+        imageIds: candidates.map((image) => image.id),
+        role: role || 'reference_image',
+        draft,
+      });
+    } finally {
+      if (referenceAnalysisTokenRef.current === requestToken) {
+        referenceAnalysisAbortRef.current = null;
+      }
+    }
+  };
+
+  const retryReferenceAnalysis = () => {
+    const selectedIds = new Set(referenceAnalysis.imageIds);
+    const selected = uploadedImagesRef.current.filter((image) => selectedIds.has(image.id));
+    const images = selected.length > 0 ? selected : uploadedImagesRef.current.slice(-3);
+    void analyzeReferenceImages(images, referenceAnalysis.role, input);
+  };
+
+  const openImagePicker = (role: AgentAttachment['role'] = 'reference_image', maxFiles = 0) => {
+    pendingUploadRoleRef.current = role;
+    pendingUploadMaxFilesRef.current = maxFiles;
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    fileInputRef.current?.click();
+  };
+
+  const cycleNextSuggestion = () => {
+    if (
+      input
+      || inputHistoryIndexRef.current !== null
+      || nextSuggestions.length < 2
+      || nextSuggestionResult.status !== 'ready'
+      || referenceAnalysis.status === 'analyzing'
+    ) return;
+    setActiveSuggestionIndex((current) => (current + 1) % nextSuggestions.length);
+  };
+
+  const applyNextSuggestion = () => {
+    if (referenceAnalysis.status === 'analyzing') return;
+    if (referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale') {
+      retryReferenceAnalysis();
+      return;
+    }
+    if (referenceAnalysis.status === 'ready' && referenceAnalysis.prompt && input.trim()) {
+      resetInputHistory();
+      setInput(referenceAnalysis.prompt);
+      setSlashRange(null);
+      window.requestAnimationFrame(() => {
+        textInputRef.current?.focus();
+        textInputRef.current?.setSelectionRange(referenceAnalysis.prompt.length, referenceAnalysis.prompt.length);
+      });
+      return;
+    }
+    if (!activeNextSuggestion || !canApplyNextSuggestion || input.trim() || inputHistoryIndexRef.current !== null) return;
+    resetInputHistory();
+    const action = activeNextSuggestion.action;
+    if (action.type === 'open_upload') {
+      openImagePicker(action.role, action.max_files || 0);
+      return;
+    }
+    if (action.type === 'focus_confirmation') {
+      const target = document.getElementById(`agent-action-${action.run_id}`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedRunId(action.run_id);
+      if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = window.setTimeout(() => {
+        setHighlightedRunId((current) => current === action.run_id ? null : current);
+        highlightTimerRef.current = null;
+      }, 1600);
+      return;
+    }
+    setInput(action.prompt);
+    setSlashRange(null);
+    window.requestAnimationFrame(() => {
+      textInputRef.current?.focus();
+      const end = action.prompt.length;
+      textInputRef.current?.setSelectionRange(end, end);
+    });
+  };
+
+  const navigateInputHistory = (direction: -1 | 1): boolean => {
+    const history = messages
+      .filter((message) => message.role === 'user' && message.content.trim())
+      .slice(-50)
+      .map((message) => message.content);
+    if (history.length === 0) return false;
+
+    let index = inputHistoryIndexRef.current;
+    let nextValue = input;
+    if (index === null) {
+      if (direction > 0) return false;
+      inputHistoryDraftRef.current = input;
+      index = history.length - 1;
+      nextValue = history[index];
+    } else if (direction < 0) {
+      index = Math.max(0, index - 1);
+      nextValue = history[index];
+    } else if (index < history.length - 1) {
+      index += 1;
+      nextValue = history[index];
+    } else {
+      index = null;
+      nextValue = inputHistoryDraftRef.current;
+    }
+
+    inputHistoryIndexRef.current = index;
+    setInput(nextValue);
+    setSlashRange(null);
+    window.requestAnimationFrame(() => {
+      textInputRef.current?.focus();
+      textInputRef.current?.setSelectionRange(nextValue.length, nextValue.length);
+    });
+    return true;
   };
 
   const removeSelectedSkill = (skill: AgentSkill) => {
@@ -819,14 +1256,17 @@ export const AICreatorView: React.FC = () => {
 
     setUploading(true);
     const newImages: UploadedImage[] = [];
+    const uploadRole = pendingUploadRoleRef.current || 'reference_image';
+    const uploadLimit = pendingUploadMaxFilesRef.current;
+    const selectedFiles = uploadLimit > 0 ? Array.from(files).slice(0, uploadLimit) : Array.from(files);
 
-    for (const file of Array.from(files)) {
+    for (const file of selectedFiles) {
       if (!file.type.startsWith('image/')) continue;
       try {
         const resp = await assetsApi.uploadTempAsset(file);
         const url = String(resp?.data?.url || resp?.data?.path || resp?.url || '').trim();
         if (url) {
-          newImages.push({ id: `img_${Date.now()}_${Math.random().toString(36).slice(2)}`, url, file, name: file.name, role: 'reference_image' });
+          newImages.push({ id: `img_${Date.now()}_${Math.random().toString(36).slice(2)}`, url, file, name: file.name, role: uploadRole });
         }
       } catch (err: any) {
         console.error('Upload failed:', err);
@@ -834,14 +1274,37 @@ export const AICreatorView: React.FC = () => {
     }
 
     if (newImages.length > 0) {
-      setUploadedImages((prev) => [...prev, ...newImages]);
+      const combinedImages = [...uploadedImagesRef.current, ...newImages];
+      uploadedImagesRef.current = combinedImages;
+      setUploadedImages(combinedImages);
+      void analyzeReferenceImages(combinedImages.slice(-3), uploadRole, input);
     }
     setUploading(false);
+    pendingUploadRoleRef.current = 'reference_image';
+    pendingUploadMaxFilesRef.current = 0;
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const removeImage = (id: string) => {
-    setUploadedImages((prev) => prev.filter((img) => img.id !== id));
+    const nextImages = uploadedImagesRef.current.filter((img) => img.id !== id);
+    uploadedImagesRef.current = nextImages;
+    setUploadedImages(nextImages);
+    if (!referenceAnalysis.imageIds.includes(id)) return;
+    referenceAnalysisTokenRef.current += 1;
+    referenceAnalysisAbortRef.current?.abort();
+    referenceAnalysisAbortRef.current = null;
+    if (nextImages.length === 0) {
+      setReferenceAnalysis(EMPTY_REFERENCE_ANALYSIS);
+      resetNextSuggestion();
+      return;
+    }
+    setReferenceAnalysis({
+      status: 'stale',
+      prompt: '',
+      imageIds: nextImages.slice(-3).map((image) => image.id),
+      role: referenceAnalysis.role,
+      draft: input,
+    });
   };
 
   const uploadedImagesToAttachments = (images: UploadedImage[]): AgentAttachment[] =>
@@ -860,6 +1323,10 @@ export const AICreatorView: React.FC = () => {
     const requestedHints: AgentRequestedHint[] = [...requestedSkills, ...requestedRecipes];
     if ((!text && attachments.length === 0) || loading) return;
 
+    resetNextSuggestion();
+    resetReferenceAnalysis();
+    resetInputHistory();
+
     if (!overrideText) {
       setInput('');
       setSlashRange(null);
@@ -872,7 +1339,16 @@ export const AICreatorView: React.FC = () => {
       attachments,
       metadata: requestedHints.length > 0 ? { requested_hints: requestedHints } : {},
     };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [
+      ...prev.map((message) => (
+        message.role === 'assistant'
+        && message.action?.run_id
+        && message.run_status === 'waiting_confirmation'
+          ? { ...message, run_status: 'cancelled' as const, run_finish_reason: 'superseded' }
+          : message
+      )),
+      userMsg,
+    ]);
     setUploadedImages([]);
     shouldFollowStreamRef.current = true;
     streamBuffersRef.current.clear();
@@ -990,7 +1466,8 @@ export const AICreatorView: React.FC = () => {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return;
     if (slashRange && e.key === 'Escape') {
       e.preventDefault();
       setSlashRange(null);
@@ -1005,6 +1482,45 @@ export const AICreatorView: React.FC = () => {
           selectRecipe(firstSelectableItem.value);
         }
       }
+      return;
+    }
+    if (slashRange && ['ArrowUp', 'ArrowDown', 'ArrowRight'].includes(e.key)) return;
+    if (e.key === 'ArrowUp') {
+      const textareaStyle = window.getComputedStyle(e.currentTarget);
+      const singleLineHeight = parseFloat(textareaStyle.lineHeight)
+        + parseFloat(textareaStyle.paddingTop)
+        + parseFloat(textareaStyle.paddingBottom);
+      const hasMultipleVisualLines = e.currentTarget.scrollHeight > singleLineHeight + 1;
+      const selectionAtStart = e.currentTarget.selectionStart === 0
+        && e.currentTarget.selectionEnd === 0;
+      if ((!hasMultipleVisualLines || selectionAtStart) && navigateInputHistory(-1)) {
+        e.preventDefault();
+        return;
+      }
+    }
+    if (e.key === 'ArrowDown' && inputHistoryIndexRef.current !== null && navigateInputHistory(1)) {
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'ArrowDown' && !input && inputHistoryIndexRef.current === null && nextSuggestions.length > 1) {
+      e.preventDefault();
+      cycleNextSuggestion();
+      return;
+    }
+    if (
+      e.key === 'ArrowRight'
+      && !input
+      && inputHistoryIndexRef.current === null
+      && (referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale')
+      && referenceAnalysis.imageIds.length > 0
+    ) {
+      e.preventDefault();
+      retryReferenceAnalysis();
+      return;
+    }
+    if (e.key === 'ArrowRight' && !input && inputHistoryIndexRef.current === null && activeNextSuggestion && canApplyNextSuggestion) {
+      e.preventDefault();
+      applyNextSuggestion();
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1111,6 +1627,7 @@ export const AICreatorView: React.FC = () => {
 
   const runGeneration = async (action: AiCreatorAction, params: Record<string, unknown>) => {
     const type = action.type;
+    resetNextSuggestion();
     setGeneratingType(type);
     const pendingMessage = createPendingToolMessage(action, params);
     setMessages((prev) => [...prev, pendingMessage]);
@@ -1194,6 +1711,8 @@ export const AICreatorView: React.FC = () => {
       }
     }
     // Delete this message and everything after it
+    resetNextSuggestion();
+    resetInputHistory();
     setMessages((prev) => prev.slice(0, idx));
   };
 
@@ -2186,11 +2705,23 @@ export const AICreatorView: React.FC = () => {
 
                     {/* Action card inside assistant message */}
                     {item.message.role === 'assistant' && item.message.action && item.message.action.type !== 'chat' && (
-                      <div className={item.message.content ? 'mt-4 pt-4 border-t border-white/10' : ''}>
+                      <div
+                        id={item.message.action.run_id ? `agent-action-${item.message.action.run_id}` : undefined}
+                        className={`${item.message.content ? 'mt-4 pt-4 border-t border-white/10' : ''} rounded-lg transition-shadow duration-300 ${
+                          item.message.action.run_id && highlightedRunId === item.message.action.run_id
+                            ? 'ring-2 ring-orange-400/80 shadow-[0_0_0_6px_rgba(251,146,60,0.12)]'
+                            : ''
+                        }`}
+                      >
                         <div className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
                           {ACTION_ICONS[item.message.action.type] || <Wand2 className="w-5 h-5" />}
                           <span className="font-bold text-zinc-300">{getActionLabel(item.message.action.type)}</span>
                         </div>
+                        {isSupersededActionMessage(item.message) && (
+                          <div className="mb-3 text-xs font-medium text-amber-300/80">
+                            {t.ai_creator_action_superseded || 'Replaced by a newer request'}
+                          </div>
+                        )}
                         {item.message.action.params && Object.keys(item.message.action.params).length > 0 && (
                           <div className="text-xs text-zinc-500 mb-3 space-y-1">
                             {Object.entries(item.message.action.params).map(([k, v]) => (
@@ -2203,7 +2734,7 @@ export const AICreatorView: React.FC = () => {
                         <div className="mt-1 flex items-center gap-2">
                           <button
                             onClick={() => executeActionDirectly(item.message.action!)}
-                            disabled={generatingType !== null}
+                            disabled={generatingType !== null || isSupersededActionMessage(item.message)}
                             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-600 text-sm text-white font-bold hover:bg-orange-500 transition disabled:opacity-50"
                           >
                             {generatingType === item.message.action.type ? (
@@ -2217,7 +2748,7 @@ export const AICreatorView: React.FC = () => {
                           </button>
                           <button
                             onClick={() => executeAction(item.message.action!)}
-                            disabled={generatingType !== null}
+                            disabled={generatingType !== null || isSupersededActionMessage(item.message)}
                             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 text-sm text-zinc-300 font-medium hover:bg-zinc-700 transition disabled:opacity-50"
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -2226,7 +2757,7 @@ export const AICreatorView: React.FC = () => {
                           {item.message.action.type === 'generate_first_frame' && (
                             <button
                               onClick={() => quickSend(isZh ? '跳过首帧，直接生成视频' : 'Skip the first frame and generate the video directly')}
-                              disabled={generatingType !== null || loading}
+                              disabled={generatingType !== null || loading || isSupersededActionMessage(item.message)}
                               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 text-sm text-zinc-300 font-medium hover:bg-zinc-700 transition disabled:opacity-50"
                             >
                               <Film className="w-3.5 h-3.5" />
@@ -2308,7 +2839,7 @@ export const AICreatorView: React.FC = () => {
             <div className="flex items-end gap-3 rounded-2xl bg-zinc-900 border border-white/10 p-3 pr-4 focus-within:border-orange-500/50 transition">
               {/* + upload button */}
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openImagePicker('reference_image')}
                 disabled={uploading || loading}
                 className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition disabled:opacity-50"
                 title="Add image"
@@ -2325,9 +2856,9 @@ export const AICreatorView: React.FC = () => {
               />
 
               {/* Text input */}
-              <input
+              <textarea
                 ref={textInputRef}
-                type="text"
+                rows={1}
                 value={input}
                 onChange={handleInputChange}
                 onClick={(e) => updateSlashRange(e.currentTarget.value, e.currentTarget.selectionStart)}
@@ -2338,10 +2869,66 @@ export const AICreatorView: React.FC = () => {
                 }}
                 onBlur={() => window.setTimeout(() => setSlashRange(null), 120)}
                 onKeyDown={handleKeyDown}
-                placeholder={(t as any).ai_creator_placeholder || 'Describe what you want to generate...'}
+                placeholder={nextSuggestion || t.ai_creator_placeholder || 'Describe what you want to create...'}
                 disabled={loading}
-                className="flex-1 py-3 bg-transparent text-base text-zinc-100 placeholder-zinc-500 focus:outline-none disabled:opacity-50 min-w-0"
+                className="flex-1 min-w-0 max-h-40 resize-none overflow-y-auto py-3 bg-transparent text-base leading-6 text-zinc-100 placeholder-zinc-500 focus:outline-none disabled:opacity-50"
               />
+
+              {!input && canApplyNextSuggestion && nextSuggestions.length > 0 && referenceAnalysis.status !== 'analyzing' && (
+                <span className="hidden lg:inline shrink-0 text-[11px] text-zinc-500 whitespace-nowrap">
+                  {activeSuggestionIndex + 1}/{nextSuggestions.length} · {t.ai_creator_suggestion_shortcuts || '↓ switch · → use'}
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={cycleNextSuggestion}
+                disabled={Boolean(input) || nextSuggestions.length < 2 || nextSuggestionResult.status !== 'ready' || loading || referenceAnalysis.status === 'analyzing'}
+                title={t.ai_creator_switch_suggestion || 'Switch suggestion'}
+                aria-label={t.ai_creator_switch_suggestion || 'Switch suggestion'}
+                className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 ${
+                  !input && nextSuggestions.length > 1 && nextSuggestionResult.status === 'ready' && !loading && referenceAnalysis.status !== 'analyzing' ? '' : 'invisible pointer-events-none'
+                }`}
+              >
+                <ChevronDown className="w-4.5 h-4.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={applyNextSuggestion}
+                disabled={
+                  loading
+                  || referenceAnalysis.status === 'analyzing'
+                  || (
+                    referenceAnalysis.status === 'idle'
+                    && (!activeNextSuggestion || !canApplyNextSuggestion || Boolean(input))
+                  )
+                }
+                title={
+                  referenceAnalysis.status === 'ready' && Boolean(input)
+                    ? (t.ai_creator_reference_replace_draft || 'Use the image-optimized prompt')
+                    : referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale'
+                      ? (t.ai_creator_reference_retry_action || 'Analyze reference images again')
+                      : (t.ai_creator_use_suggestion || 'Use next suggestion')
+                }
+                aria-label={
+                  referenceAnalysis.status === 'ready' && Boolean(input)
+                    ? (t.ai_creator_reference_replace_draft || 'Use the image-optimized prompt')
+                    : referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale'
+                      ? (t.ai_creator_reference_retry_action || 'Analyze reference images again')
+                      : (t.ai_creator_use_suggestion || 'Use next suggestion')
+                }
+                className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-orange-300 transition hover:bg-orange-500/10 hover:text-orange-200 ${
+                  (
+                    referenceAnalysis.status !== 'idle'
+                    || (activeNextSuggestion && canApplyNextSuggestion && !input)
+                  ) && !loading ? '' : 'invisible pointer-events-none'
+                }`}
+              >
+                {referenceAnalysis.status === 'analyzing'
+                  ? <Loader2 className="w-4.5 h-4.5 animate-spin" />
+                  : <Sparkles className="w-4.5 h-4.5" />}
+              </button>
 
               {/* Send button */}
               <button

@@ -72,6 +72,8 @@ export interface AgentMessage {
     data?: Record<string, any>;
   } | null;
   run_id?: string | null;
+  run_status?: AgentRunStatus | null;
+  run_finish_reason?: string | null;
   created_at?: string;
 }
 
@@ -95,10 +97,12 @@ export interface AgentStep {
   project_id?: string;
 }
 
+export type AgentRunStatus = 'pending' | 'running' | 'waiting_confirmation' | 'succeeded' | 'failed' | 'cancelled';
+
 export interface AgentRun {
   id: string;
   conversation_id: string;
-  status: 'pending' | 'running' | 'waiting_confirmation' | 'succeeded' | 'failed' | 'cancelled';
+  status: AgentRunStatus;
   plan: Array<Record<string, unknown>>;
   output_payload?: Record<string, any>;
   error_message?: string;
@@ -140,6 +144,38 @@ export type AgentChatStreamHandlers = {
 
 export interface AgentChatStreamOptions {
   signal?: AbortSignal;
+}
+
+export type AgentSuggestionLanguage = 'en' | 'zh' | 'ms' | 'vi' | 'ko';
+
+export type AgentSuggestionBranch = 'continue' | 'improve' | 'asset';
+
+export type AgentSuggestionAction =
+  | { type: 'fill_prompt'; prompt: string }
+  | { type: 'open_upload'; role: string; accept?: string; max_files?: number; after_upload?: 'analyze_reference' }
+  | { type: 'focus_confirmation'; run_id: string };
+
+export interface AgentSuggestionItem {
+  id: string;
+  branch: AgentSuggestionBranch;
+  text: string;
+  action: AgentSuggestionAction;
+}
+
+export interface AgentNextSuggestion {
+  status: 'ready' | 'processing';
+  suggestion: string | null;
+  source: 'model' | 'fallback' | 'none';
+  stage: string | null;
+  can_apply: boolean;
+  suggestions: AgentSuggestionItem[];
+}
+
+export interface AgentReferencePrompt {
+  status: 'ready';
+  prompt: string;
+  source: 'model';
+  analyzed_image_count: number;
 }
 
 export interface AgentTool {
@@ -189,6 +225,79 @@ export const agentRuntimeApi = {
     const json = await apiRequest(`/api/agent/conversations/${id}/messages/`, {
       method: 'GET',
       fallbackMessage: 'Failed to load messages',
+    });
+    return json?.data;
+  },
+
+  getNextSuggestion: async (
+    id: string,
+    language: AgentSuggestionLanguage,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AgentNextSuggestion> => {
+    const json = await apiRequest(`/api/agent/conversations/${id}/next-suggestion/`, {
+      method: 'POST',
+      body: { language },
+      fallbackMessage: 'Failed to load the next suggestion',
+      fetchOptions: { signal: options.signal },
+    });
+    const data = json?.data || {};
+    const suggestions: AgentSuggestionItem[] = Array.isArray(data.suggestions)
+      ? data.suggestions.flatMap((item: unknown) => {
+          if (!item || typeof item !== 'object') return [];
+          const value = item as Record<string, unknown>;
+          const branch = value.branch;
+          const action = value.action;
+          if (
+            (branch !== 'continue' && branch !== 'improve' && branch !== 'asset')
+            || typeof value.id !== 'string'
+            || typeof value.text !== 'string'
+            || !action
+            || typeof action !== 'object'
+          ) return [];
+          const actionValue = action as Record<string, unknown>;
+          let parsedAction: AgentSuggestionAction | null = null;
+          if (actionValue.type === 'fill_prompt' && typeof actionValue.prompt === 'string') {
+            parsedAction = { type: 'fill_prompt', prompt: actionValue.prompt };
+          } else if (actionValue.type === 'open_upload' && typeof actionValue.role === 'string') {
+            parsedAction = {
+              type: 'open_upload',
+              role: actionValue.role,
+              ...(typeof actionValue.accept === 'string' ? { accept: actionValue.accept } : {}),
+              ...(typeof actionValue.max_files === 'number' ? { max_files: actionValue.max_files } : {}),
+              ...(actionValue.after_upload === 'analyze_reference' ? { after_upload: 'analyze_reference' as const } : {}),
+            };
+          } else if (actionValue.type === 'focus_confirmation' && typeof actionValue.run_id === 'string') {
+            parsedAction = { type: 'focus_confirmation', run_id: actionValue.run_id };
+          }
+          if (!parsedAction) return [];
+          return [{ id: value.id, branch, text: value.text, action: parsedAction }];
+        })
+      : [];
+    return {
+      status: data.status === 'processing' ? 'processing' : 'ready',
+      suggestion: typeof data.suggestion === 'string' ? data.suggestion : null,
+      source: data.source === 'model' || data.source === 'fallback' ? data.source : 'none',
+      stage: typeof data.stage === 'string' ? data.stage : null,
+      can_apply: data.can_apply !== false && typeof data.suggestion === 'string',
+      suggestions,
+    };
+  },
+
+  createReferencePrompt: async (
+    id: string,
+    payload: {
+      language: AgentSuggestionLanguage;
+      image_urls: string[];
+      role: string;
+      draft?: string;
+    },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AgentReferencePrompt> => {
+    const json = await apiRequest(`/api/agent/conversations/${id}/reference-prompt/`, {
+      method: 'POST',
+      body: payload,
+      fallbackMessage: 'Failed to analyze reference images',
+      fetchOptions: { signal: options.signal },
     });
     return json?.data;
   },

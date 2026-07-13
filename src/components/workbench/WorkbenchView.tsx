@@ -1331,6 +1331,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [draggingWorkbenchAssetId, setDraggingWorkbenchAssetId] = useState<string | null>(null);
   const [transferStationItems, setTransferStationItems] = useState<TransferStationItem[]>([]);
   const [isTransferStationOpen, setIsTransferStationOpen] = useState(false);
+  const [transferStationPos, setTransferStationPos] = useState<{ right: number; bottom: number }>(() => {
+    try {
+      const raw = localStorage.getItem('vflow-transfer-station-pos');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.right === 'number' && typeof parsed?.bottom === 'number') {
+          return { right: parsed.right, bottom: parsed.bottom };
+        }
+      }
+    } catch {}
+    return { right: 24, bottom: 24 };
+  });
+  const transferStationDragRef = useRef<{ startX: number; startY: number; startRight: number; startBottom: number; moved: boolean } | null>(null);
+  const transferStationWasDraggedRef = useRef(false);
   const [isKlingSubjectGuideOpen, setIsKlingSubjectGuideOpen] = useState(false);
   const [isKlingSubjectModeHintDismissed, setIsKlingSubjectModeHintDismissed] = useState(false);
 
@@ -4681,6 +4695,74 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const handleTransferStationItemDragStart = (item: TransferStationItem, event: React.DragEvent<HTMLButtonElement>) => {
     event.dataTransfer.setData(TRANSFER_STATION_DRAG_MIME, JSON.stringify(item));
     event.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const clampTransferStationPos = useCallback((pos: { right: number; bottom: number }) => {
+    const BTN = 56;
+    const PAD = 8;
+    const maxRight = Math.max(PAD, window.innerWidth - BTN - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - BTN - PAD);
+    return {
+      right: Math.min(maxRight, Math.max(PAD, pos.right)),
+      bottom: Math.min(maxBottom, Math.max(PAD, pos.bottom)),
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setTransferStationPos((prev) => clampTransferStationPos(prev));
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, [clampTransferStationPos]);
+
+  const handleTransferStationPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    transferStationDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startRight: transferStationPos.right,
+      startBottom: transferStationPos.bottom,
+      moved: false,
+    };
+    transferStationWasDraggedRef.current = false;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+
+  const handleTransferStationPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const start = transferStationDragRef.current;
+    if (!start) return;
+    const dx = e.clientX - start.startX;
+    const dy = e.clientY - start.startY;
+    if (!start.moved && Math.hypot(dx, dy) < 4) return;
+    start.moved = true;
+    transferStationWasDraggedRef.current = true;
+    setTransferStationPos(clampTransferStationPos({
+      right: start.startRight - dx,
+      bottom: start.startBottom - dy,
+    }));
+  };
+
+  const handleTransferStationPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const start = transferStationDragRef.current;
+    if (!start) return;
+    transferStationDragRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    if (start.moved) {
+      const finalPos = clampTransferStationPos({
+        right: start.startRight - (e.clientX - start.startX),
+        bottom: start.startBottom - (e.clientY - start.startY),
+      });
+      try {
+        localStorage.setItem('vflow-transfer-station-pos', JSON.stringify(finalPos));
+      } catch {}
+    }
+  };
+
+  const handleTransferStationClick = () => {
+    if (transferStationWasDraggedRef.current) {
+      transferStationWasDraggedRef.current = false;
+      return;
+    }
+    setIsTransferStationOpen((prev) => !prev);
   };
   const aiOptimizeImageCandidates = useMemo(
     () => uploadDisplayAssets.filter((asset) => asset.mediaKind === 'image'),
@@ -12012,7 +12094,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       )}
 
       {/* 中转站 */}
-      <div className="fixed right-6 bottom-6 z-[132] flex flex-col items-end gap-2">
+      <div
+        className="fixed z-[132] flex flex-col items-end gap-2"
+        style={{ right: transferStationPos.right, bottom: transferStationPos.bottom }}
+      >
         {isTransferStationOpen && (
           <div className="w-[320px] max-h-[52vh] overflow-hidden rounded-2xl border border-orange-500/25 bg-zinc-950/92 shadow-2xl shadow-black/50 backdrop-blur-xl">
             <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
@@ -12119,8 +12204,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
         <button
           type="button"
-          onClick={() => setIsTransferStationOpen((prev) => !prev)}
-          className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-orange-400/50 bg-gradient-to-br from-orange-500/90 to-amber-500/80 text-white shadow-[0_16px_35px_rgba(251,146,60,0.35)] transition hover:scale-[1.04]"
+          onPointerDown={handleTransferStationPointerDown}
+          onPointerMove={handleTransferStationPointerMove}
+          onPointerUp={handleTransferStationPointerUp}
+          onPointerCancel={handleTransferStationPointerUp}
+          onClick={handleTransferStationClick}
+          className={`group relative flex h-14 w-14 items-center justify-center rounded-full border border-orange-400/50 bg-gradient-to-br from-orange-500/90 to-amber-500/80 text-white shadow-[0_16px_35px_rgba(251,146,60,0.35)] transition hover:scale-[1.04] touch-none select-none ${transferStationDragRef.current ? 'cursor-grabbing' : 'cursor-grab'}`}
           title={t.wb_transfer_station_title || 'Transfer Station'}
         >
           <FolderPlus className="h-6 w-6" />

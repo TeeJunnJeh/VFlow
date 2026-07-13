@@ -5,7 +5,8 @@ import {
   Wand2, Loader2, Clapperboard, BookmarkPlus, FolderOpen,
   MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
   Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
-  SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronsDown, Library
+  SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronsDown, Library,
+  Download, Volume2, VolumeX, Maximize
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -103,6 +104,14 @@ const SCRIPT_PROGRESS_HOLD_MAX = 96;
 const WAITING_PREVIEW_VIDEO_SRC = (import.meta.env.VITE_WAITING_PREVIEW_VIDEO_URL || 'https://vflow.genviewtech.com/media/vedio.mp4').toString();
 const ASSET_PLACEHOLDER_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiB2aWV3Qm94PSIwIDAgMzAwIDQwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFmMjkzNyIvPjx0ZXh0IHg9IjE1MCIgeT0iMjAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiBmaWxsPSIjOWNhM2FmIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiPk5vIFByZXZpZXc8L3RleHQ+PC9zdmc+';
 const TRANSFER_STATION_DRAG_MIME = 'application/x-vflow-transfer-station-item';
+
+const formatVideoTime = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const total = Math.floor(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
 
 const isTikTokDirectPostEnabledFromStatus = (statusData: any): boolean => (
   Boolean(statusData?.capabilities?.direct_post || statusData?.direct_post_enabled)
@@ -1610,6 +1619,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   ]);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const isInfoOpenRef = useRef(false);
   const [infoTitle, setInfoTitle] = useState('');
@@ -3200,6 +3212,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     setIsPlaying(false);
+    setVideoCurrentTime(0);
+    setVideoDuration(0);
   }, [generatedVideoUrl]);
 
   useEffect(() => {
@@ -14041,16 +14055,94 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           <div className="glass-panel flex-1 rounded-2xl p-1 relative flex flex-col overflow-hidden">
             <div className="flex-1 bg-black rounded-xl relative overflow-hidden group flex items-center justify-center">
               {generatedVideoUrl ? (
-                <video
-                  ref={videoRef}
-                  src={generatedVideoUrl}
-                  controls
-                  autoPlay
-                  loop
-                  className="w-full h-full object-contain"
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                />
+                <>
+                  <video
+                    ref={videoRef}
+                    src={generatedVideoUrl}
+                    autoPlay
+                    loop
+                    playsInline
+                    className="w-full h-full object-contain cursor-pointer"
+                    onClick={toggleVideoPlay}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onTimeUpdate={(e) => setVideoCurrentTime((e.currentTarget as HTMLVideoElement).currentTime || 0)}
+                    onLoadedMetadata={(e) => setVideoDuration((e.currentTarget as HTMLVideoElement).duration || 0)}
+                    onVolumeChange={(e) => setIsVideoMuted((e.currentTarget as HTMLVideoElement).muted)}
+                  />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1.5 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pt-6 pb-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                    <div
+                      className="pointer-events-auto group/bar relative h-1.5 w-full cursor-pointer rounded-full bg-white/20"
+                      onClick={(e) => {
+                        const video = videoRef.current;
+                        if (!video || !video.duration) return;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                        video.currentTime = ratio * video.duration;
+                      }}
+                    >
+                      <div
+                        className="absolute inset-y-0 left-0 rounded-full bg-orange-500 transition-[width]"
+                        style={{ width: `${videoDuration > 0 ? (videoCurrentTime / videoDuration) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="pointer-events-auto flex items-center justify-between text-[11px] font-semibold text-zinc-100">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={toggleVideoPlay}
+                          className="text-white hover:text-orange-400 transition"
+                          title={isPlaying ? 'Pause' : 'Play'}
+                        >
+                          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 fill-current" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const video = videoRef.current;
+                            if (!video) return;
+                            video.muted = !video.muted;
+                          }}
+                          className="text-white hover:text-orange-400 transition"
+                          title={isVideoMuted ? 'Unmute' : 'Mute'}
+                        >
+                          {isVideoMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                        </button>
+                        <span className="tabular-nums text-zinc-300">
+                          {formatVideoTime(videoCurrentTime)} / {formatVideoTime(videoDuration)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <a
+                          href={generatedVideoUrl}
+                          download
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-white hover:text-orange-400 transition"
+                          title="Download"
+                        >
+                          <Download className="h-4 w-4" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const video = videoRef.current;
+                            if (!video) return;
+                            if (document.fullscreenElement) {
+                              document.exitFullscreen().catch(() => undefined);
+                            } else {
+                              video.requestFullscreen?.().catch(() => undefined);
+                            }
+                          }}
+                          className="text-white hover:text-orange-400 transition"
+                          title="Fullscreen"
+                        >
+                          <Maximize className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
               ) : (
                 isWaitingPreview ? (
                   <div className="relative h-full w-full">

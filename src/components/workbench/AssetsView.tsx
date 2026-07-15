@@ -77,7 +77,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
   const videoFormats = VIDEO_EXTS.join('/');
   const audioFormats = AUDIO_EXTS.join('/');
   const docFormats = DOC_EXTS.join('/');
-  const formatHint = `${t.wb_upload_image}: ${imageFormats} (≤30MB)\n${t.wb_upload_video}: ${videoFormats} (≤50MB)\n${t.wb_upload_audio}: ${audioFormats} (≤15MB)\n${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)\n${(t as any).assets_tab_skills || 'Skill'}: ${docFormats} (≤10MB)`;
+  const formatHint = `${t.wb_upload_image}: ${imageFormats} (≤30MB)\n${t.wb_upload_video}: ${videoFormats} (≤50MB)\n${t.wb_upload_audio}: ${audioFormats} (≤15MB)\n${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)\n${(t as any).assets_tab_skills || '创意卡'}: ${docFormats} (≤10MB)`;
 
   const getFileExtension = (name: string) => name.split('.').pop()?.toLowerCase() || '';
   const loadAudioDurationSeconds = (file: File): Promise<number | null> => new Promise((resolve) => {
@@ -178,7 +178,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
     motion: t.assets_tab_videos || '视频',
     audio: t.assets_tab_audio || '音频',
     script: t.assets_tab_scripts || '脚本/Prompt',
-    skill: (t as any).assets_tab_skills || 'Skill',
+    skill: (t as any).assets_tab_skills || '创意卡',
     subject: t.assets_tab_subjects || 'Subjects',
   };
   const [themeClassSnapshot, setThemeClassSnapshot] = useState<string>('');
@@ -252,7 +252,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       case 'motion': return `${t.wb_upload_video}: ${videoFormats} (≤50MB)`;
       case 'audio': return `${t.wb_upload_audio}: ${audioFormats} (≤15MB)`;
       case 'script': return `${t.assets_tab_scripts || '脚本'}: ${docFormats} (≤10MB)`;
-      case 'skill': return `${(t as any).assets_tab_skills || 'Skill'}: ${docFormats} (≤10MB)`;
+      case 'skill': return `${(t as any).assets_tab_skills || '创意卡'}: ${docFormats} (≤10MB)`;
       default: return '';
     }
   }, [activeAssetTab, imageFormats, videoFormats, audioFormats, docFormats, formatHint, t]);
@@ -1708,7 +1708,7 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
       ? (meta as any).skill_tags
       : (Array.isArray(skill.tags) ? skill.tags : []);
     return {
-      name: String((meta as any).skill_name || skill.name || asset?.name || 'Seed Skill'),
+      name: String((meta as any).skill_name || skill.name || asset?.name || '创意卡'),
       summary: String((meta as any).skill_summary || skill.summary || ''),
       description: String((meta as any).skill_description || skill.description || (meta as any).skill_summary || skill.summary || ''),
       seed: String((meta as any).seed || skill.seed || ''),
@@ -3141,12 +3141,12 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                               ) : (
                                 <div className="flex min-w-0 items-center gap-2">
                                   <div className="text-xs font-bold text-zinc-200 truncate">{seedSkillMeta?.name || asset.name}</div>
-                                  {seedSkillMeta && <span className="shrink-0 border border-fuchsia-300/20 bg-fuchsia-500/10 px-1.5 py-0.5 text-[9px] font-bold text-fuchsia-100">Skill</span>}
+                                  {seedSkillMeta && <span className="shrink-0 border border-fuchsia-300/20 bg-fuchsia-500/10 px-1.5 py-0.5 text-[9px] font-bold text-fuchsia-100">创意卡</span>}
                                 </div>
                               )}
                               {seedSkillMeta ? (
                                 <div className="mt-1 min-w-0">
-                                  <div className="truncate text-[11px] text-zinc-400">{seedSkillMeta.description || seedSkillMeta.summary || `Seed ${seedSkillMeta.seed}`}</div>
+                                  <div className="truncate text-[11px] text-zinc-400">{seedSkillMeta.description || seedSkillMeta.summary || '可复用的创作配置'}</div>
                                   {seedSkillMeta.tags.length > 0 && (
                                     <div className="mt-1 flex flex-wrap gap-1">
                                       {seedSkillMeta.tags.slice(0, 4).map((tag: string) => (
@@ -4128,12 +4128,9 @@ export const AssetsView: React.FC<AssetsViewProps> = ({
                           <Sparkles className="h-5 w-5 text-fuchsia-100" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-black uppercase tracking-widest text-fuchsia-200">Seed Skill</div>
+                          <div className="text-xs font-black uppercase tracking-widest text-fuchsia-200">创意卡</div>
                           <div className="truncate text-base font-bold text-zinc-100">{previewSeedSkillMeta.name}</div>
                         </div>
-                        {previewSeedSkillMeta.seed && (
-                          <div className="font-mono text-[10px] text-zinc-500">#{previewSeedSkillMeta.seed.slice(-8)}</div>
-                        )}
                       </div>
                       <p className="mt-4 text-sm leading-7 text-zinc-200">{previewSeedSkillMeta.description || previewSeedSkillMeta.summary || '这是一组可复现的创作经验，会影响剧情模板、风格气质和素材记忆点。'}</p>
                       {previewSeedSkillMeta.tags.length > 0 && (

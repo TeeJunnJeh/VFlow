@@ -74,6 +74,7 @@ export interface HistoryDetailResponse {
   id: string;
   request_payload: Record<string, unknown> | null;
   model_request: Record<string, unknown> | null;
+  script_content?: Record<string, unknown> | null;
 }
 
 type ScriptStreamEvent = {
@@ -153,6 +154,92 @@ export type GenerateFirstFramePayload = {
   model?: string;
   prompt_override?: string;
   product_description_override?: string;
+};
+
+export type SeedSkillWorkflowAsset = {
+  path: string;
+  kind: 'image' | 'video' | 'audio' | 'text' | 'file';
+  original_name?: string;
+  public_url?: string;
+};
+
+export type SeedSkillWorkflowPayload = {
+  assets: SeedSkillWorkflowAsset[];
+  selling_point: string;
+  video_type: string;
+  skill_number?: string;
+  skill_token?: string;
+  language?: string;
+  aspect_ratio?: string;
+  duration?: number;
+};
+
+export type SeedSkillPreview = {
+  token: string;
+  title: string;
+  text: string;
+  recipe: Record<string, unknown>;
+};
+
+export type SeedSkillWorkflow = {
+  id: string;
+  status:
+    | 'created'
+    | 'needs_script_review'
+    | 'prompt_ready'
+    | 'video_submitting'
+    | 'video_submitted'
+    | 'video_processing'
+    | 'video_succeeded'
+    | 'video_failed'
+    | 'video_cancelled';
+  creative_number?: string;
+  selling_point: string;
+  video_type: string;
+  language: string;
+  aspect_ratio: string;
+  duration: number;
+  assets: SeedSkillWorkflowAsset[];
+  recipe: Record<string, unknown>;
+  skill?: SeedSkillPreview;
+  skill_markdown: string;
+  stage1: Record<string, unknown>;
+  stage2: Record<string, unknown>;
+  final_prompt: string;
+  video_task?: {
+    id?: string | number;
+    project_id?: string;
+    status?: string;
+    submitted_at?: string;
+    result?: Record<string, unknown>;
+  };
+  video_result?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type SeedSkillWorkflowResponse = {
+  workflow: SeedSkillWorkflow;
+  skill_asset?: Record<string, unknown>;
+  task?: Record<string, unknown>;
+  task_id?: string | number;
+  status?: Record<string, unknown>;
+};
+
+export type SeedSkillPromptRefinePayload = {
+  assets: SeedSkillWorkflowAsset[];
+  initial_script: string;
+  prompt_format: 'short' | 'storyboard' | 'one_shot';
+  language?: string;
+  aspect_ratio?: string;
+  duration?: number;
+};
+
+export type SeedSkillPromptRefineResponse = {
+  prompt_format: 'short' | 'storyboard' | 'one_shot';
+  subject_definitions: Array<Record<string, unknown>>;
+  subject_statement: string;
+  final_prompt: string;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -1112,7 +1199,174 @@ export const videoApi = {
     });
 
     if (!response.ok) {
-      throw await parseApiError(response, 'Seed skill preview failed');
+      throw await parseApiError(response, '创意卡预览失败');
+    }
+
+    return await response.json();
+  },
+
+  rollSeedSkill: async (
+    payload: Pick<SeedSkillWorkflowPayload, 'video_type' | 'language' | 'aspect_ratio' | 'duration'>,
+  ): Promise<ApiEnvelope<{ skill: SeedSkillPreview }>> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skill/skills/roll`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'skill 生成失败');
+    }
+
+    return await response.json();
+  },
+
+  refineSeedancePrompt: async (
+    payload: SeedSkillPromptRefinePayload,
+  ): Promise<ApiEnvelope<SeedSkillPromptRefineResponse>> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skill/prompt-refine`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, 'Prompt 精修失败');
+    }
+
+    return await response.json();
+  },
+
+  createSeedSkillWorkflow: async (payload: SeedSkillWorkflowPayload): Promise<ApiEnvelope<SeedSkillWorkflowResponse>> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skill/workflows`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, '创意工作流创建失败');
+    }
+
+    return await response.json();
+  },
+
+  createSeedSkillExampleWorkflow: async (payload?: Partial<SeedSkillWorkflowPayload>): Promise<ApiEnvelope<SeedSkillWorkflowResponse>> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skill/workflows/example`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload || {}),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, '示例创意工作流创建失败');
+    }
+
+    return await response.json();
+  },
+
+  finalizeSeedSkillWorkflow: async (
+    workflowId: string,
+    payload: { edited_script: string; aspect_ratio?: string; duration?: number; language?: string },
+  ): Promise<ApiEnvelope<SeedSkillWorkflowResponse>> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skill/workflows/${workflowId}/finalize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, '创意工作流确认失败');
+    }
+
+    return await response.json();
+  },
+
+  submitSeedSkillWorkflowVideo: async (
+    workflowId: string,
+    payload?: { final_prompt?: string },
+  ): Promise<ApiEnvelope<SeedSkillWorkflowResponse>> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skill/workflows/${workflowId}/seedance`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload || {}),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, '创意视频生成提交失败');
+    }
+
+    return await response.json();
+  },
+
+  pollSeedSkillWorkflowVideo: async (workflowId: string): Promise<ApiEnvelope<SeedSkillWorkflowResponse>> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/seed-skill/workflows/${workflowId}/poll`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, '创意视频状态读取失败');
+    }
+
+    return await response.json();
+  },
+
+  getSeedSkillHistory: async (): Promise<ApiEnvelope<{ items: SeedSkillWorkflow[] }>> => {
+    const response = await fetch(`${API_BASE_URL}/seed-skill/history`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw await parseApiError(response, '创意工作流历史读取失败');
     }
 
     return await response.json();
@@ -1775,6 +2029,7 @@ export const videoApi = {
           id: String(data?.id || projectId),
           request_payload: asRecord(data?.request_payload),
           model_request: asRecord(data?.model_request),
+          script_content: asRecord(data?.script_content),
         };
       },
     });

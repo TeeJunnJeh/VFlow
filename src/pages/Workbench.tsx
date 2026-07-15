@@ -44,7 +44,6 @@ import { PROMO_DEBUG_ALWAYS_SHOW, usePromoEligibility } from '../components/prom
  */
 const ACTIVE_PROMO_CAMPAIGN_ID = 'promo_39_9_598v';
 import { WorkbenchView } from '../components/workbench/WorkbenchView';
-import { SeedSkillStudioView } from '../components/workbench/SeedSkillStudioView';
 import { AssetsView } from '../components/workbench/AssetsView';
 import { TemplatesView } from '../components/workbench/TemplatesView';
 import { HistoryView } from '../components/workbench/HistoryView';
@@ -56,6 +55,8 @@ import { AICreatorView } from '../components/workbench/AICreatorView';
 import { CommunityView } from '../components/community/CommunityView';
 import { CreativeLabReplayView } from '../components/creativeLab/CreativeLabReplayView';
 import { CreativeLabScriptExtractView } from '../components/creativeLab/CreativeLabScriptExtractView';
+import { SkillVideoGenerationView } from '../components/creativeLab/SkillVideoGenerationView';
+import { SeedancePromptRefineView } from '../components/creativeLab/SeedancePromptRefineView';
 import { CanvasComingSoon } from '../components/creativeLab/CanvasComingSoon';
 import { Sidebar } from '../components/workbench/Sidebar';
 import ProductImagesView from '../components/workbench/ProductImagesView';
@@ -72,7 +73,6 @@ import {
 
 const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   workbench: 'VFLOW AI - 工作台 - GenViewTech',
-  seed_skill_studio: 'VFLOW AI - Skill 视频 - GenViewTech',
   assets: 'VFLOW AI - 素材库 - GenViewTech',
   product_images_clothing_swap: 'VFLOW AI - 商品图 - 换装 - GenViewTech',
   product_images_first_frame: 'VFLOW AI - 商品图 - 首帧图 - GenViewTech',
@@ -82,6 +82,8 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
   product_images_ai_model: 'VFLOW AI - 商品图 - AI 模特 - GenViewTech',
   creative_lab_replay: 'VFLOW AI - 创意实验室 - 爆款复刻 - GenViewTech',
   creative_lab_script_extract: 'VFLOW AI - 创意实验室 - 脚本提取 - GenViewTech',
+  creative_lab_skill_video: 'VFLOW AI - 创意实验室 - skill视频生成 - GenViewTech',
+  creative_lab_prompt_refine: 'VFLOW AI - 创意实验室 - prompt精修 - GenViewTech',
   creative_lab_canvas: 'VFLOW AI - 创意实验室 - 无限画布 - GenViewTech',
   templates: 'VFLOW AI - 模板 - GenViewTech',
   history: 'VFLOW AI - 历史记录 - GenViewTech',
@@ -96,8 +98,6 @@ const WORKBENCH_VIEW_TITLES: Record<ViewType, string> = {
 const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
   workbench:
     'Use the VFLOW AI workspace to generate product videos and images, manage assets and templates, monitor tasks in real time, and export results for publishing.',
-  seed_skill_studio:
-    'Generate simple Seedance videos with a reusable natural-language Seed Skill, minimal options, uploaded materials, script preview, and asset-library reuse.',
   assets:
     'Manage your asset library—products, backgrounds, audio, and virtual models—and reuse them across workflows for faster generation and consistent branding.',
   product_images_clothing_swap:
@@ -114,6 +114,10 @@ const WORKBENCH_VIEW_DESCRIPTIONS: Record<ViewType, string> = {
     'Use Creative Lab viral replay to select reference videos, product images, and virtual models, then generate Seedance-ready product ads with safe fallback paths.',
   creative_lab_script_extract:
     'Extract Seedance-ready advertising scripts from reference videos, including reusable structure, shot rhythm, style tags, and selling point suggestions.',
+  creative_lab_skill_video:
+    'Generate a deterministic creative skill, review an editable short script and parameters, refine a complete Seedance Prompt, and generate the final video.',
+  creative_lab_prompt_refine:
+    'Refine uploaded materials and an initial script into subject declarations and an editable Seedance Prompt in short, storyboard, or one-shot format.',
   creative_lab_canvas:
     'Compose viral video ideas on an infinite LibLib-style node canvas — drop products, models, prompts, and scripts as nodes, then batch-generate Seedance scripts or videos from any selection.',
   product_images_ai_model:
@@ -735,9 +739,15 @@ const Workbench = () => {
             </ViewErrorBoundary>
           </div>
 
-          <div className={activeView === 'seed_skill_studio' ? 'flex-1 h-full min-h-0' : 'hidden'}>
-            <ViewErrorBoundary label="SeedSkillStudioView">
-              <SeedSkillStudioView />
+          <div className={activeView === 'creative_lab_skill_video' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="SkillVideoGenerationView">
+              <SkillVideoGenerationView />
+            </ViewErrorBoundary>
+          </div>
+
+          <div className={activeView === 'creative_lab_prompt_refine' ? 'flex-1 h-full min-h-0' : 'hidden'}>
+            <ViewErrorBoundary label="SeedancePromptRefineView">
+              <SeedancePromptRefineView />
             </ViewErrorBoundary>
           </div>
 

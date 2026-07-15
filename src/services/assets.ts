@@ -424,7 +424,14 @@ export const assetsApi = {
   createSeedSkillAsset: async (payload: {
     seed?: string;
     seed_skill?: Record<string, unknown>;
+    skill_markdown?: string;
+    skill_document?: Record<string, unknown>;
+    workflow?: Record<string, unknown>;
+    creative_number?: string;
     display_name?: string;
+    summary?: string;
+    description?: string;
+    tags?: string[];
     folder_id?: string | null;
     video_type?: string;
     product_category?: string;
@@ -444,7 +451,7 @@ export const assetsApi = {
       body: JSON.stringify(payload),
     });
 
-    if (!response.ok) throw await parseApiError(response, 'Save seed skill failed');
+    if (!response.ok) throw await parseApiError(response, '保存创意卡失败');
     return await response.json();
   },
 

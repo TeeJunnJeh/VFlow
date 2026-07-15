@@ -4,6 +4,7 @@ import {
   CreditCard,
   ChevronLeft,
   ChevronRight,
+  Dices,
   FlaskConical,
   Flame,
   Folder,
@@ -40,6 +41,9 @@ const PRODUCT_GALLERY_GUIDE_TRIGGER_KEY = 'vflow_product_gallery_guide_trigger';
 const PRODUCT_IMAGES_SUBNAV_MIN_WIDTH = 176;
 const PRODUCT_IMAGES_SUBNAV_MAX_WIDTH = 190;
 const PRODUCT_IMAGES_SUBNAV_LABEL_PADDING = 50;
+const CREATIVE_LAB_SUBNAV_MIN_WIDTH = 216;
+const CREATIVE_LAB_SUBNAV_MAX_WIDTH = 240;
+const CREATIVE_LAB_SUBNAV_LABEL_PADDING = 88;
 
 interface SidebarProps {
   activeView: ViewType;
@@ -61,6 +65,8 @@ const PRODUCT_IMAGE_VIEWS: ViewType[] = [
 ];
 
 const CREATIVE_LAB_VIEWS: ViewType[] = [
+  'creative_lab_skill_video',
+  'creative_lab_prompt_refine',
   'creative_lab_replay',
   'creative_lab_script_extract',
   'creative_lab_canvas',
@@ -131,7 +137,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isProductImagesSectionOpen, setIsProductImagesSectionOpen] = React.useState(isProductImagesView);
   const [isCreativeLabSectionOpen, setIsCreativeLabSectionOpen] = React.useState(isCreativeLabView);
   const [productImagesSubnavWidth, setProductImagesSubnavWidth] = React.useState(PRODUCT_IMAGES_SUBNAV_MIN_WIDTH);
+  const [creativeLabSubnavWidth, setCreativeLabSubnavWidth] = React.useState(CREATIVE_LAB_SUBNAV_MIN_WIDTH);
   const productImageLabelRefs = React.useRef<Array<HTMLSpanElement | null>>([]);
+  const creativeLabLabelRefs = React.useRef<Array<HTMLSpanElement | null>>([]);
   const suppressNextClickRef = React.useRef(false);
   const suppressClickResetTimerRef = React.useRef<number | null>(null);
 
@@ -204,6 +212,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const creativeLabOptions: Array<{ view: ViewType; label: string; icon: any; disabled?: boolean }> = [
+    { view: 'creative_lab_skill_video', label: 'skill视频生成', icon: Dices },
+    { view: 'creative_lab_prompt_refine', label: 'prompt精修', icon: Wand2 },
     { view: 'creative_lab_replay', label: (t as any).wb_nav_creative_replay || '爆款复刻', icon: Flame },
     { view: 'creative_lab_script_extract', label: (t as any).wb_nav_creative_script_extract || '脚本提取', icon: Clapperboard },
     { view: 'creative_lab_canvas', label: (t as any).wb_nav_creative_canvas || '无限画布', icon: LayoutDashboard, disabled: true },
@@ -220,6 +230,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
     setProductImagesSubnavWidth(nextWidth);
   }, [language, productImageOptions]);
+
+  React.useLayoutEffect(() => {
+    const widestLabel = creativeLabLabelRefs.current.reduce((max, node) => {
+      if (!node) return max;
+      return Math.max(max, Math.ceil(node.scrollWidth || node.getBoundingClientRect().width || 0));
+    }, 0);
+    const nextWidth = Math.min(
+      CREATIVE_LAB_SUBNAV_MAX_WIDTH,
+      Math.max(CREATIVE_LAB_SUBNAV_MIN_WIDTH, widestLabel + CREATIVE_LAB_SUBNAV_LABEL_PADDING)
+    );
+    setCreativeLabSubnavWidth(nextWidth);
+  }, [language, creativeLabOptions]);
 
   const InternalNav = ({ icon: Icon, view, label }: { icon: any; view: ViewType; label: string }) => (
     <button
@@ -390,7 +412,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <InternalNav icon={MessageSquare} view="ai_creator" label={t.wb_nav_ai_creator || 'AI Creator'} />
               <InternalNav icon={UsersRound} view="community" label={(t as any).wb_nav_community || 'Community'} />
               <InternalNav icon={Video} view="workbench" label={t.wb_nav_workbench} />
-              <InternalNav icon={Wand2} view="seed_skill_studio" label="Skill 视频" />
               <CreativeLabNav />
             </div>
           </nav>
@@ -577,13 +598,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             : 'border-l border-transparent opacity-0 pointer-events-none'
         }`}
         style={{
-          width: creativeSectionOpen ? `${productImagesSubnavWidth}px` : '0rem',
+          width: creativeSectionOpen ? `${creativeLabSubnavWidth}px` : '0rem',
           transitionDuration: `${PRODUCT_IMAGES_SECTION_ANIMATION_MS}ms`,
           transitionTimingFunction: PRODUCT_IMAGES_SECTION_EASING,
         }}
         aria-hidden={!creativeSectionOpen}
       >
-        <div className="px-3 py-6" style={{ width: `${productImagesSubnavWidth}px` }}>
+        <div className="px-3 py-6" style={{ width: `${creativeLabSubnavWidth}px` }}>
           <div
             className={`flex flex-col gap-1 transition-opacity ${
               creativeSectionOpen ? 'opacity-100' : 'opacity-0'
@@ -595,7 +616,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             role="menu"
             aria-label={(t as any).wb_nav_creative_lab || '创意实验室'}
           >
-            {creativeLabOptions.map((opt) => {
+            {creativeLabOptions.map((opt, optionIndex) => {
               const selected = activeView === opt.view;
               const ItemIcon = opt.icon;
               return (
@@ -628,7 +649,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <ItemIcon className={`mr-3 h-4 w-4 shrink-0 ${selected ? 'text-orange-300' : 'text-zinc-400 group-hover:text-orange-300'}`} />
                   {selected ? <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-orange-400" /> : null}
-                  <span className="whitespace-nowrap">{opt.label}</span>
+                  <span
+                    ref={(node) => {
+                      creativeLabLabelRefs.current[optionIndex] = node;
+                    }}
+                    className="whitespace-nowrap"
+                  >
+                    {opt.label}
+                  </span>
                 </button>
               );
             })}

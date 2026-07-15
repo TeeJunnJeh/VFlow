@@ -5463,8 +5463,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const category = (productCategory || selectedTemplate?.product_category || '当前素材').trim();
     const skill = {
       seed: nextSeed,
-      name: `Seed Skill ${suffix}`,
-      summary: `这个 skill 会用一组高熵创作经验重新组织${category}：先决定剧情空间、风格气质和记忆点，再交给 Seed-Lite 生成短剧本。`,
+      name: `创意卡 ${suffix}`,
+      summary: `这张创意卡会用一组高熵创作经验重新组织${category}：先决定剧情空间、风格气质和记忆点，再交给 Seed-Lite 生成短剧本。`,
       tags: ['剧情经验', '可复现', 'Seedance', category].filter(Boolean),
       recipe: {
         seed: nextSeed,
@@ -5488,7 +5488,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     if (!requireAuth()) return;
     const seed = String(skill?.seed || '').trim();
     if (!seed) {
-      openInfo(popupTitles.notice, '请先摇出一个 skill。');
+      openInfo(popupTitles.notice, '请先生成一张创意卡。');
       return;
     }
     setIsSavingSeedSkill(true);
@@ -5496,16 +5496,16 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       await assetsApi.createSeedSkillAsset({
         seed,
         seed_skill: skill,
-        display_name: String(skill?.name || 'Seed Skill').trim(),
+        display_name: String(skill?.name || '创意卡').trim(),
         video_type: videoType || 'UGC种草',
         product_category: productCategory || selectedTemplate?.product_category || '',
         duration: genDuration,
         aspect_ratio: aspectRatio,
         language,
       });
-      openInfo(popupTitles.success, 'Seed skill 已保存到素材库。');
+      openInfo(popupTitles.success, '创意卡已保存到素材库。');
     } catch (err: any) {
-      openInfo(popupTitles.notice, String(err?.message || 'Seed skill 保存失败，请稍后重试。'));
+      openInfo(popupTitles.notice, String(err?.message || '创意卡保存失败，请稍后重试。'));
     } finally {
       setIsSavingSeedSkill(false);
     }
@@ -8155,7 +8155,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       setAssetLibraryPickMode('default');
       openInfo(
         popupTitles.success,
-        `已应用 Seed Skill：${String(seedSkill?.name || asset.name || 'Seed Skill')}`
+        `已应用创意卡：${String(seedSkill?.name || asset.name || '创意卡')}`
       );
       return;
     }
@@ -13472,10 +13472,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       type="button"
                       onClick={handleShakeSeedSkill}
                       className="h-9 rounded-lg border border-fuchsia-300/25 bg-fuchsia-500/10 px-3 text-xs font-bold text-fuchsia-100 transition hover:border-fuchsia-300/45 hover:bg-fuchsia-500/15 inline-flex items-center gap-2"
-                      title="随机摇出一个可复现的创意 skill"
+                      title="生成一个可复现的创意卡"
                     >
                       <Sparkles className="w-4 h-4" />
-                      {!isScriptsHeaderCompact && <span>摇一摇 Skill</span>}
+                      {!isScriptsHeaderCompact && <span>生成创意卡</span>}
                     </button>
                     {activeSeedSkill?.seed && (
                       <button
@@ -13483,20 +13483,20 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         onClick={() => void handleSaveSeedSkillToLibrary(activeSeedSkill)}
                         disabled={isSavingSeedSkill}
                         className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60 inline-flex items-center gap-2"
-                        title="保存 skill 到素材库"
+                        title="保存创意卡到素材库"
                       >
                         {isSavingSeedSkill ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookmarkPlus className="w-4 h-4" />}
-                        {!isScriptsHeaderCompact && <span>保存 Skill</span>}
+                        {!isScriptsHeaderCompact && <span>保存创意卡</span>}
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={openScriptLibraryPicker}
                       className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-bold text-zinc-200 transition hover:bg-white/10 inline-flex items-center gap-2"
-                      title="从素材库应用已保存的 skill"
+                      title="从素材库应用已保存的创意卡"
                     >
                       <Library className="w-4 h-4" />
-                      {!isScriptsHeaderCompact && <span>应用 Skill</span>}
+                      {!isScriptsHeaderCompact && <span>应用创意卡</span>}
                     </button>
                   </div>
                 )}
@@ -13814,10 +13814,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-fuchsia-200">
                                 <Sparkles className="h-3.5 w-3.5" />
-                                Seed Skill
+                                创意卡
                               </span>
-                              <span className="truncate text-xs font-bold text-zinc-100">{pageSeedSkill.name || 'Seed Skill'}</span>
-                              <span className="font-mono text-[10px] text-zinc-500">#{String(pageSeedSkill.seed).slice(-8)}</span>
+                              <span className="truncate text-xs font-bold text-zinc-100">{pageSeedSkill.name || '创意卡'}</span>
                             </div>
                             <p className="mt-2 text-xs leading-relaxed text-zinc-300">
                               {pageSeedSkill.summary || '这是一组可复现的创作经验，会影响剧情模板、风格气质和素材记忆点。'}
@@ -13841,10 +13840,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                               }}
                               disabled={isSavingSeedSkill}
                               className="shrink-0 inline-flex h-8 items-center gap-1.5 border border-white/10 bg-white/5 px-2.5 text-[11px] font-bold text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                              title="保存这个 skill 到素材库"
+                              title="保存这个创意卡到素材库"
                             >
                               {isSavingSeedSkill ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookmarkPlus className="h-3.5 w-3.5" />}
-                              <span>保存 Skill</span>
+                              <span>保存创意卡</span>
                             </button>
                           )}
                         </div>

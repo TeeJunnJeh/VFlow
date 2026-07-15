@@ -805,6 +805,13 @@ html.theme-light .creative-replay-ghost-pill {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+button.agent-image-edit-result-trigger,
+html.theme-light button.agent-image-edit-result-trigger {
+  background-color: transparent !important;
+  border: 0;
+  color: inherit;
+  padding: 0;
+}
 /* Primary solid-color action buttons (bg-orange-500 + text-black) must keep their brand fill
    in light mode — counteract the blanket rule above. */
 html.theme-light button[class*="bg-orange-500"]:not([class*="bg-orange-500/"])[class*="text-black"] {

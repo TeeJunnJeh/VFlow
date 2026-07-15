@@ -25,6 +25,7 @@ import {
   SquarePen,
   Square,
   Check,
+  Paintbrush,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -47,6 +48,24 @@ import {
 import { assetsApi } from '../../services/assets';
 import { ApiError, formatApiError } from '../../services/errors';
 import { AppDialog } from '../common/AppDialog';
+import { AgentImageEditDialog } from '../../features/agentImageEditing/AgentImageEditDialog';
+import { AgentImageEditButton } from '../../features/agentImageEditing/AgentImageEditButton';
+import { AgentImageEditQueueCard } from '../../features/agentImageEditing/AgentImageEditQueueCard';
+import { AgentImagePreview } from '../../features/agentImageEditing/AgentImagePreview';
+import {
+  getMessageEditableImageSources,
+  getMessageRunIds,
+  hasPendingAgentImageAssets as hasPendingToolAssets,
+  isFailedAgentImageAsset as isFailedToolAsset,
+  isPendingAgentImageAsset as isPendingToolAsset,
+  readAgentAssetUrl as readAssetUrl,
+} from '../../features/agentImageEditing/imageSources';
+import { agentImageEditQueue } from '../../features/agentImageEditing/queueStore';
+import { useAgentImageEditing } from '../../features/agentImageEditing/useAgentImageEditing';
+import type {
+  AgentImageEditQueueJob,
+  AgentImageEditSource,
+} from '../../features/agentImageEditing/types';
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
   generate_video: <Film className="w-5 h-5" />,
@@ -91,7 +110,16 @@ type ImageToolGroupEntry = {
 
 type ChatRenderItem =
   | { type: 'message'; key: string; message: AiCreatorMessage; index: number }
-  | { type: 'image_group'; key: string; entries: ImageToolGroupEntry[] };
+  | { type: 'image_group'; key: string; entries: ImageToolGroupEntry[] }
+  | { type: 'image_edit_job'; key: string; job: AgentImageEditQueueJob };
+
+const isImageEditAction = (action?: AiCreatorAction | null) => (
+  action?.type === 'generate_image' && String(action.params?.mode || '') === 'edit'
+);
+
+const isLocalImageEditAction = (action?: AiCreatorAction | null) => (
+  isImageEditAction(action) && String(action?.params?.edit_scope || 'local') === 'local'
+);
 
 const EMPTY_NEXT_SUGGESTION: AgentNextSuggestion = {
   status: 'ready',
@@ -141,36 +169,6 @@ const WELCOME_MESSAGE_ZH: AiCreatorMessage = {
   content:
     "👋 你好！我是你的 AI 创作助手。告诉我你想制作什么——视频、脚本、图片，或其他任何内容——我会一键为你生成。",
 };
-
-const readAssetUrl = (item: any) =>
-  String(item?.url || item?.path || item?.image_url || item?.imageUrl || item?.video_url || item?.videoUrl || item?.video_file || item?.file_url || '').trim();
-
-const readAssetRequestId = (item: any) =>
-  String(item?.request_id || item?.requestId || item?.external_task_id || '').trim();
-
-const isPendingToolAsset = (item: any) => {
-  if (!item || readAssetUrl(item) || !readAssetRequestId(item)) return false;
-  const rawKind = String(item?.media_kind || item?.mediaKind || item?.type || '').trim().toLowerCase();
-  const status = String(item?.status || '').trim().toLowerCase();
-  if (['succeeded', 'success', 'done', 'ready', 'failed', 'error', 'cancelled', 'canceled'].includes(status)) return false;
-  return rawKind === 'pending_image' || rawKind === 'pending_video' || rawKind === 'image' || rawKind === 'video' || rawKind === '' || ['created', 'processing', 'pending', 'running'].includes(status);
-};
-
-const isFailedToolAsset = (item: any) => {
-  if (!item) return false;
-  const status = String(item?.status || '').trim().toLowerCase();
-  return ['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(status);
-};
-
-const hasPendingToolAssets = (items: AiCreatorMessage[]) =>
-  items.some((message) => {
-    if (message.role !== 'tool') return false;
-    const status = String(message.tool_result?.status || '').trim().toLowerCase();
-    if (['pending', 'running'].includes(status)) return true;
-    const assets = Array.isArray(message.tool_result?.assets) ? message.tool_result.assets : [];
-    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-    return [...assets, ...attachments].some(isPendingToolAsset);
-  });
 
 const isSupersededActionMessage = (message: AiCreatorMessage) =>
   message.run_status === 'cancelled' && message.run_finish_reason === 'superseded';
@@ -283,6 +281,7 @@ export const AICreatorView: React.FC = () => {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
   const [previewImage, setPreviewImage] = useState<AgentAttachment | null>(null);
+  const [previewImageSource, setPreviewImageSource] = useState<AgentImageEditSource | null>(null);
   const [savingPreviewAsset, setSavingPreviewAsset] = useState(false);
 
   // Sidebar editing states
@@ -323,6 +322,10 @@ export const AICreatorView: React.FC = () => {
 
   useEffect(() => { uploadedImagesRef.current = uploadedImages; }, [uploadedImages]);
   useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
+  useEffect(() => {
+    setPreviewImage(null);
+    setPreviewImageSource(null);
+  }, [activeConversationId]);
 
   const nextSuggestions = nextSuggestionResult.suggestions;
   const activeNextSuggestion: AgentSuggestionItem | null = nextSuggestions[activeSuggestionIndex] || null;
@@ -849,6 +852,41 @@ export const AICreatorView: React.FC = () => {
     setDialogMessage(message);
     setDialogOpen(true);
   };
+
+  const {
+    copy: imageEditingCopy,
+    dialog: imageEditDialog,
+    jobs: imageEditQueueJobs,
+    closeDialog: closeImageEditDialog,
+    openForAction: openImageEditorForAction,
+    openForSource: openImageEditorForSource,
+    openResult: openQueuedImageEditResult,
+    reopen: reopenQueuedImageEdit,
+    submit: submitImageEdit,
+  } = useAgentImageEditing({
+    activeConversationId,
+    messages,
+    language,
+    refreshConversation: (conversationId) => loadConversation(conversationId, {
+      skipStateRestore: true,
+      silent: true,
+      preserveScroll: true,
+    }),
+    resetSuggestion: () => resetNextSuggestion(),
+    showInfo: openInfo,
+    closePreview: () => {
+      setPreviewImage(null);
+      setPreviewImageSource(null);
+    },
+    openPreview: (source) => {
+      setPreviewImage({
+        url: source.url,
+        name: source.name,
+        media_kind: 'image',
+      });
+      setPreviewImageSource(source);
+    },
+  });
 
   const getActionLabel = (type: string) => {
     const map = isZh ? ACTION_LABELS_ZH : ACTION_LABELS_EN;
@@ -1547,6 +1585,10 @@ export const AICreatorView: React.FC = () => {
   };
 
   const executeAction = (action: AiCreatorAction) => {
+    if (action.type === 'generate_image' && String(action.params?.mode || 'create') === 'edit') {
+      openImageEditorForAction(action);
+      return;
+    }
     if (generatingType) return;
     // Show confirmation dialog before executing
     setConfirmAction(action);
@@ -1561,7 +1603,11 @@ export const AICreatorView: React.FC = () => {
       ? [{
           type: 'pending_image',
           media_kind: 'image',
-          role: action.type === 'generate_first_frame' ? 'first_frame' : 'generated_image',
+          role: action.type === 'generate_first_frame'
+            ? 'first_frame'
+            : String(params.mode || '') === 'edit'
+              ? 'edited_image'
+              : 'generated_image',
           request_id: localId,
           status: 'running',
         }]
@@ -1658,6 +1704,10 @@ export const AICreatorView: React.FC = () => {
   };
 
   const executeActionDirectly = async (action: AiCreatorAction) => {
+    if (action.type === 'generate_image' && String(action.params?.mode || 'create') === 'edit') {
+      openImageEditorForAction(action);
+      return;
+    }
     if (generatingType) return;
     await runGeneration(action, action.params || {});
   };
@@ -1924,6 +1974,7 @@ export const AICreatorView: React.FC = () => {
       const file = new File([blob], fileName, { type: mime });
       await assetsApi.uploadAsset(file, 'product');
       setPreviewImage(null);
+      setPreviewImageSource(null);
       openInfo(isZh ? '已添加' : 'Added', isZh ? '图片已添加到素材库。' : 'Image added to the asset library.');
     } catch (err: any) {
       openInfo(isZh ? '添加失败' : 'Add failed', err?.message || (isZh ? '无法添加到素材库。' : 'Failed to add image to the asset library.'));
@@ -2018,17 +2069,30 @@ export const AICreatorView: React.FC = () => {
           )}
           {imageAttachments.length > 0 && (
             <div>
-              {imageAttachments.map((attachment, idx) => (
-                <button
-                  key={`${attachment.url}_${idx}`}
-                  type="button"
-                  onClick={() => setPreviewImage(attachment)}
-                  className="block w-full cursor-zoom-in border-t border-white/10 bg-black text-left first:border-t-0"
-                  title={attachment.name || attachment.role || attachment.url}
-                >
-                  <img src={attachment.url} alt={attachment.name || 'tool result'} className="block h-auto w-full" />
-                </button>
-              ))}
+              {imageAttachments.map((attachment, idx) => {
+                const source = getMessageEditableImageSources(msg).find((item) => item.url === attachment.url) || null;
+                return (
+                  <div key={`${attachment.url}_${idx}`} className="group relative border-t border-white/10 bg-black first:border-t-0">
+                    <AgentImagePreview
+                      src={attachment.url}
+                      alt={attachment.name || 'tool result'}
+                      imageClassName="block h-auto w-full"
+                      fallbackClassName="aspect-[4/3] w-full"
+                      loadFailedLabel={imageEditingCopy.resultLoadFailed}
+                      retryLabel={imageEditingCopy.retry}
+                      openOriginalLabel={imageEditingCopy.openOriginal}
+                      onOpen={() => { setPreviewImage(attachment); setPreviewImageSource(source); }}
+                    />
+                    {source && (
+                      <AgentImageEditButton
+                        label={imageEditingCopy.edit}
+                        onClick={() => openImageEditorForSource(source)}
+                        className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-md border border-white/15 bg-black/75 text-white opacity-100 shadow-lg backdrop-blur transition hover:bg-blue-600 sm:opacity-0 sm:group-hover:opacity-100"
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
       </div>
@@ -2073,6 +2137,21 @@ export const AICreatorView: React.FC = () => {
 
   const chatRenderItems = React.useMemo<ChatRenderItem[]>(() => {
     const items: ChatRenderItem[] = [];
+    const activeJobs = imageEditQueueJobs
+      .filter((job) => job.conversationId === activeConversationId)
+      .sort((a, b) => a.createdAt - b.createdAt);
+    const jobsByRunId = new Map(
+      activeJobs.flatMap((job) => (job.runId ? [[job.runId, job] as const] : [])),
+    );
+    const placedJobIds = new Set<string>();
+    const latestMessageIndexByJobId = new Map<string, number>();
+    messages.forEach((message, index) => {
+      if (message.role !== 'tool') return;
+      getMessageRunIds(message).forEach((runId) => {
+        const job = jobsByRunId.get(runId);
+        if (job) latestMessageIndexByJobId.set(job.clientSubmissionId, index);
+      });
+    });
     let imageGroup: ImageToolGroupEntry[] = [];
 
     const flushImageGroup = () => {
@@ -2093,6 +2172,20 @@ export const AICreatorView: React.FC = () => {
 
     messages.forEach((message, index) => {
       const key = getMessageIdentity(message, index);
+      const matchingJob = message.role === 'tool'
+        ? getMessageRunIds(message).map((runId) => jobsByRunId.get(runId)).find(Boolean)
+        : undefined;
+      if (matchingJob) {
+        if (latestMessageIndexByJobId.get(matchingJob.clientSubmissionId) !== index) return;
+        flushImageGroup();
+        placedJobIds.add(matchingJob.clientSubmissionId);
+        items.push({
+          type: 'image_edit_job',
+          key: `image_edit_job_${matchingJob.clientSubmissionId}`,
+          job: matchingJob,
+        });
+        return;
+      }
       if (isImageToolMessage(message)) {
         imageGroup.push({ message, index, key });
         return;
@@ -2101,8 +2194,16 @@ export const AICreatorView: React.FC = () => {
       items.push({ type: 'message', key, message, index });
     });
     flushImageGroup();
+    activeJobs.forEach((job) => {
+      if (placedJobIds.has(job.clientSubmissionId)) return;
+      items.push({
+        type: 'image_edit_job',
+        key: `image_edit_job_${job.clientSubmissionId}`,
+        job,
+      });
+    });
     return items;
-  }, [messages]);
+  }, [activeConversationId, imageEditQueueJobs, messages]);
 
   const renderImageToolGroup = (item: Extract<ChatRenderItem, { type: 'image_group' }>) => {
     const savedKey = selectedImageGroupItems[item.key];
@@ -2133,7 +2234,16 @@ export const AICreatorView: React.FC = () => {
                   title={`${getActionLabel(getToolName(entry.message))} ${idx + 1}`}
                 >
                   {image?.url ? (
-                    <img src={image.url} alt={image.name || 'generated'} className="h-full w-full object-cover" />
+                    <AgentImagePreview
+                      src={image.url}
+                      alt={image.name || 'generated'}
+                      imageClassName="h-full w-full object-cover"
+                      fallbackClassName="h-full w-full"
+                      loadFailedLabel={imageEditingCopy.resultLoadFailed}
+                      retryLabel={imageEditingCopy.retry}
+                      openOriginalLabel={imageEditingCopy.openOriginal}
+                      compact
+                    />
                   ) : visualState === 'running' ? (
                     <div className="flex h-full w-full items-center justify-center bg-amber-950/40 text-amber-400">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -2551,6 +2661,19 @@ export const AICreatorView: React.FC = () => {
               <div key={item.key}>
                 {item.type === 'image_group' ? (
                   renderImageToolGroup(item)
+                ) : item.type === 'image_edit_job' ? (
+                  <div className="flex justify-start">
+                    <AgentImageEditQueueCard
+                      job={item.job}
+                      language={language}
+                      onRetry={() => agentImageEditQueue.retry(item.job.clientSubmissionId)}
+                      onReopen={() => reopenQueuedImageEdit(item.job)}
+                      onOpenResult={() => openQueuedImageEditResult(item.job)}
+                      onEditResult={() => {
+                        if (item.job.resultSource) openImageEditorForSource(item.job.resultSource);
+                      }}
+                    />
+                  </div>
                 ) : item.message.role === 'tool' ? (
                   renderToolMessage(item.message)
                 ) : item.message.role === 'event' ? (
@@ -2563,27 +2686,28 @@ export const AICreatorView: React.FC = () => {
                       <div className="flex flex-wrap justify-end gap-2">
                         {item.message.attachments.map((attachment, attachmentIdx) => {
                           const isImage = String(attachment.media_kind || '').toLowerCase() === 'image';
+                          const source = getMessageEditableImageSources(item.message).find((candidate) => candidate.url === attachment.url) || null;
                           return (
-                            <a
+                            <div
                               key={`${attachment.url}_${attachmentIdx}`}
-                              href={attachment.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block overflow-hidden rounded-xl border border-white/10 bg-zinc-950/80 shadow-lg shadow-black/20"
-                              title={attachment.name || attachment.url}
+                              className="group relative overflow-hidden rounded-xl border border-white/10 bg-zinc-950/80 shadow-lg shadow-black/20"
                             >
-                              {isImage ? (
-                                <img
-                                  src={attachment.url}
-                                  alt={attachment.name || 'attachment'}
-                                  className="h-24 w-24 object-cover"
+                              <a href={attachment.url} target="_blank" rel="noreferrer" className="block" title={attachment.name || attachment.url}>
+                                {isImage ? (
+                                  <img src={attachment.url} alt={attachment.name || 'attachment'} className="h-24 w-24 object-cover" />
+                                ) : (
+                                  <div className="h-24 w-24 truncate px-3 py-2 text-xs text-zinc-300">{attachment.name || attachment.url}</div>
+                                )}
+                              </a>
+                              {isImage && source && (
+                                <AgentImageEditButton
+                                  label={imageEditingCopy.edit}
+                                  iconClassName="h-3.5 w-3.5"
+                                  onClick={() => openImageEditorForSource(source)}
+                                  className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-md bg-black/75 text-white opacity-100 backdrop-blur transition hover:bg-blue-600 sm:opacity-0 sm:group-hover:opacity-100"
                                 />
-                              ) : (
-                                <div className="h-24 w-24 px-3 py-2 text-xs text-zinc-300 truncate">
-                                  {attachment.name || attachment.url}
-                                </div>
                               )}
-                            </a>
+                            </div>
                           );
                         })}
                       </div>
@@ -2631,7 +2755,7 @@ export const AICreatorView: React.FC = () => {
                             {getMessageRequestedRecipes(item.message).map((recipe) => renderRecipeChip(recipe))}
                           </div>
                         )}
-                        {item.message.content && (
+                        {item.message.content && !isLocalImageEditAction(item.message.action) && (
                           item.message.role === 'assistant' ? (
                             <div className="min-w-0">
                               <MarkdownMessage content={item.message.content} />
@@ -2652,30 +2776,33 @@ export const AICreatorView: React.FC = () => {
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {item.message.attachments.map((attachment, attachmentIdx) => {
                               const isImage = String(attachment.media_kind || '').toLowerCase() === 'image';
+                              const source = getMessageEditableImageSources(item.message).find((candidate) => candidate.url === attachment.url) || null;
                               return (
-                                <a
+                                <div
                                   key={`${attachment.url}_${attachmentIdx}`}
-                                  href={attachment.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className={`block overflow-hidden rounded-lg border ${
+                                  className={`group relative overflow-hidden rounded-lg border ${
                                     item.message.role === 'user' ? 'border-white/25 bg-white/10' : 'border-white/10 bg-black/20'
                                   }`}
-                                  title={attachment.name || attachment.role || attachment.url}
                                 >
-                                  {isImage ? (
-                                    <img src={attachment.url} alt={attachment.name || attachment.role || 'attachment'} className="h-24 w-full object-cover" />
-                                  ) : (
-                                    <div className="px-3 py-2 text-xs text-zinc-300 truncate">
-                                      {attachment.name || attachment.url}
-                                    </div>
+                                  <a href={attachment.url} target="_blank" rel="noreferrer" className="block" title={attachment.name || attachment.role || attachment.url}>
+                                    {isImage ? (
+                                      <img src={attachment.url} alt={attachment.name || attachment.role || 'attachment'} className="h-24 w-full object-cover" />
+                                    ) : (
+                                      <div className="truncate px-3 py-2 text-xs text-zinc-300">{attachment.name || attachment.url}</div>
+                                    )}
+                                    {attachment.name && (
+                                      <div className={`truncate px-2 py-1 text-[11px] ${item.message.role === 'user' ? 'text-orange-50/80' : 'text-zinc-400'}`}>{attachment.name}</div>
+                                    )}
+                                  </a>
+                                  {isImage && source && (
+                                    <AgentImageEditButton
+                                      label={imageEditingCopy.edit}
+                                      iconClassName="h-3.5 w-3.5"
+                                      onClick={() => openImageEditorForSource(source)}
+                                      className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-md bg-black/75 text-white opacity-100 backdrop-blur transition hover:bg-blue-600 sm:opacity-0 sm:group-hover:opacity-100"
+                                    />
                                   )}
-                                  {attachment.name && (
-                                    <div className={`px-2 py-1 text-[11px] truncate ${item.message.role === 'user' ? 'text-orange-50/80' : 'text-zinc-400'}`}>
-                                      {attachment.name}
-                                    </div>
-                                  )}
-                                </a>
+                                </div>
                               );
                             })}
                           </div>
@@ -2707,7 +2834,7 @@ export const AICreatorView: React.FC = () => {
                     {item.message.role === 'assistant' && item.message.action && item.message.action.type !== 'chat' && (
                       <div
                         id={item.message.action.run_id ? `agent-action-${item.message.action.run_id}` : undefined}
-                        className={`${item.message.content ? 'mt-4 pt-4 border-t border-white/10' : ''} rounded-lg transition-shadow duration-300 ${
+                        className={`${item.message.content && !isLocalImageEditAction(item.message.action) ? 'mt-4 pt-4 border-t border-white/10' : ''} rounded-lg transition-shadow duration-300 ${
                           item.message.action.run_id && highlightedRunId === item.message.action.run_id
                             ? 'ring-2 ring-orange-400/80 shadow-[0_0_0_6px_rgba(251,146,60,0.12)]'
                             : ''
@@ -2715,8 +2842,15 @@ export const AICreatorView: React.FC = () => {
                       >
                         <div className="flex items-center gap-2 text-sm text-zinc-400 mb-2">
                           {ACTION_ICONS[item.message.action.type] || <Wand2 className="w-5 h-5" />}
-                          <span className="font-bold text-zinc-300">{getActionLabel(item.message.action.type)}</span>
+                          <span className="font-bold text-zinc-300">
+                            {isImageEditAction(item.message.action)
+                              ? (isLocalImageEditAction(item.message.action) ? imageEditingCopy.local : imageEditingCopy.global)
+                              : getActionLabel(item.message.action.type)}
+                          </span>
                         </div>
+                        {isLocalImageEditAction(item.message.action) && (
+                          <div className="mb-3 text-xs font-medium text-blue-300">{imageEditingCopy.maskPriority}</div>
+                        )}
                         {isSupersededActionMessage(item.message) && (
                           <div className="mb-3 text-xs font-medium text-amber-300/80">
                             {t.ai_creator_action_superseded || 'Replaced by a newer request'}
@@ -2724,9 +2858,16 @@ export const AICreatorView: React.FC = () => {
                         )}
                         {item.message.action.params && Object.keys(item.message.action.params).length > 0 && (
                           <div className="text-xs text-zinc-500 mb-3 space-y-1">
-                            {Object.entries(item.message.action.params).map(([k, v]) => (
+                            {Object.entries(item.message.action.params)
+                              .filter(([key]) => !['mode', 'edit_scope', 'source_message_id', 'source_image_url', 'mask_url'].includes(key))
+                              .map(([k, v]) => (
                               <div key={k}>
-                                <span className="text-zinc-400">{k}:</span> {String(v)}
+                                <span className="text-zinc-400">
+                                  {k === 'prompt'
+                                    ? (isLocalImageEditAction(item.message.action) ? imageEditingCopy.effect : imageEditingCopy.prompt)
+                                    : k}:
+                                </span>{' '}
+                                {String(v)}
                               </div>
                             ))}
                           </div>
@@ -2744,16 +2885,20 @@ export const AICreatorView: React.FC = () => {
                             )}
                             {generatingType === item.message.action.type
                               ? (isZh ? '正在生成…' : 'Generating…')
-                              : (isZh ? '立即生成' : 'Generate')}
+                              : item.message.action.type === 'generate_image' && String(item.message.action.params?.mode || '') === 'edit'
+                                ? (String(item.message.action.params?.edit_scope || 'local') === 'global' ? imageEditingCopy.edit : imageEditingCopy.selectArea)
+                                : (isZh ? '立即生成' : 'Generate')}
                           </button>
-                          <button
-                            onClick={() => executeAction(item.message.action!)}
-                            disabled={generatingType !== null || isSupersededActionMessage(item.message)}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 text-sm text-zinc-300 font-medium hover:bg-zinc-700 transition disabled:opacity-50"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                            {isZh ? '编辑参数' : 'Edit Parameters'}
-                          </button>
+                          {!(item.message.action.type === 'generate_image' && String(item.message.action.params?.mode || '') === 'edit') && (
+                            <button
+                              onClick={() => executeAction(item.message.action!)}
+                              disabled={generatingType !== null || isSupersededActionMessage(item.message)}
+                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 text-sm text-zinc-300 font-medium hover:bg-zinc-700 transition disabled:opacity-50"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              {isZh ? '编辑参数' : 'Edit Parameters'}
+                            </button>
+                          )}
                           {item.message.action.type === 'generate_first_frame' && (
                             <button
                               onClick={() => quickSend(isZh ? '跳过首帧，直接生成视频' : 'Skip the first frame and generate the video directly')}
@@ -3182,7 +3327,10 @@ export const AICreatorView: React.FC = () => {
           isOpen={true}
           title={previewImage.name || (isZh ? '图片预览' : 'Image preview')}
           onClose={() => {
-            if (!savingPreviewAsset) setPreviewImage(null);
+            if (!savingPreviewAsset) {
+              setPreviewImage(null);
+              setPreviewImageSource(null);
+            }
           }}
           widthClassName="max-w-5xl"
           contentClassName="overflow-hidden"
@@ -3192,6 +3340,16 @@ export const AICreatorView: React.FC = () => {
                 {previewImage.name || getPreviewFileName(previewImage)}
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {previewImageSource && (
+                  <button
+                    type="button"
+                    onClick={() => openImageEditorForSource(previewImageSource)}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-500"
+                  >
+                    <Paintbrush className="h-4 w-4" />
+                    {imageEditingCopy.edit}
+                  </button>
+                )}
                 <a
                   href={previewImage.url}
                   download={getPreviewFileName(previewImage)}
@@ -3216,13 +3374,30 @@ export const AICreatorView: React.FC = () => {
           }
         >
           <div className="flex max-h-[72vh] items-center justify-center overflow-hidden rounded-xl bg-black">
-            <img
+            <AgentImagePreview
               src={previewImage.url}
               alt={previewImage.name || 'preview'}
-              className="max-h-[72vh] w-auto max-w-full object-contain"
+              imageClassName="max-h-[72vh] w-auto max-w-full object-contain"
+              fallbackClassName="min-h-[360px] w-full"
+              loadFailedLabel={imageEditingCopy.resultLoadFailed}
+              retryLabel={imageEditingCopy.retry}
+              openOriginalLabel={imageEditingCopy.openOriginal}
             />
           </div>
         </AppDialog>
+      )}
+
+      {imageEditDialog && (
+        <AgentImageEditDialog
+          isOpen={true}
+          language={language}
+          sources={imageEditDialog.sources}
+          initialSourceUrl={imageEditDialog.initialSourceUrl}
+          initialScope={imageEditDialog.initialScope}
+          initialPrompt={imageEditDialog.initialPrompt}
+          onClose={closeImageEditDialog}
+          onSubmit={submitImageEdit}
+        />
       )}
 
       {recipePendingDisable && (

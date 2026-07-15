@@ -183,6 +183,7 @@ export type SeedSkillPreview = {
 
 export type SeedSkillWorkflow = {
   id: string;
+  agent_recipe_id?: string;
   status:
     | 'created'
     | 'needs_script_review'

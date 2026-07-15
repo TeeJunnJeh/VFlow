@@ -36,6 +36,8 @@ requireText(skillVideo, 'videoApi.rollSeedSkill', 'skill workflow');
 requireText(skillVideo, 'videoApi.createSeedSkillWorkflow', 'skill workflow');
 requireText(skillVideo, 'videoApi.finalizeSeedSkillWorkflow', 'skill workflow');
 requireText(skillVideo, 'videoApi.submitSeedSkillWorkflowVideo', 'skill workflow');
+requireText(skillVideo, 'seed_skill_workflow_id: workflow.id', 'Agent recipe snapshot');
+requireText(skillVideo, '保存为 Agent 经验', 'Agent recipe snapshot');
 requireText(
   skillVideo,
   "applyWorkflow(next);\n      setStatusText('');\n      await loadHistory();",

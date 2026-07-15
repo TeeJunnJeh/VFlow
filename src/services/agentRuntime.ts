@@ -490,11 +490,10 @@ export const agentRuntimeApi = {
     return json?.data || [];
   },
 
-  saveExperienceRecipe: async (payload: {
-    run_id: string;
-    name?: string;
-    description?: string;
-  }): Promise<AgentExperienceRecipe> => {
+  saveExperienceRecipe: async (payload:
+    | { run_id: string; name?: string; description?: string }
+    | { seed_skill_workflow_id: string }
+  ): Promise<AgentExperienceRecipe> => {
     const json = await apiRequest('/api/agent/experience-recipes/', {
       method: 'POST',
       body: payload,

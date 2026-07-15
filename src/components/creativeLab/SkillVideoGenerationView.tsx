@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { agentRuntimeApi } from '../../services/agentRuntime';
 import { assetsApi } from '../../services/assets';
 import {
   videoApi,
@@ -38,6 +39,15 @@ type VideoType = 'UGC种草' | '产品开箱' | '对比测评' | '质感大片' 
 const videoTypes: VideoType[] = ['UGC种草', '产品开箱', '对比测评', '质感大片', '口播', '趣味剧本'];
 const languages: Language[] = ['中文', '英语', '日语'];
 const aspectRatios: AspectRatio[] = ['9:16', '16:9', '1:1'];
+const recipeReadyStatuses = new Set<SeedSkillWorkflow['status']>([
+  'prompt_ready',
+  'video_submitting',
+  'video_submitted',
+  'video_processing',
+  'video_succeeded',
+  'video_failed',
+  'video_cancelled',
+]);
 const exampleSellingPoint = '清爽护肤产品，快速吸收、补水提亮，突出自然使用感';
 const exampleAssetSpecs = [
   { url: '/product-gallery-examples/1/product_1.png', name: 'product_1.png', type: 'image/png' },
@@ -156,7 +166,7 @@ export const SkillVideoGenerationView: React.FC = () => {
   const [finalPrompt, setFinalPrompt] = useState('');
   const [history, setHistory] = useState<SeedSkillWorkflow[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [busy, setBusy] = useState<'roll' | 'workflow' | 'finalize' | 'video' | 'example' | 'save' | ''>('');
+  const [busy, setBusy] = useState<'roll' | 'workflow' | 'finalize' | 'video' | 'example' | 'save' | 'recipe' | ''>('');
   const [statusText, setStatusText] = useState('');
 
   const replaceMaterials = useCallback((next: CreativePromptMaterial[]) => {
@@ -396,6 +406,24 @@ export const SkillVideoGenerationView: React.FC = () => {
     }
   }, [selectedSkill, workflow]);
 
+  const saveAgentRecipe = useCallback(async () => {
+    if (!workflow?.id || !recipeReadyStatuses.has(workflow.status) || !workflow.skill_markdown.trim()) return;
+    setBusy('recipe');
+    setStatusText('');
+    try {
+      const recipe = await agentRuntimeApi.saveExperienceRecipe({ seed_skill_workflow_id: workflow.id });
+      setWorkflow((current) => current?.id === workflow.id
+        ? { ...current, agent_recipe_id: recipe.id }
+        : current);
+      setStatusText('已加入 Agent 经验。');
+      await loadHistory();
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : '保存为 Agent 经验失败');
+    } finally {
+      setBusy('');
+    }
+  }, [loadHistory, workflow]);
+
   const loadExample = useCallback(async () => {
     setBusy('example');
     setStatusText('');
@@ -425,6 +453,11 @@ export const SkillVideoGenerationView: React.FC = () => {
   }, [applyWorkflow]);
 
   const taskStatus = String(workflow?.video_task?.status || '').toLowerCase();
+  const canSaveAgentRecipe = Boolean(
+    workflow
+    && recipeReadyStatuses.has(workflow.status)
+    && workflow.skill_markdown.trim(),
+  );
   const videoUrl = useMemo(() => {
     if (!workflow || !isSuccessfulStatus(taskStatus || (workflow.status === 'video_succeeded' ? 'success' : ''))) return '';
     return extractVideoUrl(workflow.video_result) || extractVideoUrl(workflow.video_task?.result);
@@ -477,9 +510,28 @@ export const SkillVideoGenerationView: React.FC = () => {
                       {busy === 'roll' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Dices className="h-4 w-4" />}
                     </button>
                     {workflow ? (
-                      <button type="button" onClick={() => void saveSkill()} disabled={Boolean(busy)} className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-white disabled:opacity-40" title="保存到素材库">
-                        {busy === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookmarkPlus className="h-4 w-4" />}
-                      </button>
+                      <>
+                        <button type="button" onClick={() => void saveSkill()} disabled={Boolean(busy)} className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-white disabled:opacity-40" title="保存到素材库">
+                          {busy === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookmarkPlus className="h-4 w-4" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void saveAgentRecipe()}
+                          disabled={Boolean(busy) || !canSaveAgentRecipe || Boolean(workflow.agent_recipe_id)}
+                          className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-white disabled:opacity-40"
+                          title={workflow.agent_recipe_id
+                            ? '已加入 Agent 经验'
+                            : canSaveAgentRecipe
+                              ? '保存为 Agent 经验'
+                              : '确认脚本后可保存为 Agent 经验'}
+                        >
+                          {busy === 'recipe'
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : workflow.agent_recipe_id
+                              ? <Check className="h-4 w-4 text-emerald-400" />
+                              : <Sparkles className="h-4 w-4" />}
+                        </button>
+                      </>
                     ) : null}
                   </div>
                 </div>

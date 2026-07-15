@@ -108,10 +108,24 @@ type ImageToolGroupEntry = {
   key: string;
 };
 
+const PLANNER_GENERATION_TOOL_NAMES = new Set([
+  'generate_script',
+  'generate_image',
+  'generate_first_frame',
+  'generate_video',
+]);
+
+type PlannerProcessEntry = {
+  message: AiCreatorMessage;
+  index: number;
+  key: string;
+};
+
 type ChatRenderItem =
   | { type: 'message'; key: string; message: AiCreatorMessage; index: number }
   | { type: 'image_group'; key: string; entries: ImageToolGroupEntry[] }
-  | { type: 'image_edit_job'; key: string; job: AgentImageEditQueueJob };
+  | { type: 'image_edit_job'; key: string; job: AgentImageEditQueueJob }
+  | { type: 'process_group'; key: string; entries: PlannerProcessEntry[] };
 
 const isImageEditAction = (action?: AiCreatorAction | null) => (
   action?.type === 'generate_image' && String(action.params?.mode || '') === 'edit'
@@ -172,6 +186,21 @@ const WELCOME_MESSAGE_ZH: AiCreatorMessage = {
 
 const isSupersededActionMessage = (message: AiCreatorMessage) =>
   message.run_status === 'cancelled' && message.run_finish_reason === 'superseded';
+
+const isPlannerProcessMessage = (message: AiCreatorMessage) => {
+  const messageType = String(message.metadata?.message_type || '');
+  if (messageType === 'planner_trace_tool') return true;
+  return messageType === 'planner_trace_assistant'
+    && Array.isArray(message.metadata?.tool_calls)
+    && message.metadata.tool_calls.length > 0;
+};
+
+const getPlannerProcessKey = (message: AiCreatorMessage) => {
+  const turnId = String(message.metadata?.planner_turn_id || '').trim();
+  const iteration = Number(message.metadata?.planner_iteration);
+  if (!turnId || !Number.isInteger(iteration)) return '';
+  return `planner_process_${turnId}_${iteration}`;
+};
 
 const buildSuggestionContextKey = (
   conversationId: string,
@@ -293,6 +322,7 @@ export const AICreatorView: React.FC = () => {
   const [confirmAction, setConfirmAction] = useState<AiCreatorAction | null>(null);
   const [confirmParams, setConfirmParams] = useState<Record<string, unknown>>({});
   const [selectedImageGroupItems, setSelectedImageGroupItems] = useState<Record<string, string>>({});
+  const [expandedProcessGroups, setExpandedProcessGroups] = useState<Record<string, boolean>>({});
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLElement>(null);
@@ -366,11 +396,20 @@ export const AICreatorView: React.FC = () => {
   ): AiCreatorMessage[] => {
     const next = [...current];
     entries.forEach(([streamKey, content]) => {
+      const separatorIndex = streamKey.lastIndexOf(':');
+      const plannerTurnId = separatorIndex > 0 ? streamKey.slice(0, separatorIndex) : streamKey;
+      const plannerIteration = Number(separatorIndex > 0 ? streamKey.slice(separatorIndex + 1) : 0);
       const draft: AiCreatorMessage = {
         role: 'assistant',
         content,
         stream_key: streamKey,
-        metadata: { stream_key: streamKey, is_streaming: true },
+        metadata: {
+          message_type: 'planner_trace_draft',
+          planner_turn_id: plannerTurnId,
+          planner_iteration: Number.isInteger(plannerIteration) ? plannerIteration : 0,
+          stream_key: streamKey,
+          is_streaming: true,
+        },
       };
       const index = next.findIndex((message) => message.stream_key === streamKey);
       if (index >= 0) {
@@ -423,6 +462,12 @@ export const AICreatorView: React.FC = () => {
     )));
     setStreamStatus(null);
     setLoading(false);
+    const conversationId = activeConversationIdRef.current;
+    if (conversationId) {
+      window.setTimeout(() => {
+        void loadConversation(conversationId, { skipStateRestore: true, silent: true, preserveScroll: true });
+      }, 400);
+    }
   };
 
   const getSessionStorageKey = (conversationId: string) => `vflow_ai_creator_session_${user?.id || 'anon'}_${conversationId}`;
@@ -895,6 +940,8 @@ export const AICreatorView: React.FC = () => {
 
   const getStreamStatusLabel = (status: AgentStreamStatus | null) => {
     const phase = status?.phase || 'thinking';
+    if (phase === 'searching_recipes') return isZh ? '正在检索可复用经验…' : 'Searching reusable experience...';
+    if (phase === 'retrieving_recipes') return isZh ? '正在读取经验内容…' : 'Reading selected experience...';
     const fallback = phase === 'loading_skill'
       ? 'Looking through the creation cookbook...|Loading a specialist recipe...'
       : phase === 'preparing_action'
@@ -920,6 +967,11 @@ export const AICreatorView: React.FC = () => {
 
   const getRecipeLabel = (recipe: AgentExperienceRecipe) =>
     String(recipe.label || recipe.title || recipe.name || '').trim() || (isZh ? '未命名经验' : 'Untitled recipe');
+
+  const getRecipeKindLabel = (recipe: AgentExperienceRecipe) =>
+    recipe.recipe_kind === 'seed_skill'
+      ? (isZh ? '种子配方' : 'Creative recipe')
+      : (isZh ? '成功经验' : 'Successful run');
 
   const detectSlashSkillRange = (value: string, cursor: number | null | undefined): SlashSkillRange | null => {
     const end = typeof cursor === 'number' ? cursor : value.length;
@@ -1357,7 +1409,15 @@ export const AICreatorView: React.FC = () => {
     const text = (overrideText || input).trim();
     const attachments = uploadedImagesToAttachments(uploadedImages);
     const requestedSkills = selectedSkills.slice(0, 2);
-    const requestedRecipes = selectedRecipe ? [selectedRecipe] : [];
+    const requestedRecipes: AgentExperienceRecipe[] = selectedRecipe ? [{
+      source: 'experience_recipe',
+      recipe_kind: selectedRecipe.recipe_kind,
+      id: selectedRecipe.id,
+      name: selectedRecipe.name,
+      title: selectedRecipe.title,
+      label: selectedRecipe.label,
+      tool_name: selectedRecipe.tool_name,
+    }] : [];
     const requestedHints: AgentRequestedHint[] = [...requestedSkills, ...requestedRecipes];
     if ((!text && attachments.length === 0) || loading) return;
 
@@ -1396,6 +1456,7 @@ export const AICreatorView: React.FC = () => {
     const requestToken = streamRequestTokenRef.current + 1;
     streamRequestTokenRef.current = requestToken;
     streamAbortRef.current = controller;
+    let streamConversationId = activeConversationId || '';
 
     try {
       const res = await agentRuntimeApi.chatStream(
@@ -1410,6 +1471,7 @@ export const AICreatorView: React.FC = () => {
             if (streamRequestTokenRef.current !== requestToken) return;
             const conversationId = data.conversation_id || data.conversation?.id || '';
             if (!conversationId) return;
+            streamConversationId = conversationId;
             if (conversationId !== activeConversationId) {
               ensureConversationInList(conversationId, messageContent);
               setActiveConversationId(conversationId);
@@ -1423,6 +1485,14 @@ export const AICreatorView: React.FC = () => {
           onStatus: (status) => {
             if (streamRequestTokenRef.current !== requestToken) return;
             setStreamStatus(status);
+            if (status.stream_id && Number.isInteger(status.planner_iteration)) {
+              const processKey = `planner_process_${status.stream_id}_${status.planner_iteration}`;
+              if (status.phase === 'iteration_started') {
+                setExpandedProcessGroups((prev) => ({ ...prev, [processKey]: true }));
+              } else if (status.phase === 'iteration_finished') {
+                setExpandedProcessGroups((prev) => ({ ...prev, [processKey]: false }));
+              }
+            }
           },
           onDelta: (delta) => {
             if (streamRequestTokenRef.current !== requestToken) return;
@@ -1493,6 +1563,10 @@ export const AICreatorView: React.FC = () => {
           (t as any).ai_creator_title || 'AI Creator',
           formatApiError(err, (t as any).ai_creator_error || 'Something went wrong. Please try again.'),
         );
+        streamAbortRef.current = null;
+        if (streamConversationId) {
+          await loadConversation(streamConversationId, { skipStateRestore: true, silent: true, preserveScroll: true });
+        }
       }
     } finally {
       if (streamRequestTokenRef.current === requestToken) {
@@ -2153,6 +2227,20 @@ export const AICreatorView: React.FC = () => {
       });
     });
     let imageGroup: ImageToolGroupEntry[] = [];
+    const processGroups = new Map<string, PlannerProcessEntry[]>();
+    const processAssistantContent = new Map<string, string>();
+    messages.forEach((message, index) => {
+      if (!isPlannerProcessMessage(message)) return;
+      const processKey = getPlannerProcessKey(message);
+      if (!processKey) return;
+      const entries = processGroups.get(processKey) || [];
+      entries.push({ message, index, key: getMessageIdentity(message, index) });
+      processGroups.set(processKey, entries);
+      if (message.metadata?.message_type === 'planner_trace_assistant' && message.content.trim()) {
+        processAssistantContent.set(processKey, message.content.trim());
+      }
+    });
+    const emittedProcessGroups = new Set<string>();
 
     const flushImageGroup = () => {
       if (imageGroup.length === 1) {
@@ -2186,12 +2274,33 @@ export const AICreatorView: React.FC = () => {
         });
         return;
       }
+      const processKey = isPlannerProcessMessage(message) ? getPlannerProcessKey(message) : '';
+      if (processKey) {
+        flushImageGroup();
+        if (message.metadata?.message_type === 'planner_trace_assistant' && message.content.trim()) {
+          items.push({ type: 'message', key: `${key}_content`, message, index });
+        }
+        if (!emittedProcessGroups.has(processKey)) {
+          emittedProcessGroups.add(processKey);
+          items.push({ type: 'process_group', key: processKey, entries: processGroups.get(processKey) || [] });
+        }
+        return;
+      }
       if (isImageToolMessage(message)) {
         imageGroup.push({ message, index, key });
         return;
       }
       flushImageGroup();
-      items.push({ type: 'message', key, message, index });
+      const messageProcessKey = getPlannerProcessKey(message);
+      const duplicateActionContent = message.metadata?.message_type === 'planner_action'
+        && message.content.trim()
+        && processAssistantContent.get(messageProcessKey) === message.content.trim();
+      items.push({
+        type: 'message',
+        key,
+        message: duplicateActionContent ? { ...message, content: '' } : message,
+        index,
+      });
     });
     flushImageGroup();
     activeJobs.forEach((job) => {
@@ -2261,6 +2370,132 @@ export const AICreatorView: React.FC = () => {
               );
             })}
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const readPlannerToolResult = (message: AiCreatorMessage): Record<string, any> => {
+    try {
+      const parsed = JSON.parse(message.content || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const plannerToolLabel = (toolName: string) => {
+    if (toolName === 'search_recipes') return isZh ? '检索经验' : 'Search recipes';
+    if (toolName === 'retrieve_recipes') return isZh ? '读取经验' : 'Read recipes';
+    if (toolName === 'load_system_skill') return isZh ? '加载技能' : 'Load skill';
+    if (PLANNER_GENERATION_TOOL_NAMES.has(toolName)) {
+      return isZh ? `准备${getActionLabel(toolName)}` : `Prepare ${getActionLabel(toolName)}`;
+    }
+    return toolName || (isZh ? '工具调用' : 'Tool call');
+  };
+
+  const renderPlannerProcessGroup = (item: Extract<ChatRenderItem, { type: 'process_group' }>) => {
+    const assistant = item.entries.find((entry) => entry.message.metadata?.message_type === 'planner_trace_assistant')?.message;
+    const toolEntries = item.entries.filter((entry) => entry.message.metadata?.message_type === 'planner_trace_tool');
+    const toolCalls = Array.isArray(assistant?.metadata?.tool_calls) ? assistant!.metadata!.tool_calls : [];
+    const toolNames = toolCalls.map((call: any) => String(call?.function?.name || '')).filter(Boolean);
+    const labels = toolNames.map((toolName: string) => {
+      if (toolName !== 'retrieve_recipes') return plannerToolLabel(toolName);
+      const resultEntry = toolEntries.find((entry) => entry.message.metadata?.tool_call_id === toolCalls.find((call: any) => call?.function?.name === toolName)?.id);
+      const count = Number(resultEntry ? readPlannerToolResult(resultEntry.message).count : 0);
+      return count > 0 ? `${plannerToolLabel(toolName)} ${count} ${isZh ? '条' : ''}`.trim() : plannerToolLabel(toolName);
+    });
+    const summary = Array.from(new Set(labels)).join(' · ') || (isZh ? 'Agent 过程' : 'Agent process');
+    const failed = toolEntries.some((entry) => ['failed', 'cancelled'].includes(String(entry.message.metadata?.status || '')));
+    const expectedCallIds = new Set(toolCalls.map((call: any) => String(call?.id || '')).filter(Boolean));
+    const actualCallIds = new Set(toolEntries.map((entry) => String(entry.message.metadata?.tool_call_id || '')).filter(Boolean));
+    const incomplete = expectedCallIds.size > actualCallIds.size;
+    const first = item.entries[0]?.message;
+    const iteration = Number(first?.metadata?.planner_iteration || 0);
+    const active = loading
+      && streamStatus?.stream_id === first?.metadata?.planner_turn_id
+      && streamStatus?.planner_iteration === iteration
+      && streamStatus?.phase !== 'iteration_finished';
+    const expanded = active || Boolean(expandedProcessGroups[item.key]);
+    const statusLabel = active
+      ? (isZh ? '进行中' : 'Running')
+      : incomplete
+        ? (isZh ? '已中断' : 'Interrupted')
+        : failed
+          ? (isZh ? '部分失败' : 'Partial failure')
+          : '';
+
+    const toolSummary = (message: AiCreatorMessage) => {
+      const toolName = String(message.metadata?.tool_name || '');
+      const result = readPlannerToolResult(message);
+      if (!result.ok) return String(result.error || (isZh ? '调用失败' : 'Call failed'));
+      if (toolName === 'search_recipes') return isZh ? `发现 ${Number(result.count || 0)} 条候选经验` : `Found ${Number(result.count || 0)} candidates`;
+      if (toolName === 'retrieve_recipes') {
+        const names = (Array.isArray(result.recipes) ? result.recipes : []).map((recipe: any) => recipe?.title || recipe?.name).filter(Boolean);
+        return names.length > 0 ? names.join('、') : (isZh ? '已读取经验' : 'Recipes loaded');
+      }
+      if (toolName === 'load_system_skill') return String(result.skill?.label || result.skill?.name || (isZh ? '技能已加载' : 'Skill loaded'));
+      return result.pending_action ? (isZh ? '已准备待确认参数' : 'Confirmation parameters prepared') : (isZh ? '调用完成' : 'Call completed');
+    };
+
+    return (
+      <div className="flex justify-start">
+        <div className="w-full max-w-[80%]">
+          <button
+            type="button"
+            onClick={() => setExpandedProcessGroups((prev) => ({ ...prev, [item.key]: !expanded }))}
+            className="ai-creator-process-toggle flex max-w-full items-center gap-2 py-1.5 text-left text-zinc-400 transition hover:text-zinc-200"
+          >
+            {expanded ? <ChevronDown className="h-4 w-4 shrink-0 text-zinc-500" /> : <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />}
+            <span className="min-w-0 truncate text-sm font-semibold text-zinc-300">{summary}</span>
+            {statusLabel && (
+              <span className={`shrink-0 text-[11px] font-semibold ${active ? 'text-amber-400' : 'text-red-300'}`}>
+                {active && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />}
+                {statusLabel}
+              </span>
+            )}
+          </button>
+          {expanded && (
+            <div className="ml-6 space-y-3 py-2">
+              {item.entries.map((entry) => {
+                const messageType = String(entry.message.metadata?.message_type || '');
+                if (messageType === 'planner_trace_assistant') {
+                  const calls = Array.isArray(entry.message.metadata?.tool_calls) ? entry.message.metadata?.tool_calls : [];
+                  if (calls.length === 0) return null;
+                  return (
+                    <details key={entry.key} className="text-xs text-zinc-500">
+                      <summary className="cursor-pointer hover:text-zinc-300">{isZh ? '查看调用参数' : 'View call arguments'}</summary>
+                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap pl-3 text-[11px] text-zinc-400">{JSON.stringify(calls, null, 2)}</pre>
+                    </details>
+                  );
+                }
+                const result = readPlannerToolResult(entry.message);
+                const recipes = Array.isArray(result.recipes) ? result.recipes : [];
+                return (
+                  <div key={entry.key}>
+                    <div className="flex items-start gap-2">
+                      <span className="min-w-24 text-[11px] font-bold uppercase text-zinc-500">{plannerToolLabel(String(entry.message.metadata?.tool_name || ''))}</span>
+                      <span className={`min-w-0 flex-1 text-sm ${result.ok ? 'text-zinc-300' : 'text-red-300'}`}>{toolSummary(entry.message)}</span>
+                    </div>
+                    {recipes.some((recipe: any) => recipe?.content) && (
+                      <div className="mt-3 space-y-3 pl-3">
+                        {recipes.map((recipe: any) => recipe?.content ? (
+                          <div key={String(recipe.id || recipe.title)}>
+                            <div className="mb-1 text-xs font-semibold text-zinc-300">{recipe.title || recipe.name}</div>
+                            <div className="max-h-72 overflow-y-auto text-xs text-zinc-400"><MarkdownMessage content={String(recipe.content)} /></div>
+                          </div>
+                        ) : null)}
+                      </div>
+                    )}
+                    <details className="mt-2 text-xs text-zinc-500">
+                      <summary className="cursor-pointer hover:text-zinc-300">{isZh ? '查看原始结果' : 'View raw result'}</summary>
+                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap pl-3 text-[11px] text-zinc-400">{JSON.stringify(result, null, 2)}</pre>
+                    </details>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2340,6 +2575,7 @@ export const AICreatorView: React.FC = () => {
                 <Save className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? 'text-emerald-300' : 'text-zinc-500'}`} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{getRecipeLabel(recipe)}</span>
+                  <span className="mt-0.5 block text-[10px] font-semibold text-zinc-500">{getRecipeKindLabel(recipe)}</span>
                   {recipe.description && (
                     <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500">{recipe.description}</span>
                   )}
@@ -2440,6 +2676,9 @@ export const AICreatorView: React.FC = () => {
                         <span className={`block truncate text-xs font-semibold ${selected ? 'text-emerald-100' : 'text-zinc-300'}`}>
                           {getRecipeLabel(recipe)}
                         </span>
+                        <span className="mt-1 inline-flex rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
+                          {getRecipeKindLabel(recipe)}
+                        </span>
                         {recipe.description && <span className="mt-0.5 line-clamp-1 block text-[11px] text-zinc-600">{recipe.description}</span>}
                       </button>
                       <button
@@ -2469,7 +2708,11 @@ export const AICreatorView: React.FC = () => {
                     </div>
                     {expanded && (
                       <div className="space-y-2 border-t border-white/5 px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
-                        {recipe.content && <div><span className="text-zinc-400">{isZh ? '经验：' : 'Recipe: '}</span>{recipe.content}</div>}
+                        {recipe.content && (
+                          <div className="max-h-72 overflow-y-auto text-zinc-400">
+                            <MarkdownMessage content={recipe.content} />
+                          </div>
+                        )}
                         {recipe.params_template && Object.keys(recipe.params_template).length > 0 && (
                           <div>
                             <span className="text-zinc-400">{isZh ? '参数：' : 'Params: '}</span>
@@ -2659,7 +2902,9 @@ export const AICreatorView: React.FC = () => {
           {!convoLoading &&
             chatRenderItems.map((item) => (
               <div key={item.key}>
-                {item.type === 'image_group' ? (
+                {item.type === 'process_group' ? (
+                  renderPlannerProcessGroup(item)
+                ) : item.type === 'image_group' ? (
                   renderImageToolGroup(item)
                 ) : item.type === 'image_edit_job' ? (
                   <div className="flex justify-start">

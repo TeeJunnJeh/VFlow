@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
 
 const types = read('src/components/workbench/types.ts');
 const sidebar = read('src/components/workbench/Sidebar.tsx');

@@ -34,6 +34,7 @@ export interface AgentSkill {
 
 export interface AgentExperienceRecipe {
   source: 'experience_recipe';
+  recipe_kind: 'run_experience' | 'seed_skill';
   id: string;
   name: string;
   title?: string;
@@ -119,12 +120,23 @@ export interface AgentChatResponse {
   run?: AgentRun | null;
 }
 
-export type AgentStreamPhase = 'thinking' | 'loading_skill' | 'preparing_action' | 'responding';
+export type AgentStreamPhase =
+  | 'thinking'
+  | 'iteration_started'
+  | 'iteration_finished'
+  | 'searching_recipes'
+  | 'retrieving_recipes'
+  | 'loading_skill'
+  | 'preparing_action'
+  | 'responding';
 
 export interface AgentStreamStatus {
   stream_id: string;
+  stream_key?: string;
   phase: AgentStreamPhase;
   action_type?: string;
+  planner_iteration?: number;
+  has_tool_calls?: boolean;
 }
 
 export interface AgentAssistantDelta {

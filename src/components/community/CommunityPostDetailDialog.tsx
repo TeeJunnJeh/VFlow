@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bookmark, Flag, Heart, Library, Sparkles, X } from 'lucide-react';
+import { Bookmark, Flag, Heart, Library, Sparkles, User, UserPlus, X } from 'lucide-react';
 import { assetsApi } from '../../services/assets';
 import type { CommunityPost, CommunitySharedSkill } from '../../services/community';
 
@@ -94,6 +94,16 @@ export const CommunityPostDetailDialog = ({
   if (!post) return null;
 
   const primaryMedia = post.media.find((item) => item.kind === 'video') || post.media[0];
+  const authorMeta = post.author as typeof post.author & {
+    post_count?: number;
+    works_count?: number;
+    follower_count?: number;
+    fans_count?: number;
+  };
+  const authorName = post.author.name || 'creator';
+  const authorPostCount = Number(authorMeta.post_count ?? authorMeta.works_count ?? 1);
+  const authorFollowerCount = Number(authorMeta.follower_count ?? authorMeta.fans_count ?? 0);
+  const postTypeLabel = post.post_type === 'experience' ? '创作经验' : '素材分享';
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-6 backdrop-blur-sm" onClick={onClose}>
@@ -112,63 +122,93 @@ export const CommunityPostDetailDialog = ({
         </div>
 
         <aside className="flex min-h-0 flex-col border-l border-white/10">
-          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-            <div className="min-w-0">
-              <h2 className="truncate text-base font-bold text-zinc-100">{post.title}</h2>
-              <div className="mt-1 truncate text-xs text-zinc-500">@{post.author.name || 'creator'}</div>
+          <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-5">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-white/10 bg-zinc-900">
+                {post.author.avatar_url ? (
+                  <img src={post.author.avatar_url} alt={authorName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <User className="h-6 w-6 text-zinc-700" />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-base font-black text-zinc-100">{authorName}</div>
+                <div className="mt-1 flex items-center gap-3 text-xs font-bold text-zinc-500">
+                  <span>作品: {Number.isFinite(authorPostCount) ? authorPostCount : 1}</span>
+                  <span className="h-3 w-px bg-white/10" />
+                  <span>粉丝: {Number.isFinite(authorFollowerCount) ? authorFollowerCount : 0}</span>
+                </div>
+              </div>
             </div>
-            <button type="button" title={labels.close} aria-label={labels.close} onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white">
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button type="button" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-orange-500 px-3 text-xs font-black text-white shadow-sm shadow-orange-950/20 hover:bg-orange-400">
+                <UserPlus className="h-4 w-4" />
+                关注
+              </button>
+              <button type="button" title={labels.close} aria-label={labels.close} onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
-          <div className="custom-scroll flex-1 overflow-y-auto px-5 py-4">
-            <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">{post.body}</p>
-
-            {post.shared_skill ? (
-              <div className="mt-5 border-t border-dashed border-white/15 pt-4">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-200">
-                    <Sparkles className="h-3.5 w-3.5" /> 分享的创作 Skill
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void saveSharedSkill()}
-                    disabled={savingSkill || skillSaved}
-                    className="rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-100 hover:bg-amber-400/20 disabled:opacity-60"
-                  >
-                    {skillSaved ? '已保存到素材库' : savingSkill ? '保存中...' : '保存到素材库'}
-                  </button>
-                </div>
-                <div
-                  className="whitespace-pre-wrap rounded-lg bg-white/[0.03] px-4 py-3 text-xs leading-6 text-zinc-300"
-                  style={{ fontFamily: '"楷体", KaiTi, STKaiti, "楷体_GB2312", serif' }}
-                >
-                  {formatSharedSkill(post.shared_skill)}
-                </div>
-                {skillMsg ? <div className="mt-1.5 text-[11px] font-bold text-amber-200/80">{skillMsg}</div> : null}
+          <div className="custom-scroll flex-1 overflow-y-auto px-5 py-5">
+            <section className="border-b border-white/10 pb-5">
+              <h2 className="text-2xl font-black leading-8 text-white">{post.title || '未命名作品'}</h2>
+              {post.body ? <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-100">{post.body}</p> : null}
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-zinc-500">
+                <span>{postTypeLabel}</span>
+                {post.created_at ? <span>{post.created_at}</span> : null}
               </div>
-            ) : null}
+            </section>
 
-            {post.materials.length > 0 ? (
-              <div className="mt-6 grid gap-2">
-                {post.materials.map((material) => (
-                  <button
-                    key={material.id}
-                    type="button"
-                    title={post.is_collected ? labels.uncollect : labels.collect}
-                    aria-label={post.is_collected ? labels.uncollect : labels.collect}
-                    onClick={() => onCollectMaterial?.(post, material.id)}
-                    className={`flex h-12 items-center justify-between rounded-lg border px-3 text-left text-sm transition ${post.is_collected ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/[0.03] text-zinc-200 hover:border-emerald-400/40 hover:bg-emerald-500/10'}`}
+            <section className="pt-5">
+              {post.shared_skill ? (
+                <div className="border-t border-dashed border-white/15 pt-4 first:border-t-0 first:pt-0">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-200">
+                      <Sparkles className="h-3.5 w-3.5" /> 分享的创作 Skill
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void saveSharedSkill()}
+                      disabled={savingSkill || skillSaved}
+                      className="rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-100 hover:bg-amber-400/20 disabled:opacity-60"
+                    >
+                      {skillSaved ? '已保存到素材库' : savingSkill ? '保存中...' : '保存到素材库'}
+                    </button>
+                  </div>
+                  <div
+                    className="whitespace-pre-wrap rounded-lg bg-white/[0.03] px-4 py-3 text-xs leading-6 text-zinc-300"
+                    style={{ fontFamily: '"楷体", KaiTi, STKaiti, "楷体_GB2312", serif' }}
                   >
-                    <span className="min-w-0 truncate">{material.name}</span>
-                    <Library className="h-4 w-4 shrink-0 text-emerald-300" />
-                  </button>
-                ))}
-              </div>
-            ) : null}
+                    {formatSharedSkill(post.shared_skill)}
+                  </div>
+                  {skillMsg ? <div className="mt-1.5 text-[11px] font-bold text-amber-200/80">{skillMsg}</div> : null}
+                </div>
+              ) : null}
+
+              {post.materials.length > 0 ? (
+                <div className="mt-5 grid gap-2 border-t border-dashed border-white/15 pt-4">
+                  <div className="text-xs font-black text-zinc-400">可收集素材</div>
+                  {post.materials.map((material) => (
+                    <button
+                      key={material.id}
+                      type="button"
+                      title={post.is_collected ? labels.uncollect : labels.collect}
+                      aria-label={post.is_collected ? labels.uncollect : labels.collect}
+                      onClick={() => onCollectMaterial?.(post, material.id)}
+                      className={`flex h-12 items-center justify-between rounded-lg border px-3 text-left text-sm transition ${post.is_collected ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/[0.03] text-zinc-200 hover:border-emerald-400/40 hover:bg-emerald-500/10'}`}
+                    >
+                      <span className="min-w-0 truncate">{material.name}</span>
+                      <Library className="h-4 w-4 shrink-0 text-emerald-300" />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </section>
           </div>
-
           <div className="grid grid-cols-4 border-t border-white/10">
             <button type="button" title={labels.like} aria-label={labels.like} onClick={() => onLike?.(post)} className={`flex h-12 items-center justify-center gap-1 text-xs font-bold ${post.is_liked ? 'text-red-300' : 'text-zinc-300 hover:text-red-300'}`}>
               <Heart className={`h-4 w-4 ${post.is_liked ? 'fill-current' : ''}`} />

@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertCircle, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import Masonry from 'react-masonry-css';
 import { useLanguage } from '../../context/LanguageContext';
 import { useRequireAuth } from '../../utils/useRequireAuth';
 import { communityApi, isCommunityApiUnavailableError, type CommunityCreateDraft, type CommunityPost, type CommunityPostType, type CommunityReactionAction } from '../../services/community';
@@ -18,6 +19,14 @@ type LoadOptions = {
 const FILTERS: CommunityFilter[] = ['all', 'material_share', 'experience'];
 const PAGE_SIZE = 24;
 const SEARCH_DEBOUNCE_MS = 320;
+const MASONRY_BREAKPOINT_COLS = {
+  default: 6,
+  1536: 5,
+  1280: 4,
+  1024: 3,
+  640: 2,
+  0: 1,
+};
 
 const mergeUniquePosts = (current: CommunityPost[], incoming: CommunityPost[]) => {
   const seen = new Set(current.map((post) => post.id));
@@ -407,7 +416,11 @@ export const CommunityView = () => {
           </div>
         ) : hasPosts ? (
           <>
-            <div className="grid grid-cols-2 gap-5 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
+            <Masonry
+              breakpointCols={MASONRY_BREAKPOINT_COLS}
+              className="community-masonry-grid"
+              columnClassName="community-masonry-grid-col"
+            >
               {posts.map((post) => (
                 <CommunityPostCard
                   key={post.id}
@@ -419,7 +432,7 @@ export const CommunityView = () => {
                   onCollectFirstMaterial={handleCollectFirstMaterial}
                 />
               ))}
-            </div>
+            </Masonry>
             <div ref={sentinelRef} className="flex h-20 items-center justify-center text-xs font-bold text-zinc-500">
               {isLoadingMore ? (
                 <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{labels.loading}</span>

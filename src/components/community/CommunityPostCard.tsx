@@ -62,7 +62,7 @@ export const CommunityPostCard = React.memo(({
         className="block w-full text-left"
       >
         <div
-          className="relative aspect-[4/5] overflow-hidden bg-zinc-900"
+          className={`relative overflow-hidden bg-zinc-900 ${isVideo ? 'aspect-[9/16]' : ''}`}
           onMouseEnter={isVideo ? handleMouseEnter : undefined}
           onMouseLeave={isVideo ? handleMouseLeave : undefined}
         >
@@ -75,7 +75,7 @@ export const CommunityPostCard = React.memo(({
               playsInline
               preload="metadata"
               onLoadedMetadata={handleLoadedMetadata}
-              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+              className="h-auto w-full object-cover transition duration-300 group-hover:scale-[1.03]"
             />
           ) : imageUrl ? (
             <img
@@ -83,24 +83,21 @@ export const CommunityPostCard = React.memo(({
               alt={post.title}
               loading="lazy"
               decoding="async"
-              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+              className="h-auto w-full object-cover transition duration-300 group-hover:scale-[1.03]"
             />
           ) : (
-            <div className="h-full w-full bg-zinc-900" />
+            <div className="aspect-[4/5] w-full bg-zinc-900" />
           )}
           {isVideo && !isPlaying ? (
             <div className="pointer-events-none absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white">
               <Play className="h-4 w-4 fill-current" />
             </div>
           ) : null}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3">
-            <div className="line-clamp-2 text-sm font-black leading-5 text-white">{post.title}</div>
-          </div>
         </div>
 
         <div className="px-3 py-3">
-          <p className="line-clamp-3 min-h-[3.75rem] whitespace-pre-line text-[13px] leading-5 text-zinc-300">
-            {post.body || post.title}
+          <p className="line-clamp-2 text-sm font-black leading-5 text-zinc-100">
+            {post.title}
           </p>
           <div className="mt-3 flex items-center gap-2 text-xs">
             <span className="min-w-0 truncate font-bold text-zinc-400">@{post.author.name || 'creator'}</span>

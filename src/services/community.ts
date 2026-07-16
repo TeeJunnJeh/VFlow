@@ -56,10 +56,37 @@ export interface CommunityPost {
   like_count: number;
   favorite_count: number;
   collect_count: number;
+  comment_count: number;
   is_liked: boolean;
   is_favorited: boolean;
   is_collected: boolean;
   created_at: string;
+}
+
+export interface CommunityComment {
+  id: string;
+  post_id: string;
+  parent_id?: string | null;
+  content: string;
+  author: CommunityAuthor;
+  reply_to_user?: CommunityAuthor | null;
+  reply_count: number;
+  like_count: number;
+  is_liked: boolean;
+  can_delete?: boolean;
+  heat_score: number;
+  created_at: string;
+  replies: CommunityComment[];
+}
+
+export interface CommunityCommentListResponse {
+  items: CommunityComment[];
+  total: number;
+}
+
+export interface CommunityCommentDraft {
+  content: string;
+  parentId?: string | null;
 }
 
 export interface CommunityListParams {
@@ -146,10 +173,35 @@ export const normalizeCommunityPost = (item: any): CommunityPost => ({
   like_count: Number(item.like_count || 0),
   favorite_count: Number(item.favorite_count || item.star_count || 0),
   collect_count: Number(item.collect_count || 0),
+  comment_count: Number(item.comment_count || 0),
   is_liked: Boolean(item.is_liked),
   is_favorited: Boolean(item.is_favorited || item.is_starred),
   is_collected: Boolean(item.is_collected || item.has_collected || item.already_collected),
   created_at: String(item.created_at || ''),
+});
+
+export const normalizeCommunityComment = (item: any): CommunityComment => ({
+  id: String(item.id || ''),
+  post_id: String(item.post_id || item.postId || ''),
+  parent_id: item.parent_id || item.parentId ? String(item.parent_id || item.parentId) : null,
+  content: String(item.content || item.body || ''),
+  author: {
+    id: String(item.author?.id || item.author_id || ''),
+    name: String(item.author?.name || item.author_name || ''),
+    avatar_url: toDisplayUrl(item.author?.avatar_url || item.author_avatar_url || ''),
+  },
+  reply_to_user: item.reply_to_user ? {
+    id: String(item.reply_to_user?.id || item.reply_to_user_id || ''),
+    name: String(item.reply_to_user?.name || item.reply_to_user_name || ''),
+    avatar_url: toDisplayUrl(item.reply_to_user?.avatar_url || item.reply_to_user_avatar_url || ''),
+  } : null,
+  reply_count: Number(item.reply_count || 0),
+  like_count: Number(item.like_count || 0),
+  is_liked: Boolean(item.is_liked),
+  can_delete: Boolean(item.can_delete),
+  heat_score: Number(item.heat_score || item.hot_score || 0),
+  created_at: String(item.created_at || ''),
+  replies: ((item.replies || []) as any[]).map(normalizeCommunityComment),
 });
 
 const unwrapData = (json: any) => json?.data || json || {};
@@ -241,6 +293,85 @@ export const communityApi = {
     if (!response.ok) await throwCommunityApiError(response, 'Request failed');
     const data = unwrapData(await response.json());
     return normalizeCommunityPost(data.post || data.item || data);
+  },
+
+  listComments: async (postId: string): Promise<CommunityCommentListResponse> => {
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) await throwCommunityApiError(response, 'Request failed');
+    const data = unwrapData(await response.json());
+    return {
+      items: ((data.items || data.results || []) as any[]).map(normalizeCommunityComment),
+      total: Number(data.total || 0),
+    };
+  },
+
+  createComment: async (postId: string, draft: CommunityCommentDraft) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        content: draft.content || '',
+        parent_id: draft.parentId || null,
+      }),
+    });
+
+    if (!response.ok) await throwCommunityApiError(response, 'Request failed');
+    const data = unwrapData(await response.json());
+    return {
+      comment: normalizeCommunityComment(data.comment || data.item || data),
+      total: Number(data.total || 0),
+    };
+  },
+
+  deleteComment: async (postId: string, commentId: string) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments/${commentId}/`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) await throwCommunityApiError(response, 'Request failed');
+    const data = unwrapData(await response.json());
+    return {
+      commentId: String(data.comment_id || commentId),
+      total: Number(data.total || 0),
+    };
+  },
+
+  setCommentReaction: async (postId: string, commentId: string, action: 'like', value: boolean) => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments/${commentId}/reaction/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ action, value }),
+    });
+
+    if (!response.ok) await throwCommunityApiError(response, 'Request failed');
+    return await response.json();
   },
 
   setReaction: async (postId: string, action: CommunityReactionAction, value: boolean) => {

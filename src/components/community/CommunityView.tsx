@@ -71,6 +71,17 @@ export const CommunityView = () => {
     collect: (t as any).community_collect_asset || 'Add to assets',
     uncollect: (t as any).community_uncollect_asset || 'Remove from assets',
     report: (t as any).community_report || 'Report',
+    detailTab: (t as any).community_detail_tab || '创作详情',
+    commentsTab: (t as any).community_comments_tab || '评论',
+    commentsEmpty: (t as any).community_comments_empty || '还没有评论，来留下第一条想法吧',
+    commentsPlaceholder: (t as any).community_comments_placeholder || '写下你的评论，支持 Cmd/Ctrl + Enter 发送',
+    replyPlaceholder: (t as any).community_reply_placeholder || '回复这条评论，支持 Cmd/Ctrl + Enter 发送',
+    replyAction: (t as any).community_reply_action || '回复',
+    cancelReply: (t as any).community_cancel_reply || '取消回复',
+    submitComment: (t as any).community_submit_comment || '发表评论',
+    submittingComment: (t as any).community_submitting_comment || '发送中...',
+    commentsLoadError: (t as any).community_comments_load_error || '评论加载失败，请稍后重试',
+    commentsDisabled: (t as any).community_comments_disabled || '预览帖子暂不支持真实评论，请等待社区后端联通后使用',
     close: (t as any).community_close || 'Close',
     titlePlaceholder: (t as any).community_title_placeholder || 'Post title',
     bodyPlaceholder: (t as any).community_body_placeholder || 'Share a creative note',
@@ -268,6 +279,15 @@ export const CommunityView = () => {
     const material = post.materials.find((item) => item.can_collect !== false) || post.materials[0];
     if (material) void handleCollectMaterial(post, material.id);
   }, [handleCollectMaterial]);
+
+  const handleCommentCountChange = React.useCallback((postId: string, count: number) => {
+    const nextCount = Math.max(0, Number(count || 0));
+    updatePost(postId, (current) => (
+      current.comment_count === nextCount
+        ? current
+        : { ...current, comment_count: nextCount }
+    ));
+  }, [updatePost]);
 
   const handleReport = React.useCallback(async (post: CommunityPost) => {
     if (typeof window === 'undefined') return;
@@ -471,12 +491,24 @@ export const CommunityView = () => {
           collect: labels.collect,
           uncollect: labels.uncollect,
           report: labels.report,
+          detailTab: labels.detailTab,
+          commentsTab: labels.commentsTab,
+          commentsEmpty: labels.commentsEmpty,
+          commentsPlaceholder: labels.commentsPlaceholder,
+          replyPlaceholder: labels.replyPlaceholder,
+          replyAction: labels.replyAction,
+          cancelReply: labels.cancelReply,
+          submitComment: labels.submitComment,
+          submittingComment: labels.submittingComment,
+          commentsLoadError: labels.commentsLoadError,
+          commentsDisabled: labels.commentsDisabled,
         }}
         onClose={() => setSelectedPost(null)}
         onLike={(item) => void handleReaction(item, 'like')}
         onFavorite={(item) => void handleReaction(item, 'favorite')}
         onCollectMaterial={handleCollectMaterial}
         onReport={(item) => void handleReport(item)}
+        onCommentCountChange={handleCommentCountChange}
       />
 
       {toastMessage ? (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bookmark, Flag, Heart, Library, Loader2, Reply, Send, Sparkles, Trash2, User, UserPlus, X } from 'lucide-react';
+import { Bookmark, ChevronLeft, ChevronRight, Flag, Heart, Library, Loader2, Reply, Send, Sparkles, Trash2, User, UserPlus, X } from 'lucide-react';
 import { assetsApi } from '../../services/assets';
 import { communityApi, type CommunityComment, type CommunityPost, type CommunitySharedSkill } from '../../services/community';
 import { useRequireAuth } from '../../utils/useRequireAuth';
@@ -79,6 +79,7 @@ export const CommunityPostDetailDialog = ({
   const [replyDraft, setReplyDraft] = React.useState('');
   const [replyingTo, setReplyingTo] = React.useState<CommunityComment | null>(null);
   const [brokenAvatarUrls, setBrokenAvatarUrls] = React.useState<Record<string, true>>({});
+  const [activeMediaIndex, setActiveMediaIndex] = React.useState(0);
   const detailVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
   React.useEffect(() => {
@@ -96,17 +97,20 @@ export const CommunityPostDetailDialog = ({
     setReplyDraft('');
     setReplyingTo(null);
     setBrokenAvatarUrls({});
+    const videoIndex = post?.media.findIndex((item) => item.kind === 'video') ?? -1;
+    setActiveMediaIndex(videoIndex >= 0 ? videoIndex : 0);
   }, [post?.id]);
 
   React.useEffect(() => {
     const el = detailVideoRef.current;
-    if (!el || !post?.media.some((item) => item.kind === 'video')) return;
+    const currentMedia = post?.media[activeMediaIndex];
+    if (!el || currentMedia?.kind !== 'video') return;
     const timer = window.setTimeout(() => {
       const promise = el.play();
       if (promise && typeof promise.catch === 'function') promise.catch(() => {});
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [post?.id]);
+  }, [post?.id, activeMediaIndex]);
 
   const saveSharedSkill = React.useCallback(async () => {
     const skill = post?.shared_skill;
@@ -274,7 +278,11 @@ export const CommunityPostDetailDialog = ({
 
   if (!post) return null;
 
-  const primaryMedia = post.media.find((item) => item.kind === 'video') || post.media[0];
+  const activeMedia = post.media[activeMediaIndex] || post.media[0];
+  const mediaCount = post.media.length;
+  const hasMultipleMedia = mediaCount > 1;
+  const goToPreviousMedia = () => setActiveMediaIndex((current) => (mediaCount ? (current - 1 + mediaCount) % mediaCount : 0));
+  const goToNextMedia = () => setActiveMediaIndex((current) => (mediaCount ? (current + 1) % mediaCount : 0));
   const authorMeta = post.author as typeof post.author & {
     post_count?: number;
     works_count?: number;
@@ -503,14 +511,49 @@ export const CommunityPostDetailDialog = ({
         className="grid h-[min(82vh,760px)] w-full max-w-6xl grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] overflow-hidden rounded-lg border border-white/10 bg-zinc-950 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="relative flex min-h-0 items-center justify-center bg-black">
-          {primaryMedia?.kind === 'video' ? (
-            <video ref={detailVideoRef} src={primaryMedia.url} className="block max-h-full max-w-full object-contain" controls autoPlay playsInline preload="auto" />
-          ) : primaryMedia?.url ? (
-            <img src={primaryMedia.url} alt={post.title} className="block max-h-full max-w-full object-contain" />
+        <div className="community-media-stage group/media relative flex min-h-0 items-center justify-center">
+          {activeMedia?.kind === 'video' ? (
+            <video key={activeMedia.id || activeMedia.url} ref={detailVideoRef} src={activeMedia.url} className="block max-h-full max-w-full object-contain" controls autoPlay playsInline preload="auto" />
+          ) : activeMedia?.url ? (
+            <img key={activeMedia.id || activeMedia.url} src={activeMedia.url} alt={post.title} className="block max-h-full max-w-full object-contain" />
           ) : (
             <div className="h-full w-full bg-zinc-900" />
           )}
+
+          {hasMultipleMedia ? (
+            <>
+              <div className="pointer-events-none absolute right-4 top-4 rounded-full bg-black/55 px-3 py-1.5 text-sm font-black text-white opacity-0 backdrop-blur transition-opacity group-hover/media:opacity-100">
+                {activeMediaIndex + 1}/{mediaCount}
+              </div>
+              <button
+                type="button"
+                aria-label="上一张"
+                onClick={goToPreviousMedia}
+                className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition hover:bg-black/65 group-hover/media:opacity-100"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                aria-label="下一张"
+                onClick={goToNextMedia}
+                className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition hover:bg-black/65 group-hover/media:opacity-100"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+              <div className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-1.5">
+                {post.media.map((item, index) => (
+                  <button
+                    key={item.id || item.url || index}
+                    type="button"
+                    aria-label={`查看第 ${index + 1} 张`}
+                    onClick={() => setActiveMediaIndex(index)}
+                    className={`community-media-dot ${index === activeMediaIndex ? 'community-media-dot-active' : ''}`}
+                  />
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
 
         <aside className="flex min-h-0 flex-col border-l border-white/10">
@@ -547,8 +590,8 @@ export const CommunityPostDetailDialog = ({
 
           <div className="custom-scroll flex-1 overflow-y-auto px-5 py-5">
             <section className="border-b border-white/10 pb-5">
-              <h2 className="text-2xl font-black leading-8 text-white">{post.title || '未命名作品'}</h2>
-              {post.body ? <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-100">{post.body}</p> : null}
+              <h2 className="community-text-wrap text-2xl font-black leading-8 text-white">{post.title || '未命名作品'}</h2>
+              {post.body ? <p className="community-text-wrap mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-100">{post.body}</p> : null}
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-zinc-500">
                 <span>{postTypeLabel}</span>
                 {post.created_at ? <span>{post.created_at}</span> : null}
@@ -589,7 +632,7 @@ export const CommunityPostDetailDialog = ({
                       </button>
                     </div>
                     <div
-                      className="whitespace-pre-wrap rounded-lg bg-white/[0.03] px-4 py-3 text-xs leading-6 text-zinc-300"
+                      className="community-text-wrap whitespace-pre-wrap rounded-lg bg-white/[0.03] px-4 py-3 text-xs leading-6 text-zinc-300"
                       style={{ fontFamily: '"楷体", KaiTi, STKaiti, "楷体_GB2312", serif' }}
                     >
                       {formatSharedSkill(post.shared_skill)}

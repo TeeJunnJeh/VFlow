@@ -1604,6 +1604,68 @@ html.theme-dim .hist-workbar-toggle-active {
   color: #ffffff !important;
 }
 
+/* Creator community masonry feed */
+.community-masonry-grid {
+  display: flex;
+  align-items: flex-start;
+  margin-left: -16px;
+  width: auto;
+}
+.community-masonry-grid-col {
+  padding-left: 16px;
+  background-clip: padding-box;
+}
+.community-masonry-grid-col > article {
+  margin-bottom: 16px;
+  break-inside: avoid;
+}
+.community-text-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.community-media-dot {
+  width: 0.5rem !important;
+  height: 0.5rem !important;
+  border-radius: 9999px !important;
+  border: 0 !important;
+  padding: 0 !important;
+  background-color: rgba(255, 255, 255, 0.45) !important;
+  color: transparent !important;
+  box-shadow: none !important;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+.community-media-dot:hover {
+  background-color: rgba(255, 255, 255, 0.75) !important;
+}
+.community-media-dot-active,
+.community-media-dot-active:hover {
+  background-color: #ffffff !important;
+  transform: scale(1.08);
+}
+.theme-light button.community-media-dot,
+html.theme-light button.community-text-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.community-media-dot {
+  width: 0.5rem !important;
+  height: 0.5rem !important;
+  border: 0 !important;
+  padding: 0 !important;
+  background-color: rgba(255, 255, 255, 0.45) !important;
+  color: transparent !important;
+  box-shadow: none !important;
+}
+.theme-light button.community-media-dot:hover,
+html.theme-light button.community-media-dot:hover {
+  background-color: rgba(255, 255, 255, 0.75) !important;
+}
+.theme-light button.community-media-dot-active,
+.theme-light button.community-media-dot-active:hover,
+html.theme-light button.community-media-dot-active,
+html.theme-light button.community-media-dot-active:hover {
+  background-color: #ffffff !important;
+}
 /* react-masonry-css for AI 商品套图 right preview panel */
 .pg-masonry-grid {
   display: flex;

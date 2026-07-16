@@ -28,7 +28,6 @@ export const CommunityPostCard = React.memo(({
   const videoMedia = post.media.find((m) => m.kind === 'video');
   const firstMedia = videoMedia || post.media[0];
   const isVideo = firstMedia?.kind === 'video' && Boolean(firstMedia?.url);
-  const posterUrl = post.cover_url || firstMedia?.thumbnail_url || '';
   const imageUrl = !isVideo ? (post.cover_url || firstMedia?.thumbnail_url || firstMedia?.url || '') : '';
   const canCollect = post.materials.length > 0;
 
@@ -49,6 +48,12 @@ export const CommunityPostCard = React.memo(({
     setIsPlaying(false);
   }, []);
 
+  const handleLoadedMetadata = React.useCallback(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    try { el.currentTime = 0.001; } catch { /* noop */ }
+  }, []);
+
   return (
     <article className="group relative overflow-hidden rounded-lg border border-white/10 bg-zinc-950">
       <button
@@ -65,11 +70,11 @@ export const CommunityPostCard = React.memo(({
             <video
               ref={videoRef}
               src={firstMedia!.url}
-              poster={posterUrl || undefined}
               muted
               loop
               playsInline
-              preload={posterUrl ? 'none' : 'metadata'}
+              preload="metadata"
+              onLoadedMetadata={handleLoadedMetadata}
               className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
             />
           ) : imageUrl ? (

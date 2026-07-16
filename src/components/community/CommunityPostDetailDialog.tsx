@@ -53,11 +53,22 @@ export const CommunityPostDetailDialog = ({
   const [savingSkill, setSavingSkill] = React.useState(false);
   const [skillSaved, setSkillSaved] = React.useState(false);
   const [skillMsg, setSkillMsg] = React.useState('');
+  const detailVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
   React.useEffect(() => {
     setSavingSkill(false);
     setSkillSaved(false);
     setSkillMsg('');
+  }, [post?.id]);
+
+  React.useEffect(() => {
+    const el = detailVideoRef.current;
+    if (!el || !post?.media.some((item) => item.kind === 'video')) return;
+    const timer = window.setTimeout(() => {
+      const promise = el.play();
+      if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [post?.id]);
 
   const saveSharedSkill = React.useCallback(async () => {
@@ -90,11 +101,11 @@ export const CommunityPostDetailDialog = ({
         className="grid h-[min(82vh,760px)] w-full max-w-6xl grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] overflow-hidden rounded-lg border border-white/10 bg-zinc-950 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="relative bg-black">
+        <div className="relative flex min-h-0 items-center justify-center bg-black">
           {primaryMedia?.kind === 'video' ? (
-            <video src={primaryMedia.url} poster={primaryMedia.thumbnail_url || post.cover_url} className="h-full w-full object-contain" controls preload="metadata" />
+            <video ref={detailVideoRef} src={primaryMedia.url} className="block max-h-full max-w-full object-contain" controls autoPlay playsInline preload="auto" />
           ) : primaryMedia?.url ? (
-            <img src={primaryMedia.url} alt={post.title} className="h-full w-full object-contain" />
+            <img src={primaryMedia.url} alt={post.title} className="block max-h-full max-w-full object-contain" />
           ) : (
             <div className="h-full w-full bg-zinc-900" />
           )}

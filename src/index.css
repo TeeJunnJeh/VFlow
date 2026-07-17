@@ -821,6 +821,13 @@ html.theme-light button.ai-creator-process-toggle:hover {
   border-color: transparent !important;
   box-shadow: none !important;
 }
+.ai-creator-process-group,
+.ai-creator-process-group *,
+html.theme-light .ai-creator-process-group,
+html.theme-light .ai-creator-process-group * {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
 /* Primary solid-color action buttons (bg-orange-500 + text-black) must keep their brand fill
    in light mode — counteract the blanket rule above. */
 html.theme-light button[class*="bg-orange-500"]:not([class*="bg-orange-500/"])[class*="text-black"] {

@@ -43,7 +43,7 @@ import {
   type AgentAssistantDelta,
   type AgentStreamStatus,
   type AgentNextSuggestion,
-  type AgentSuggestionItem,
+  type AgentContextUsage,
 } from '../../services/agentRuntime';
 import { assetsApi } from '../../services/assets';
 import { ApiError, formatApiError } from '../../services/errors';
@@ -141,7 +141,13 @@ const EMPTY_NEXT_SUGGESTION: AgentNextSuggestion = {
   source: 'none',
   stage: null,
   can_apply: false,
-  suggestions: [],
+};
+
+const EMPTY_CONTEXT_USAGE: AgentContextUsage = {
+  input_tokens: 0,
+  max_tokens: 256000,
+  checkpoint_threshold: 200000,
+  epoch: 1,
 };
 
 type ReferenceAnalysisStatus = 'idle' | 'analyzing' | 'ready' | 'error' | 'stale';
@@ -189,6 +195,8 @@ const isSupersededActionMessage = (message: AiCreatorMessage) =>
 
 const isPlannerProcessMessage = (message: AiCreatorMessage) => {
   const messageType = String(message.metadata?.message_type || '');
+  const itemType = String(message.metadata?.item_type || '');
+  if (['reasoning', 'function_call', 'function_call_output', 'checkpoint', 'response_interrupted'].includes(itemType)) return true;
   if (messageType === 'planner_trace_tool') return true;
   return messageType === 'planner_trace_assistant'
     && Array.isArray(message.metadata?.tool_calls)
@@ -196,8 +204,16 @@ const isPlannerProcessMessage = (message: AiCreatorMessage) => {
 };
 
 const getPlannerProcessKey = (message: AiCreatorMessage) => {
+  const responseId = String(message.metadata?.response_id || '').trim();
+  if (responseId) return `planner_response_${responseId}`;
   const turnId = String(message.metadata?.planner_turn_id || '').trim();
   const iteration = Number(message.metadata?.planner_iteration);
+  if (String(message.metadata?.item_type || '') === 'checkpoint' && turnId) {
+    return `planner_checkpoint_${turnId}_${message.id || 'pending'}`;
+  }
+  if (String(message.metadata?.item_type || '') === 'response_interrupted' && turnId) {
+    return `planner_interrupted_${turnId}_${message.id || 'pending'}`;
+  }
   if (!turnId || !Number.isInteger(iteration)) return '';
   return `planner_process_${turnId}_${iteration}`;
 };
@@ -297,7 +313,7 @@ export const AICreatorView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState<AgentStreamStatus | null>(null);
   const [nextSuggestionResult, setNextSuggestionResult] = useState<AgentNextSuggestion>(EMPTY_NEXT_SUGGESTION);
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+  const [contextUsage, setContextUsage] = useState<AgentContextUsage>(EMPTY_CONTEXT_USAGE);
   const [highlightedRunId, setHighlightedRunId] = useState<string | null>(null);
   const [referenceAnalysis, setReferenceAnalysis] = useState<ReferenceAnalysisState>(EMPTY_REFERENCE_ANALYSIS);
   const [statusPhraseIndex, setStatusPhraseIndex] = useState(0);
@@ -357,8 +373,6 @@ export const AICreatorView: React.FC = () => {
     setPreviewImageSource(null);
   }, [activeConversationId]);
 
-  const nextSuggestions = nextSuggestionResult.suggestions;
-  const activeNextSuggestion: AgentSuggestionItem | null = nextSuggestions[activeSuggestionIndex] || null;
   const referenceStatusText = referenceAnalysis.status === 'analyzing'
     ? (t.ai_creator_reference_analyzing || 'Understanding the reference images and preparing a prompt...')
     : referenceAnalysis.status === 'error'
@@ -366,8 +380,11 @@ export const AICreatorView: React.FC = () => {
       : referenceAnalysis.status === 'stale'
         ? (t.ai_creator_reference_stale || 'The draft or images changed. Click to analyze again.')
         : '';
-  const nextSuggestion = referenceStatusText || activeNextSuggestion?.text || nextSuggestionResult.suggestion || '';
-  const canApplyNextSuggestion = Boolean(activeNextSuggestion) && nextSuggestionResult.can_apply;
+  const nextSuggestion = referenceStatusText || nextSuggestionResult.suggestion || '';
+  const canApplyNextSuggestion = Boolean(nextSuggestionResult.suggestion) && nextSuggestionResult.can_apply;
+  const contextMaxTokens = Math.max(1, contextUsage.max_tokens || 256000);
+  const contextPercent = Math.min(100, Math.max(0, (contextUsage.input_tokens / contextMaxTokens) * 100));
+  const contextTooltip = `${contextUsage.input_tokens.toLocaleString()} / ${contextMaxTokens.toLocaleString()} tokens (${contextPercent.toFixed(1)}%)`;
 
   const resetNextSuggestion = (resetContext = true) => {
     suggestionRequestTokenRef.current += 1;
@@ -375,7 +392,6 @@ export const AICreatorView: React.FC = () => {
     suggestionAbortRef.current = null;
     if (resetContext) suggestionContextKeyRef.current = '';
     setNextSuggestionResult(EMPTY_NEXT_SUGGESTION);
-    setActiveSuggestionIndex(0);
   };
 
   const resetReferenceAnalysis = () => {
@@ -554,6 +570,7 @@ export const AICreatorView: React.FC = () => {
     if (conversations.some((c) => c.id === activeConversationId)) return;
     setActiveConversationId(null);
     setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
+    setContextUsage(EMPTY_CONTEXT_USAGE);
     setUploadedImages([]);
     setSelectedSkills([]);
     setSelectedRecipe(null);
@@ -620,7 +637,6 @@ export const AICreatorView: React.FC = () => {
         status: 'processing',
         suggestion: t.ai_creator_suggestion_processing || 'Content is being generated. The next suggestion will appear when it is ready.',
       });
-      setActiveSuggestionIndex(0);
       return;
     }
     const blocked = !activeConversationId
@@ -632,7 +648,6 @@ export const AICreatorView: React.FC = () => {
       suggestionAbortRef.current?.abort();
       suggestionAbortRef.current = null;
       setNextSuggestionResult(EMPTY_NEXT_SUGGESTION);
-      setActiveSuggestionIndex(0);
       suggestionContextKeyRef.current = '';
       return;
     }
@@ -646,7 +661,6 @@ export const AICreatorView: React.FC = () => {
     suggestionRequestTokenRef.current = requestToken;
     suggestionAbortRef.current = controller;
     setNextSuggestionResult(EMPTY_NEXT_SUGGESTION);
-    setActiveSuggestionIndex(0);
 
     void agentRuntimeApi.getNextSuggestion(activeConversationId, language, { signal: controller.signal })
       .then((result) => {
@@ -656,7 +670,6 @@ export const AICreatorView: React.FC = () => {
           || activeConversationIdRef.current !== activeConversationId
         ) return;
         setNextSuggestionResult(result);
-        setActiveSuggestionIndex(0);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return;
@@ -758,6 +771,7 @@ export const AICreatorView: React.FC = () => {
       // ignore
     }
     setMessages([isZh ? WELCOME_MESSAGE_ZH : WELCOME_MESSAGE]);
+    setContextUsage(EMPTY_CONTEXT_USAGE);
     setUploadedImages([]);
     setSelectedSkills([]);
     setSelectedRecipe(null);
@@ -798,6 +812,7 @@ export const AICreatorView: React.FC = () => {
         nextScrollBehaviorRef.current = options?.instantScroll === false ? 'smooth' : 'auto';
       }
       setActiveConversationId(data.id);
+      setContextUsage(data.context_usage || EMPTY_CONTEXT_USAGE);
       if (data.messages && data.messages.length > 0) {
         setMessages(data.messages);
       } else {
@@ -1024,29 +1039,15 @@ export const AICreatorView: React.FC = () => {
   };
 
   const setReferencePromptSuggestion = (prompt: string) => {
-    const existingAssetIndex = nextSuggestions.findIndex((item) => item.branch === 'asset');
-    const targetIndex = existingAssetIndex >= 0 ? existingAssetIndex : 0;
     setNextSuggestionResult((current) => {
-      const suggestions = current.suggestions.length > 0
-        ? current.suggestions.map((item) => item.branch === 'asset'
-          ? { ...item, text: prompt, action: { type: 'fill_prompt' as const, prompt } }
-          : item)
-        : [{
-            id: 'asset',
-            branch: 'asset' as const,
-            text: prompt,
-            action: { type: 'fill_prompt' as const, prompt },
-          }];
       return {
         ...current,
         status: 'ready',
         source: 'model',
-        suggestions,
-        suggestion: suggestions[0]?.text || prompt,
+        suggestion: prompt,
         can_apply: true,
       };
     });
-    setActiveSuggestionIndex(targetIndex);
   };
 
   const analyzeReferenceImages = async (
@@ -1068,8 +1069,6 @@ export const AICreatorView: React.FC = () => {
       role: role || 'reference_image',
       draft,
     });
-    const assetIndex = nextSuggestions.findIndex((item) => item.branch === 'asset');
-    if (!draft.trim() && assetIndex >= 0) setActiveSuggestionIndex(assetIndex);
     try {
       const conversationId = await ensureReferenceConversation(draft);
       const result = await agentRuntimeApi.createReferencePrompt(
@@ -1113,13 +1112,6 @@ export const AICreatorView: React.FC = () => {
     }
   };
 
-  const retryReferenceAnalysis = () => {
-    const selectedIds = new Set(referenceAnalysis.imageIds);
-    const selected = uploadedImagesRef.current.filter((image) => selectedIds.has(image.id));
-    const images = selected.length > 0 ? selected : uploadedImagesRef.current.slice(-3);
-    void analyzeReferenceImages(images, referenceAnalysis.role, input);
-  };
-
   const openImagePicker = (role: AgentAttachment['role'] = 'reference_image', maxFiles = 0) => {
     pendingUploadRoleRef.current = role;
     pendingUploadMaxFilesRef.current = maxFiles;
@@ -1127,56 +1119,15 @@ export const AICreatorView: React.FC = () => {
     fileInputRef.current?.click();
   };
 
-  const cycleNextSuggestion = () => {
-    if (
-      input
-      || inputHistoryIndexRef.current !== null
-      || nextSuggestions.length < 2
-      || nextSuggestionResult.status !== 'ready'
-      || referenceAnalysis.status === 'analyzing'
-    ) return;
-    setActiveSuggestionIndex((current) => (current + 1) % nextSuggestions.length);
-  };
-
   const applyNextSuggestion = () => {
-    if (referenceAnalysis.status === 'analyzing') return;
-    if (referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale') {
-      retryReferenceAnalysis();
-      return;
-    }
-    if (referenceAnalysis.status === 'ready' && referenceAnalysis.prompt && input.trim()) {
-      resetInputHistory();
-      setInput(referenceAnalysis.prompt);
-      setSlashRange(null);
-      window.requestAnimationFrame(() => {
-        textInputRef.current?.focus();
-        textInputRef.current?.setSelectionRange(referenceAnalysis.prompt.length, referenceAnalysis.prompt.length);
-      });
-      return;
-    }
-    if (!activeNextSuggestion || !canApplyNextSuggestion || input.trim() || inputHistoryIndexRef.current !== null) return;
+    const suggestion = nextSuggestionResult.suggestion || '';
+    if (!suggestion || !canApplyNextSuggestion || input.trim() || inputHistoryIndexRef.current !== null) return;
     resetInputHistory();
-    const action = activeNextSuggestion.action;
-    if (action.type === 'open_upload') {
-      openImagePicker(action.role, action.max_files || 0);
-      return;
-    }
-    if (action.type === 'focus_confirmation') {
-      const target = document.getElementById(`agent-action-${action.run_id}`);
-      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setHighlightedRunId(action.run_id);
-      if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
-      highlightTimerRef.current = window.setTimeout(() => {
-        setHighlightedRunId((current) => current === action.run_id ? null : current);
-        highlightTimerRef.current = null;
-      }, 1600);
-      return;
-    }
-    setInput(action.prompt);
+    setInput(suggestion);
     setSlashRange(null);
     window.requestAnimationFrame(() => {
       textInputRef.current?.focus();
-      const end = action.prompt.length;
+      const end = suggestion.length;
       textInputRef.current?.setSelectionRange(end, end);
     });
   };
@@ -1405,9 +1356,10 @@ export const AICreatorView: React.FC = () => {
       role: img.role || 'reference_image',
     }));
 
-  const handleSend = async (overrideText?: string) => {
+  const handleSend = async (overrideText?: string, retryTurnId?: string) => {
+    const isContextRetry = Boolean(retryTurnId);
     const text = (overrideText || input).trim();
-    const attachments = uploadedImagesToAttachments(uploadedImages);
+    const attachments = isContextRetry ? [] : uploadedImagesToAttachments(uploadedImages);
     const requestedSkills = selectedSkills.slice(0, 2);
     const requestedRecipes: AgentExperienceRecipe[] = selectedRecipe ? [{
       source: 'experience_recipe',
@@ -1419,35 +1371,28 @@ export const AICreatorView: React.FC = () => {
       tool_name: selectedRecipe.tool_name,
     }] : [];
     const requestedHints: AgentRequestedHint[] = [...requestedSkills, ...requestedRecipes];
-    if ((!text && attachments.length === 0) || loading) return;
+    if ((!isContextRetry && !text && attachments.length === 0) || loading || (isContextRetry && !activeConversationId)) return;
 
     resetNextSuggestion();
     resetReferenceAnalysis();
     resetInputHistory();
 
-    if (!overrideText) {
+    if (!isContextRetry && !overrideText) {
       setInput('');
       setSlashRange(null);
     }
 
-    const messageContent = text || (isZh ? '请根据我上传的素材继续创作。' : 'Please continue with the uploaded assets.');
+    const messageContent = isContextRetry ? '' : (text || (isZh ? '请根据我上传的素材继续创作。' : 'Please continue with the uploaded assets.'));
     const userMsg: AiCreatorMessage = {
       role: 'user',
       content: messageContent,
       attachments,
       metadata: requestedHints.length > 0 ? { requested_hints: requestedHints } : {},
     };
-    setMessages((prev) => [
-      ...prev.map((message) => (
-        message.role === 'assistant'
-        && message.action?.run_id
-        && message.run_status === 'waiting_confirmation'
-          ? { ...message, run_status: 'cancelled' as const, run_finish_reason: 'superseded' }
-          : message
-      )),
-      userMsg,
-    ]);
-    setUploadedImages([]);
+    if (!isContextRetry) {
+      setMessages((prev) => [...prev, userMsg]);
+      setUploadedImages([]);
+    }
     shouldFollowStreamRef.current = true;
     streamBuffersRef.current.clear();
     setStreamStatus(null);
@@ -1465,6 +1410,7 @@ export const AICreatorView: React.FC = () => {
           conversation_id: activeConversationId || undefined,
           attachments,
           requested_hints: requestedHints,
+          retry_turn_id: retryTurnId,
         },
         {
           onConversation: (data) => {
@@ -1472,6 +1418,9 @@ export const AICreatorView: React.FC = () => {
             const conversationId = data.conversation_id || data.conversation?.id || '';
             if (!conversationId) return;
             streamConversationId = conversationId;
+            if (data.conversation?.context_usage) {
+              setContextUsage(data.conversation.context_usage);
+            }
             if (conversationId !== activeConversationId) {
               ensureConversationInList(conversationId, messageContent);
               setActiveConversationId(conversationId);
@@ -1485,14 +1434,16 @@ export const AICreatorView: React.FC = () => {
           onStatus: (status) => {
             if (streamRequestTokenRef.current !== requestToken) return;
             setStreamStatus(status);
-            if (status.stream_id && Number.isInteger(status.planner_iteration)) {
-              const processKey = `planner_process_${status.stream_id}_${status.planner_iteration}`;
-              if (status.phase === 'iteration_started') {
-                setExpandedProcessGroups((prev) => ({ ...prev, [processKey]: true }));
-              } else if (status.phase === 'iteration_finished') {
-                setExpandedProcessGroups((prev) => ({ ...prev, [processKey]: false }));
-              }
+            if (status.phase === 'iteration_finished' && status.stream_key) {
+              const processKey = status.stream_key.startsWith('resp_')
+                ? `planner_response_${status.stream_key}`
+                : `planner_process_${status.stream_id}_${status.planner_iteration || 0}`;
+              setExpandedProcessGroups((prev) => ({ ...prev, [processKey]: false }));
             }
+          },
+          onContextUsage: (usage) => {
+            if (streamRequestTokenRef.current !== requestToken) return;
+            setContextUsage(usage);
           },
           onDelta: (delta) => {
             if (streamRequestTokenRef.current !== requestToken) return;
@@ -1509,21 +1460,28 @@ export const AICreatorView: React.FC = () => {
             if (streamKey) {
               streamBuffersRef.current.delete(streamKey);
             }
-            setMessages((prev) => {
-              const streamIndex = streamKey
-                ? prev.findIndex((item) => item.stream_key === streamKey)
-                : -1;
-              if (streamIndex >= 0) {
-                const next = [...prev];
-                next[streamIndex] = message;
-                return next;
+            if (isPlannerProcessMessage(message)) {
+              const processKey = getPlannerProcessKey(message);
+              if (processKey) {
+                setExpandedProcessGroups((prev) => ({ ...prev, [processKey]: true }));
               }
+            }
+            setMessages((prev) => {
               const idIndex = message.id
                 ? prev.findIndex((item) => item.id === message.id)
                 : -1;
               if (idIndex >= 0) {
                 const next = [...prev];
                 next[idIndex] = message;
+                return next;
+              }
+              const isAssistantMessage = String(message.metadata?.item_type || '') === 'message';
+              const streamIndex = streamKey && isAssistantMessage
+                ? prev.findIndex((item) => item.stream_key === streamKey && item.metadata?.is_streaming)
+                : -1;
+              if (streamIndex >= 0) {
+                const next = [...prev];
+                next[streamIndex] = message;
                 return next;
               }
               return [...prev, message];
@@ -1554,8 +1512,10 @@ export const AICreatorView: React.FC = () => {
         loadConversations();
       }
 
-      setSelectedSkills([]);
-      setSelectedRecipe(null);
+      if (!isContextRetry) {
+        setSelectedSkills([]);
+        setSelectedRecipe(null);
+      }
     } catch (err: any) {
       const wasAborted = controller.signal.aborted || err?.name === 'AbortError';
       if (!wasAborted && streamRequestTokenRef.current === requestToken) {
@@ -1614,23 +1574,14 @@ export const AICreatorView: React.FC = () => {
       e.preventDefault();
       return;
     }
-    if (e.key === 'ArrowDown' && !input && inputHistoryIndexRef.current === null && nextSuggestions.length > 1) {
-      e.preventDefault();
-      cycleNextSuggestion();
-      return;
-    }
     if (
-      e.key === 'ArrowRight'
+      e.key === 'Tab'
+      && !slashRange
       && !input
       && inputHistoryIndexRef.current === null
-      && (referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale')
-      && referenceAnalysis.imageIds.length > 0
+      && nextSuggestionResult.status === 'ready'
+      && canApplyNextSuggestion
     ) {
-      e.preventDefault();
-      retryReferenceAnalysis();
-      return;
-    }
-    if (e.key === 'ArrowRight' && !input && inputHistoryIndexRef.current === null && activeNextSuggestion && canApplyNextSuggestion) {
       e.preventDefault();
       applyNextSuggestion();
       return;
@@ -2004,7 +1955,7 @@ export const AICreatorView: React.FC = () => {
   };
 
   const isImageToolMessage = (msg: AiCreatorMessage) => {
-    if (msg.role !== 'tool') return false;
+    if (msg.role !== 'tool' && !(msg.role === 'developer' && msg.tool_result)) return false;
     const toolName = getToolName(msg);
     const displayType = String(msg.tool_result?.display_type || '').trim().toLowerCase();
     if (toolName === 'generate_image' || toolName === 'generate_first_frame') return true;
@@ -2220,7 +2171,7 @@ export const AICreatorView: React.FC = () => {
     const placedJobIds = new Set<string>();
     const latestMessageIndexByJobId = new Map<string, number>();
     messages.forEach((message, index) => {
-      if (message.role !== 'tool') return;
+      if (message.role !== 'tool' && !(message.role === 'developer' && message.tool_result)) return;
       getMessageRunIds(message).forEach((runId) => {
         const job = jobsByRunId.get(runId);
         if (job) latestMessageIndexByJobId.set(job.clientSubmissionId, index);
@@ -2241,6 +2192,15 @@ export const AICreatorView: React.FC = () => {
       }
     });
     const emittedProcessGroups = new Set<string>();
+    const latestRunStateByRun = new Map<string, AiCreatorMessage>();
+    const firstVisibleRunStateIndex = new Map<string, number>();
+    messages.forEach((message, index) => {
+      if (message.metadata?.item_type !== 'run_state' || !message.run_id) return;
+      latestRunStateByRun.set(message.run_id, message);
+      if (message.metadata?.run_state !== 'confirmed' && !firstVisibleRunStateIndex.has(message.run_id)) {
+        firstVisibleRunStateIndex.set(message.run_id, index);
+      }
+    });
 
     const flushImageGroup = () => {
       if (imageGroup.length === 1) {
@@ -2258,9 +2218,16 @@ export const AICreatorView: React.FC = () => {
       imageGroup = [];
     };
 
-    messages.forEach((message, index) => {
+    messages.forEach((rawMessage, index) => {
+      let message = rawMessage;
+      if (message.metadata?.item_type === 'context_state') return;
+      if (message.metadata?.item_type === 'run_state' && message.run_id) {
+        if (message.metadata?.run_state === 'confirmed') return;
+        if (firstVisibleRunStateIndex.get(message.run_id) !== index) return;
+        message = latestRunStateByRun.get(message.run_id) || message;
+      }
       const key = getMessageIdentity(message, index);
-      const matchingJob = message.role === 'tool'
+      const matchingJob = (message.role === 'tool' || (message.role === 'developer' && message.tool_result))
         ? getMessageRunIds(message).map((runId) => jobsByRunId.get(runId)).find(Boolean)
         : undefined;
       if (matchingJob) {
@@ -2283,6 +2250,14 @@ export const AICreatorView: React.FC = () => {
         if (!emittedProcessGroups.has(processKey)) {
           emittedProcessGroups.add(processKey);
           items.push({ type: 'process_group', key: processKey, entries: processGroups.get(processKey) || [] });
+        }
+        if (message.action && message.action.type !== 'chat') {
+          items.push({
+            type: 'message',
+            key: `${key}_action`,
+            message: { ...message, role: 'assistant', content: '' },
+            index,
+          });
         }
         return;
       }
@@ -2396,8 +2371,21 @@ export const AICreatorView: React.FC = () => {
 
   const renderPlannerProcessGroup = (item: Extract<ChatRenderItem, { type: 'process_group' }>) => {
     const assistant = item.entries.find((entry) => entry.message.metadata?.message_type === 'planner_trace_assistant')?.message;
-    const toolEntries = item.entries.filter((entry) => entry.message.metadata?.message_type === 'planner_trace_tool');
-    const toolCalls = Array.isArray(assistant?.metadata?.tool_calls) ? assistant!.metadata!.tool_calls : [];
+    const functionEntries = item.entries.filter((entry) => entry.message.metadata?.item_type === 'function_call');
+    const toolEntries = item.entries.filter((entry) => (
+      entry.message.metadata?.message_type === 'planner_trace_tool'
+      || entry.message.metadata?.item_type === 'function_call_output'
+    ));
+    const legacyToolCalls = Array.isArray(assistant?.metadata?.tool_calls) ? assistant!.metadata!.tool_calls : [];
+    const toolCalls = functionEntries.length > 0
+      ? functionEntries.map((entry) => {
+          const apiItem = entry.message.metadata?.api_item || {};
+          return {
+            id: apiItem.call_id || entry.message.metadata?.call_id,
+            function: { name: apiItem.name || entry.message.metadata?.tool_name, arguments: apiItem.arguments || '{}' },
+          };
+        })
+      : legacyToolCalls;
     const toolNames = toolCalls.map((call: any) => String(call?.function?.name || '')).filter(Boolean);
     const labels = toolNames.map((toolName: string) => {
       if (toolName !== 'retrieve_recipes') return plannerToolLabel(toolName);
@@ -2405,7 +2393,14 @@ export const AICreatorView: React.FC = () => {
       const count = Number(resultEntry ? readPlannerToolResult(resultEntry.message).count : 0);
       return count > 0 ? `${plannerToolLabel(toolName)} ${count} ${isZh ? '条' : ''}`.trim() : plannerToolLabel(toolName);
     });
-    const summary = Array.from(new Set(labels)).join(' · ') || (isZh ? 'Agent 过程' : 'Agent process');
+    const hasCheckpoint = item.entries.some((entry) => entry.message.metadata?.item_type === 'checkpoint');
+    const hasInterrupted = item.entries.some((entry) => entry.message.metadata?.item_type === 'response_interrupted');
+    const hasReasoning = item.entries.some((entry) => entry.message.metadata?.item_type === 'reasoning');
+    const summary = hasInterrupted
+      ? (isZh ? '对话上下文处理中断' : 'Context processing interrupted')
+      : hasCheckpoint
+        ? (item.entries.some((entry) => entry.message.metadata?.recovered) ? (isZh ? '已恢复对话上下文' : 'Conversation context restored') : (isZh ? '已整理上下文' : 'Context compacted'))
+        : Array.from(new Set(labels)).join(' · ') || (hasReasoning ? (isZh ? '模型思考' : 'Model reasoning') : (isZh ? 'Agent 过程' : 'Agent process'));
     const failed = toolEntries.some((entry) => ['failed', 'cancelled'].includes(String(entry.message.metadata?.status || '')));
     const expectedCallIds = new Set(toolCalls.map((call: any) => String(call?.id || '')).filter(Boolean));
     const actualCallIds = new Set(toolEntries.map((entry) => String(entry.message.metadata?.tool_call_id || '')).filter(Boolean));
@@ -2419,7 +2414,9 @@ export const AICreatorView: React.FC = () => {
     const expanded = active || Boolean(expandedProcessGroups[item.key]);
     const statusLabel = active
       ? (isZh ? '进行中' : 'Running')
-      : incomplete
+      : hasInterrupted
+        ? (isZh ? '已中断' : 'Interrupted')
+        : incomplete
         ? (isZh ? '已中断' : 'Interrupted')
         : failed
           ? (isZh ? '部分失败' : 'Partial failure')
@@ -2440,7 +2437,7 @@ export const AICreatorView: React.FC = () => {
 
     return (
       <div className="flex justify-start">
-        <div className="w-full max-w-[80%]">
+        <div className="ai-creator-process-group w-full max-w-[80%]">
           <button
             type="button"
             onClick={() => setExpandedProcessGroups((prev) => ({ ...prev, [item.key]: !expanded }))}
@@ -2459,6 +2456,37 @@ export const AICreatorView: React.FC = () => {
             <div className="ml-6 space-y-3 py-2">
               {item.entries.map((entry) => {
                 const messageType = String(entry.message.metadata?.message_type || '');
+                const itemType = String(entry.message.metadata?.item_type || '');
+                if (itemType === 'reasoning') {
+                  return (
+                    <details key={entry.key} className="text-xs text-zinc-500">
+                      <summary className="cursor-pointer hover:text-zinc-300">{isZh ? '查看思考内容' : 'View reasoning'}</summary>
+                      <div className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap pl-3 text-sm text-zinc-400">{entry.message.content || (isZh ? '模型返回了不可读的思考数据' : 'The model returned opaque reasoning data')}</div>
+                    </details>
+                  );
+                }
+                if (itemType === 'function_call') {
+                  const apiItem = entry.message.metadata?.api_item || {};
+                  return (
+                    <details key={entry.key} className="text-xs text-zinc-500">
+                      <summary className="cursor-pointer hover:text-zinc-300">{plannerToolLabel(String(apiItem.name || entry.message.metadata?.tool_name || ''))}</summary>
+                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap pl-3 text-[11px] text-zinc-400">{typeof apiItem.arguments === 'string' ? apiItem.arguments : JSON.stringify(apiItem.arguments || {}, null, 2)}</pre>
+                    </details>
+                  );
+                }
+                if (itemType === 'checkpoint' || itemType === 'response_interrupted') {
+                  const retryTurnId = String(entry.message.metadata?.retry_turn_id || '');
+                  return (
+                    <div key={entry.key} className={String(entry.message.metadata?.status) === 'failed' ? 'text-sm text-red-300' : 'text-sm text-zinc-400'}>
+                      <div>{entry.message.content}</div>
+                      {retryTurnId && (
+                        <button type="button" onClick={() => handleSend(undefined, retryTurnId)} className="mt-2 text-xs font-semibold text-orange-400 hover:text-orange-300">
+                          {isZh ? '重试上下文整理' : 'Retry context recovery'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
                 if (messageType === 'planner_trace_assistant') {
                   const calls = Array.isArray(entry.message.metadata?.tool_calls) ? entry.message.metadata?.tool_calls : [];
                   if (calls.length === 0) return null;
@@ -2919,7 +2947,7 @@ export const AICreatorView: React.FC = () => {
                       }}
                     />
                   </div>
-                ) : item.message.role === 'tool' ? (
+                ) : item.message.role === 'tool' || (item.message.role === 'developer' && item.message.tool_result) ? (
                   renderToolMessage(item.message)
                 ) : item.message.role === 'event' ? (
                   renderEventMessage(item.message)
@@ -3226,7 +3254,8 @@ export const AICreatorView: React.FC = () => {
                 </div>
               )}
               {renderSkillMenu()}
-            <div className="flex items-end gap-3 rounded-2xl bg-zinc-900 border border-white/10 p-3 pr-4 focus-within:border-orange-500/50 transition">
+            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-end gap-3 rounded-2xl bg-zinc-900 border border-white/10 p-3 pr-4 focus-within:border-orange-500/50 transition">
               {/* + upload button */}
               <button
                 onClick={() => openImagePicker('reference_image')}
@@ -3264,62 +3293,6 @@ export const AICreatorView: React.FC = () => {
                 className="flex-1 min-w-0 max-h-40 resize-none overflow-y-auto py-3 bg-transparent text-base leading-6 text-zinc-100 placeholder-zinc-500 focus:outline-none disabled:opacity-50"
               />
 
-              {!input && canApplyNextSuggestion && nextSuggestions.length > 0 && referenceAnalysis.status !== 'analyzing' && (
-                <span className="hidden lg:inline shrink-0 text-[11px] text-zinc-500 whitespace-nowrap">
-                  {activeSuggestionIndex + 1}/{nextSuggestions.length} · {t.ai_creator_suggestion_shortcuts || '↓ switch · → use'}
-                </span>
-              )}
-
-              <button
-                type="button"
-                onClick={cycleNextSuggestion}
-                disabled={Boolean(input) || nextSuggestions.length < 2 || nextSuggestionResult.status !== 'ready' || loading || referenceAnalysis.status === 'analyzing'}
-                title={t.ai_creator_switch_suggestion || 'Switch suggestion'}
-                aria-label={t.ai_creator_switch_suggestion || 'Switch suggestion'}
-                className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 ${
-                  !input && nextSuggestions.length > 1 && nextSuggestionResult.status === 'ready' && !loading && referenceAnalysis.status !== 'analyzing' ? '' : 'invisible pointer-events-none'
-                }`}
-              >
-                <ChevronDown className="w-4.5 h-4.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={applyNextSuggestion}
-                disabled={
-                  loading
-                  || referenceAnalysis.status === 'analyzing'
-                  || (
-                    referenceAnalysis.status === 'idle'
-                    && (!activeNextSuggestion || !canApplyNextSuggestion || Boolean(input))
-                  )
-                }
-                title={
-                  referenceAnalysis.status === 'ready' && Boolean(input)
-                    ? (t.ai_creator_reference_replace_draft || 'Use the image-optimized prompt')
-                    : referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale'
-                      ? (t.ai_creator_reference_retry_action || 'Analyze reference images again')
-                      : (t.ai_creator_use_suggestion || 'Use next suggestion')
-                }
-                aria-label={
-                  referenceAnalysis.status === 'ready' && Boolean(input)
-                    ? (t.ai_creator_reference_replace_draft || 'Use the image-optimized prompt')
-                    : referenceAnalysis.status === 'error' || referenceAnalysis.status === 'stale'
-                      ? (t.ai_creator_reference_retry_action || 'Analyze reference images again')
-                      : (t.ai_creator_use_suggestion || 'Use next suggestion')
-                }
-                className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-orange-300 transition hover:bg-orange-500/10 hover:text-orange-200 ${
-                  (
-                    referenceAnalysis.status !== 'idle'
-                    || (activeNextSuggestion && canApplyNextSuggestion && !input)
-                  ) && !loading ? '' : 'invisible pointer-events-none'
-                }`}
-              >
-                {referenceAnalysis.status === 'analyzing'
-                  ? <Loader2 className="w-4.5 h-4.5 animate-spin" />
-                  : <Sparkles className="w-4.5 h-4.5" />}
-              </button>
-
               {/* Send button */}
               <button
                 onClick={() => loading ? stopActiveStream() : handleSend()}
@@ -3332,6 +3305,32 @@ export const AICreatorView: React.FC = () => {
               >
                 {loading ? <Square className="w-4 h-4 fill-current" /> : <Send className="w-5 h-5" />}
               </button>
+            </div>
+              <div
+                className="group/context relative flex h-9 w-9 shrink-0 items-center justify-center"
+                tabIndex={0}
+                aria-label={contextTooltip}
+              >
+                <svg viewBox="0 0 32 32" className="h-7 w-7 -rotate-90" aria-hidden="true">
+                  <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" strokeWidth="3" className="text-zinc-700" />
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r="11"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    pathLength="100"
+                    strokeDasharray="100"
+                    strokeDashoffset={100 - contextPercent}
+                    className="text-orange-400 transition-[stroke-dashoffset] duration-300"
+                  />
+                </svg>
+                <div role="tooltip" className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden whitespace-nowrap rounded-md border border-white/10 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 shadow-lg group-hover/context:block group-focus/context:block">
+                  {contextTooltip}
+                </div>
+              </div>
             </div>
             </div>
             <p className="text-xs text-zinc-600 mt-2 ml-1">

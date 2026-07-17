@@ -55,7 +55,7 @@ export type AgentRequestedHint = AgentSkill | AgentExperienceRecipe;
 export interface AgentMessage {
   id?: string;
   stream_key?: string;
-  role: 'user' | 'assistant' | 'tool' | 'event';
+  role: 'user' | 'assistant' | 'developer' | 'tool' | 'event';
   content: string;
   attachments?: AgentAttachment[];
   action?: AgentAction | null;
@@ -82,8 +82,16 @@ export interface AgentConversation {
   id: string;
   title: string;
   summary?: string;
+  context_usage?: AgentContextUsage;
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentContextUsage {
+  input_tokens: number;
+  max_tokens: number;
+  checkpoint_threshold: number;
+  epoch: number;
 }
 
 export interface AgentStep {
@@ -148,6 +156,7 @@ export interface AgentAssistantDelta {
 export type AgentChatStreamHandlers = {
   onConversation?: (data: { conversation_id?: string; conversation?: AgentConversation; stream_id?: string }) => void;
   onStatus?: (status: AgentStreamStatus) => void;
+  onContextUsage?: (usage: AgentContextUsage) => void;
   onDelta?: (delta: AgentAssistantDelta) => void;
   onDiscard?: (data: { stream_id: string; stream_key: string }) => void;
   onMessage?: (message: AgentMessage) => void;
@@ -160,27 +169,12 @@ export interface AgentChatStreamOptions {
 
 export type AgentSuggestionLanguage = 'en' | 'zh' | 'ms' | 'vi' | 'ko';
 
-export type AgentSuggestionBranch = 'continue' | 'improve' | 'asset';
-
-export type AgentSuggestionAction =
-  | { type: 'fill_prompt'; prompt: string }
-  | { type: 'open_upload'; role: string; accept?: string; max_files?: number; after_upload?: 'analyze_reference' }
-  | { type: 'focus_confirmation'; run_id: string };
-
-export interface AgentSuggestionItem {
-  id: string;
-  branch: AgentSuggestionBranch;
-  text: string;
-  action: AgentSuggestionAction;
-}
-
 export interface AgentNextSuggestion {
   status: 'ready' | 'processing';
   suggestion: string | null;
   source: 'model' | 'fallback' | 'none';
   stage: string | null;
   can_apply: boolean;
-  suggestions: AgentSuggestionItem[];
 }
 
 export interface AgentReferencePrompt {
@@ -233,7 +227,7 @@ export const agentRuntimeApi = {
     });
   },
 
-  getMessages: async (id: string): Promise<{ id: string; title: string; messages: AgentMessage[] }> => {
+  getMessages: async (id: string): Promise<AgentConversation & { messages: AgentMessage[] }> => {
     const json = await apiRequest(`/api/agent/conversations/${id}/messages/`, {
       method: 'GET',
       fallbackMessage: 'Failed to load messages',
@@ -253,45 +247,12 @@ export const agentRuntimeApi = {
       fetchOptions: { signal: options.signal },
     });
     const data = json?.data || {};
-    const suggestions: AgentSuggestionItem[] = Array.isArray(data.suggestions)
-      ? data.suggestions.flatMap((item: unknown) => {
-          if (!item || typeof item !== 'object') return [];
-          const value = item as Record<string, unknown>;
-          const branch = value.branch;
-          const action = value.action;
-          if (
-            (branch !== 'continue' && branch !== 'improve' && branch !== 'asset')
-            || typeof value.id !== 'string'
-            || typeof value.text !== 'string'
-            || !action
-            || typeof action !== 'object'
-          ) return [];
-          const actionValue = action as Record<string, unknown>;
-          let parsedAction: AgentSuggestionAction | null = null;
-          if (actionValue.type === 'fill_prompt' && typeof actionValue.prompt === 'string') {
-            parsedAction = { type: 'fill_prompt', prompt: actionValue.prompt };
-          } else if (actionValue.type === 'open_upload' && typeof actionValue.role === 'string') {
-            parsedAction = {
-              type: 'open_upload',
-              role: actionValue.role,
-              ...(typeof actionValue.accept === 'string' ? { accept: actionValue.accept } : {}),
-              ...(typeof actionValue.max_files === 'number' ? { max_files: actionValue.max_files } : {}),
-              ...(actionValue.after_upload === 'analyze_reference' ? { after_upload: 'analyze_reference' as const } : {}),
-            };
-          } else if (actionValue.type === 'focus_confirmation' && typeof actionValue.run_id === 'string') {
-            parsedAction = { type: 'focus_confirmation', run_id: actionValue.run_id };
-          }
-          if (!parsedAction) return [];
-          return [{ id: value.id, branch, text: value.text, action: parsedAction }];
-        })
-      : [];
     return {
       status: data.status === 'processing' ? 'processing' : 'ready',
       suggestion: typeof data.suggestion === 'string' ? data.suggestion : null,
       source: data.source === 'model' || data.source === 'fallback' ? data.source : 'none',
       stage: typeof data.stage === 'string' ? data.stage : null,
       can_apply: data.can_apply !== false && typeof data.suggestion === 'string',
-      suggestions,
     };
   },
 
@@ -327,6 +288,7 @@ export const agentRuntimeApi = {
     conversation_id?: string;
     attachments?: AgentAttachment[];
     requested_hints?: AgentRequestedHint[];
+    retry_turn_id?: string;
   }): Promise<AgentChatResponse> => {
     const json = await apiRequest('/api/agent/chat/', {
       method: 'POST',
@@ -350,6 +312,7 @@ export const agentRuntimeApi = {
       conversation_id?: string;
       attachments?: AgentAttachment[];
       requested_hints?: AgentRequestedHint[];
+      retry_turn_id?: string;
     },
     handlers: AgentChatStreamHandlers = {},
     options: AgentChatStreamOptions = {},
@@ -398,6 +361,8 @@ export const agentRuntimeApi = {
         handlers.onConversation?.(data);
       } else if (eventName === 'status') {
         handlers.onStatus?.(data as AgentStreamStatus);
+      } else if (eventName === 'context_usage') {
+        handlers.onContextUsage?.((data.context_usage || {}) as AgentContextUsage);
       } else if (eventName === 'assistant_delta') {
         handlers.onDelta?.(data as AgentAssistantDelta);
       } else if (eventName === 'assistant_discard') {

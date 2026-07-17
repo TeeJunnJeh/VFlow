@@ -733,7 +733,10 @@ export const CommunityView = () => {
         }}
         onClose={() => setInteractionDialogTab(null)}
         onTabChange={setInteractionDialogTab}
-        onAuthorClick={openAuthorProfile}
+        onAuthorClick={(author) => {
+          openAuthorProfile(author);
+          setInteractionDialogTab(null);
+        }}
         onFollowAuthor={handleFollowAuthor}
       />
       {toastMessage ? (

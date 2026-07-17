@@ -124,6 +124,7 @@ export const getCommunityPreviewPosts = (params?: CommunityListParams): Communit
   const keyword = (params?.q || '').trim().toLowerCase();
   const filtered = previewPosts.filter((post) => {
     if (params?.type && params.type !== 'all' && post.post_type !== params.type) return false;
+    if (params?.authorId && post.author.id !== params.authorId) return false;
     if (!keyword) return true;
     const haystack = [
       post.title,

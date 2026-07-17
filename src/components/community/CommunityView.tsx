@@ -2,11 +2,14 @@ import React from 'react';
 import { AlertCircle, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import Masonry from 'react-masonry-css';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { useRequireAuth } from '../../utils/useRequireAuth';
-import { communityApi, isCommunityApiUnavailableError, type CommunityCreateDraft, type CommunityPost, type CommunityPostType, type CommunityReactionAction } from '../../services/community';
+import { communityApi, isCommunityApiUnavailableError, type CommunityAuthor, type CommunityCreateDraft, type CommunityInteractionTab, type CommunityPost, type CommunityPostType, type CommunityReactionAction } from '../../services/community';
 import { CommunityComposerDialog } from './CommunityComposerDialog';
 import { CommunityPostCard } from './CommunityPostCard';
 import { CommunityPostDetailDialog } from './CommunityPostDetailDialog';
+import { CommunityAuthorProfileView } from './CommunityAuthorProfileView';
+import { CommunityInteractionsDialog } from './CommunityInteractionsDialog';
 import { getCommunityPreviewPosts } from './communityPreviewPosts';
 
 type CommunityFilter = 'all' | CommunityPostType;
@@ -40,12 +43,23 @@ const getErrorMessage = (err: unknown, fallback: string) => {
 
 export const CommunityView = () => {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const { requireAuth } = useRequireAuth();
   const [query, setQuery] = React.useState('');
   const [debouncedQuery, setDebouncedQuery] = React.useState('');
   const [filter, setFilter] = React.useState<CommunityFilter>('all');
   const [posts, setPosts] = React.useState<CommunityPost[]>([]);
   const [selectedPost, setSelectedPost] = React.useState<CommunityPost | null>(null);
+  const [profileAuthor, setProfileAuthor] = React.useState<CommunityAuthor | null>(null);
+  const [profileFilter, setProfileFilter] = React.useState<CommunityFilter>('all');
+  const [profilePosts, setProfilePosts] = React.useState<CommunityPost[]>([]);
+  const [isProfileLoading, setIsProfileLoading] = React.useState(false);
+  const [profileErrorMessage, setProfileErrorMessage] = React.useState<string | null>(null);
+  const [interactionDialogTab, setInteractionDialogTab] = React.useState<CommunityInteractionTab | null>(null);
+  const [interactionItems, setInteractionItems] = React.useState<CommunityAuthor[]>([]);
+  const [interactionTotal, setInteractionTotal] = React.useState(0);
+  const [isInteractionsLoading, setIsInteractionsLoading] = React.useState(false);
+  const [interactionsErrorMessage, setInteractionsErrorMessage] = React.useState<string | null>(null);
   const [isComposerOpen, setIsComposerOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
@@ -110,6 +124,17 @@ export const CommunityView = () => {
     audioLabel: (t as any).community_audio_label || 'Audio',
     assetsLabel: (t as any).community_assets_label || 'Assets',
     assetPickerTitle: (t as any).community_asset_picker_title || 'Select assets',
+    profileBack: (t as any).community_profile_back || '返回社区',
+    profileFollow: (t as any).community_profile_follow || '关注',
+    profileFollowed: (t as any).community_profile_followed || '已关注',
+    profileFollowers: (t as any).community_profile_followers || '粉丝',
+    profileFollowing: (t as any).community_profile_following || '关注',
+    profileLikes: (t as any).community_profile_likes || '获赞',
+    profilePosts: (t as any).community_profile_posts || '作品',
+    interactionsTitle: (t as any).community_interactions_title || '我的互动',
+    interactionsEmptyFollowers: (t as any).community_interactions_empty_followers || '暂无粉丝~',
+    interactionsEmptyFollowing: (t as any).community_interactions_empty_following || '暂未关注任何人~',
+    interactionsEmptyLikes: (t as any).community_interactions_empty_likes || '获赞明细暂未同步~',
   }), [t]);
 
   React.useEffect(() => {
@@ -135,12 +160,21 @@ export const CommunityView = () => {
 
   const replacePost = React.useCallback((nextPost: CommunityPost) => {
     setPosts((prev) => prev.map((post) => (post.id === nextPost.id ? nextPost : post)));
+    setProfilePosts((prev) => prev.map((post) => (post.id === nextPost.id ? nextPost : post)));
     setSelectedPost((prev) => (prev?.id === nextPost.id ? nextPost : prev));
   }, []);
 
   const updatePost = React.useCallback((postId: string, updater: (post: CommunityPost) => CommunityPost) => {
     setPosts((prev) => prev.map((post) => (post.id === postId ? updater(post) : post)));
+    setProfilePosts((prev) => prev.map((post) => (post.id === postId ? updater(post) : post)));
     setSelectedPost((prev) => (prev?.id === postId ? updater(prev) : prev));
+  }, []);
+
+  const updateAuthorEverywhere = React.useCallback((author: CommunityAuthor) => {
+    setPosts((prev) => prev.map((post) => (post.author.id === author.id ? { ...post, author: { ...post.author, ...author } } : post)));
+    setProfilePosts((prev) => prev.map((post) => (post.author.id === author.id ? { ...post, author: { ...post.author, ...author } } : post)));
+    setSelectedPost((prev) => (prev?.author.id === author.id ? { ...prev, author: { ...prev.author, ...author } } : prev));
+    setProfileAuthor((prev) => (prev?.id === author.id ? { ...prev, ...author } : prev));
   }, []);
 
   const loadPosts = React.useCallback(async (options?: LoadOptions) => {
@@ -196,6 +230,66 @@ export const CommunityView = () => {
   }, [loadPosts]);
 
   React.useEffect(() => {
+    if (!profileAuthor?.id) return;
+    let cancelled = false;
+    setIsProfileLoading(true);
+    setProfileErrorMessage(null);
+
+    communityApi.listPosts({
+      authorId: profileAuthor.id,
+      type: profileFilter,
+      limit: 60,
+    }).then((response) => {
+      if (cancelled) return;
+      setProfilePosts(response.items);
+      const latestAuthor = response.items[0]?.author;
+      if (latestAuthor) setProfileAuthor((current) => (current?.id === latestAuthor.id ? { ...current, ...latestAuthor } : current));
+    }).catch((err) => {
+      if (cancelled) return;
+      if (isCommunityApiUnavailableError(err)) {
+        const previewResponse = getCommunityPreviewPosts({
+          authorId: profileAuthor.id,
+          type: profileFilter,
+          limit: 60,
+        });
+        setProfilePosts(previewResponse.items);
+        setProfileErrorMessage(null);
+        return;
+      }
+      setProfilePosts([]);
+      setProfileErrorMessage(getErrorMessage(err, labels.loadError));
+    }).finally(() => {
+      if (!cancelled) setIsProfileLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [labels.loadError, profileAuthor?.id, profileFilter]);
+  React.useEffect(() => {
+    if (!profileAuthor?.id || !interactionDialogTab) return;
+    let cancelled = false;
+    setIsInteractionsLoading(true);
+    setInteractionsErrorMessage(null);
+
+    communityApi.listAuthorInteractions(profileAuthor.id, interactionDialogTab, undefined, 60)
+      .then((response) => {
+        if (cancelled) return;
+        setInteractionItems(response.items);
+        setInteractionTotal(Number(response.total || 0));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setInteractionItems([]);
+        setInteractionTotal(0);
+        setInteractionsErrorMessage(getErrorMessage(err, labels.loadError));
+      })
+      .finally(() => {
+        if (!cancelled) setIsInteractionsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [interactionDialogTab, labels.loadError, profileAuthor?.id]);
+
+  React.useEffect(() => {
     const node = sentinelRef.current;
     if (!node || !nextCursor || isLoading || isLoadingMore || errorMessage) return;
     const observer = new IntersectionObserver((entries) => {
@@ -216,6 +310,43 @@ export const CommunityView = () => {
         // The list payload is enough for first render; detail can be retried by reopening later.
       });
   }, [replacePost]);
+
+  const openAuthorProfile = React.useCallback((author: CommunityAuthor) => {
+    if (!author?.id) return;
+    setSelectedPost(null);
+    setProfileAuthor(author);
+    setProfileFilter('all');
+    setProfilePosts([]);
+    setProfileErrorMessage(null);
+  }, []);
+
+  const closeAuthorProfile = React.useCallback(() => {
+    setProfileAuthor(null);
+    setProfilePosts([]);
+    setProfileErrorMessage(null);
+  }, []);
+
+  const handleFollowAuthor = React.useCallback(async (author: CommunityAuthor, value: boolean) => {
+    if (!author?.id) return;
+    if (!requireAuth()) return;
+    const previous = author;
+    const currentFollowerCount = Number(author.follower_count ?? author.fans_count ?? 0);
+    const nextFollowerCount = Math.max(0, currentFollowerCount + (value ? 1 : -1));
+    updateAuthorEverywhere({
+      ...author,
+      is_following: value,
+      follower_count: nextFollowerCount,
+      fans_count: nextFollowerCount,
+    });
+
+    try {
+      const nextAuthor = await communityApi.setAuthorFollow(author.id, value);
+      updateAuthorEverywhere(nextAuthor);
+    } catch (err) {
+      updateAuthorEverywhere(previous);
+      setErrorMessage(getErrorMessage(err, labels.actionError));
+    }
+  }, [labels.actionError, requireAuth, updateAuthorEverywhere]);
 
   const handleReaction = React.useCallback(async (post: CommunityPost, action: CommunityReactionAction) => {
     if (!requireAuth()) return;
@@ -348,10 +479,12 @@ export const CommunityView = () => {
   const handleFavorite = React.useCallback((item: CommunityPost) => { void handleReaction(item, 'favorite'); }, [handleReaction]);
 
   const hasPosts = posts.length > 0;
+  const isOwnProfile = Boolean(profileAuthor?.id && user?.id && String(profileAuthor.id) === String(user.id));
 
   return (
     <div className="relative z-10 flex h-full min-h-0 flex-col bg-[#050505]">
-      <header className="shrink-0 border-b border-white/5 px-8 py-6">
+      {!profileAuthor ? (
+        <header className="shrink-0 border-b border-white/5 px-8 py-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-2xl font-black tracking-tight text-zinc-100">{labels.title}</h1>
           <button
@@ -394,9 +527,53 @@ export const CommunityView = () => {
             ))}
           </div>
         </div>
-      </header>
+        </header>
+      ) : null}
 
       <main className="custom-scroll flex-1 overflow-y-auto px-8 py-6">
+        {profileAuthor ? (
+          <CommunityAuthorProfileView
+            author={profileAuthor}
+            posts={profilePosts}
+            isLoading={isProfileLoading}
+            errorMessage={profileErrorMessage}
+            filter={profileFilter}
+            isOwnProfile={isOwnProfile}
+            labels={{
+              all: labels.all,
+              material: labels.material,
+              experience: labels.experience,
+              empty: labels.empty,
+              loading: labels.loading,
+              back: labels.profileBack,
+              follow: labels.profileFollow,
+              followed: labels.profileFollowed,
+              followers: labels.profileFollowers,
+              following: labels.profileFollowing,
+              likes: labels.profileLikes,
+              posts: labels.profilePosts,
+              publish: labels.publish,
+            }}
+            cardLabels={cardLabels}
+            onBack={closeAuthorProfile}
+            onFilterChange={(value) => setProfileFilter(value)}
+            onOpenPost={openPost}
+            onOpenInteractions={(tab) => {
+              if (!isOwnProfile) return;
+              setInteractionDialogTab(tab);
+            }}
+            onPublish={() => {
+              if (!requireAuth()) return;
+              setIsComposerOpen(true);
+            }}
+            onFollowAuthor={handleFollowAuthor}
+            onLike={handleLike}
+            onFavorite={handleFavorite}
+            onCollectFirstMaterial={handleCollectFirstMaterial}
+            onAuthorClick={openAuthorProfile}
+          />
+        ) : (
+          <>
         {isPreviewMode ? (
           <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-sm font-bold text-amber-100">
             <AlertCircle className="h-4 w-4 shrink-0" />
@@ -450,6 +627,7 @@ export const CommunityView = () => {
                   onLike={handleLike}
                   onFavorite={handleFavorite}
                   onCollectFirstMaterial={handleCollectFirstMaterial}
+                  onAuthorClick={openAuthorProfile}
                 />
               ))}
             </Masonry>
@@ -469,6 +647,8 @@ export const CommunityView = () => {
           <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-white/10 text-sm font-bold text-zinc-500">
             {labels.empty}
           </div>
+        )}
+          </>
         )}
       </main>
 
@@ -522,8 +702,40 @@ export const CommunityView = () => {
         onCollectMaterial={handleCollectMaterial}
         onReport={(item) => void handleReport(item)}
         onCommentCountChange={handleCommentCountChange}
+        onAuthorClick={openAuthorProfile}
+        onFollowAuthor={handleFollowAuthor}
+        currentUserId={user?.id ? String(user.id) : ''}
       />
 
+      <CommunityInteractionsDialog
+        isOpen={Boolean(interactionDialogTab)}
+        activeTab={interactionDialogTab || 'followers'}
+        items={interactionItems}
+        total={interactionTotal}
+        isLoading={isInteractionsLoading}
+        errorMessage={interactionsErrorMessage}
+        currentUserId={user?.id ? String(user.id) : ''}
+        labels={{
+          title: labels.interactionsTitle,
+          followers: labels.profileFollowers,
+          following: labels.profileFollowing,
+          likes: labels.profileLikes,
+          emptyFollowers: labels.interactionsEmptyFollowers,
+          emptyFollowing: labels.interactionsEmptyFollowing,
+          emptyLikes: labels.interactionsEmptyLikes,
+          loading: labels.loading,
+          followed: labels.profileFollowed,
+          follow: labels.profileFollow,
+          posts: labels.profilePosts,
+          followersMeta: labels.profileFollowers,
+          noMore: labels.noMore,
+          close: labels.close,
+        }}
+        onClose={() => setInteractionDialogTab(null)}
+        onTabChange={setInteractionDialogTab}
+        onAuthorClick={openAuthorProfile}
+        onFollowAuthor={handleFollowAuthor}
+      />
       {toastMessage ? (
         <div className="fixed bottom-6 right-6 z-[130] rounded-lg border border-emerald-300/20 bg-emerald-500/15 px-4 py-3 text-sm font-bold text-emerald-100 shadow-2xl backdrop-blur">
           {toastMessage}

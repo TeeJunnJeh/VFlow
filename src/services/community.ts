@@ -6,6 +6,7 @@ const MEDIA_BASE_URL = (import.meta as any).env?.VITE_MEDIA_BASE_URL || '';
 
 export type CommunityPostType = 'material_share' | 'experience';
 export type CommunityReactionAction = 'like' | 'favorite';
+export type CommunityInteractionTab = 'followers' | 'following' | 'likes';
 export type CommunityMediaKind = 'video' | 'image' | 'audio';
 export type CommunityMaterialType = 'model' | 'product' | 'scene' | 'motion' | 'audio' | 'script' | 'skill';
 
@@ -13,6 +14,13 @@ export interface CommunityAuthor {
   id: string;
   name: string;
   avatar_url?: string;
+  post_count?: number;
+  works_count?: number;
+  follower_count?: number;
+  fans_count?: number;
+  following_count?: number;
+  like_count?: number;
+  is_following?: boolean;
 }
 
 export interface CommunityMedia {
@@ -92,12 +100,19 @@ export interface CommunityCommentDraft {
 export interface CommunityListParams {
   type?: CommunityPostType | 'all';
   q?: string;
+  authorId?: string;
   cursor?: string;
   limit?: number;
 }
 
 export interface CommunityListResponse {
   items: CommunityPost[];
+  nextCursor: string | null;
+  total?: number;
+}
+
+export interface CommunityAuthorListResponse {
+  items: CommunityAuthor[];
   nextCursor: string | null;
   total?: number;
 }
@@ -134,6 +149,15 @@ const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
   return normalized;
 };
 
+const toAvatarDisplayUrl = (pathOrUrl: string | null | undefined): string => {
+  if (!pathOrUrl) return '';
+  const raw = String(pathOrUrl).trim();
+  if (!raw || raw === 'null' || raw === 'undefined') return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  if (!raw.startsWith('/') && !raw.includes('/') && !raw.includes('.')) return '';
+  return toDisplayUrl(raw);
+};
+
 const normalizePostType = (value: unknown): CommunityPostType => (
   value === 'experience' ? 'experience' : 'material_share'
 );
@@ -143,16 +167,25 @@ const normalizeMediaKind = (value: unknown): CommunityMediaKind => {
   return 'image';
 };
 
+const normalizeCommunityAuthor = (item: any): CommunityAuthor => ({
+  id: String(item?.id || item?.author_id || ''),
+  name: String(item?.name || item?.author_name || ''),
+  avatar_url: toAvatarDisplayUrl(item?.avatar_url || item?.author_avatar_url || ''),
+  post_count: item?.post_count === undefined ? undefined : Number(item.post_count || 0),
+  works_count: item?.works_count === undefined ? undefined : Number(item.works_count || 0),
+  follower_count: item?.follower_count === undefined ? undefined : Number(item.follower_count || 0),
+  fans_count: item?.fans_count === undefined ? undefined : Number(item.fans_count || 0),
+  following_count: item?.following_count === undefined ? undefined : Number(item.following_count || 0),
+  like_count: item?.like_count === undefined ? undefined : Number(item.like_count || 0),
+  is_following: Boolean(item?.is_following),
+});
+
 export const normalizeCommunityPost = (item: any): CommunityPost => ({
   id: String(item.id || ''),
   title: String(item.title || ''),
   body: String(item.body || item.content || ''),
   post_type: normalizePostType(item.post_type || item.type),
-  author: {
-    id: String(item.author?.id || item.author_id || ''),
-    name: String(item.author?.name || item.author_name || ''),
-    avatar_url: toDisplayUrl(item.author?.avatar_url || item.author_avatar_url || ''),
-  },
+  author: normalizeCommunityAuthor(item.author || item),
   cover_url: toDisplayUrl(item.cover_url || item.thumbnail_url || ''),
   media: ((item.media || []) as any[]).map((media) => ({
     id: String(media.id || ''),
@@ -185,16 +218,8 @@ export const normalizeCommunityComment = (item: any): CommunityComment => ({
   post_id: String(item.post_id || item.postId || ''),
   parent_id: item.parent_id || item.parentId ? String(item.parent_id || item.parentId) : null,
   content: String(item.content || item.body || ''),
-  author: {
-    id: String(item.author?.id || item.author_id || ''),
-    name: String(item.author?.name || item.author_name || ''),
-    avatar_url: toDisplayUrl(item.author?.avatar_url || item.author_avatar_url || ''),
-  },
-  reply_to_user: item.reply_to_user ? {
-    id: String(item.reply_to_user?.id || item.reply_to_user_id || ''),
-    name: String(item.reply_to_user?.name || item.reply_to_user_name || ''),
-    avatar_url: toDisplayUrl(item.reply_to_user?.avatar_url || item.reply_to_user_avatar_url || ''),
-  } : null,
+  author: normalizeCommunityAuthor(item.author || item),
+  reply_to_user: item.reply_to_user ? normalizeCommunityAuthor(item.reply_to_user) : null,
   reply_count: Number(item.reply_count || 0),
   like_count: Number(item.like_count || 0),
   is_liked: Boolean(item.is_liked),
@@ -225,6 +250,7 @@ export const communityApi = {
     const search = new URLSearchParams();
     if (params?.type && params.type !== 'all') search.set('type', params.type);
     if (params?.q) search.set('q', params.q);
+    if (params?.authorId) search.set('author_id', params.authorId);
     if (params?.cursor) search.set('cursor', params.cursor);
     if (params?.limit) search.set('limit', String(params.limit));
 
@@ -374,6 +400,45 @@ export const communityApi = {
     return await response.json();
   },
 
+  listAuthorInteractions: async (authorId: string, tab: CommunityInteractionTab, cursor?: string, limit = 60): Promise<CommunityAuthorListResponse> => {
+    const search = new URLSearchParams();
+    search.set('tab', tab);
+    if (cursor) search.set('cursor', cursor);
+    if (limit) search.set('limit', String(limit));
+    const response = await fetch(`${API_BASE_URL}/authors/${authorId}/interactions/?${search.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) await throwCommunityApiError(response, 'Request failed');
+    const data = unwrapData(await response.json());
+    return {
+      items: ((data.items || data.results || []) as any[]).map(normalizeCommunityAuthor),
+      nextCursor: data.next_cursor || data.nextCursor || null,
+      total: Number(data.total || 0),
+    };
+  },
+  setAuthorFollow: async (authorId: string, value: boolean): Promise<CommunityAuthor> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/authors/${authorId}/follow/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ value }),
+    });
+
+    if (!response.ok) await throwCommunityApiError(response, 'Request failed');
+    const data = unwrapData(await response.json());
+    return normalizeCommunityAuthor(data.author || data.item || data);
+  },
   setReaction: async (postId: string, action: CommunityReactionAction, value: boolean) => {
     const csrftoken = getCookie('csrftoken');
     const response = await fetch(`${API_BASE_URL}/posts/${postId}/reaction/`, {

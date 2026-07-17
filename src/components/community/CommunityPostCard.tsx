@@ -1,6 +1,6 @@
 import React from 'react';
-import { Bookmark, Heart, Library, Play } from 'lucide-react';
-import type { CommunityPost } from '../../services/community';
+import { Bookmark, Heart, Library, Play, User } from 'lucide-react';
+import type { CommunityAuthor, CommunityPost } from '../../services/community';
 
 interface CommunityPostCardProps {
   post: CommunityPost;
@@ -14,6 +14,7 @@ interface CommunityPostCardProps {
   onLike?: (post: CommunityPost) => void;
   onFavorite?: (post: CommunityPost) => void;
   onCollectFirstMaterial?: (post: CommunityPost) => void;
+  onAuthorClick?: (author: CommunityAuthor) => void;
 }
 
 export const CommunityPostCard = React.memo(({
@@ -23,6 +24,7 @@ export const CommunityPostCard = React.memo(({
   onLike,
   onFavorite,
   onCollectFirstMaterial,
+  onAuthorClick,
 }: CommunityPostCardProps) => {
   // 优先选视频作为卡片主媒体（与详情弹窗一致）
   const videoMedia = post.media.find((m) => m.kind === 'video');
@@ -33,6 +35,13 @@ export const CommunityPostCard = React.memo(({
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = React.useState(false);
+  const [avatarFailed, setAvatarFailed] = React.useState(false);
+  const authorAvatarUrl = String(post.author.avatar_url || '').trim();
+  const canRenderAuthorAvatar = Boolean(authorAvatarUrl) && !avatarFailed;
+
+  React.useEffect(() => {
+    setAvatarFailed(false);
+  }, [authorAvatarUrl]);
 
   const handleMouseEnter = React.useCallback(() => {
     const el = videoRef.current;
@@ -62,7 +71,7 @@ export const CommunityPostCard = React.memo(({
         className="block w-full text-left"
       >
         <div
-          className={`relative overflow-hidden bg-zinc-900 ${isVideo ? 'aspect-[9/16]' : ''}`}
+          className="relative overflow-hidden bg-zinc-900"
           onMouseEnter={isVideo ? handleMouseEnter : undefined}
           onMouseLeave={isVideo ? handleMouseLeave : undefined}
         >
@@ -100,7 +109,36 @@ export const CommunityPostCard = React.memo(({
             {post.title}
           </p>
           <div className="mt-3 flex items-center gap-2 text-xs">
-            <span className="min-w-0 truncate font-bold text-zinc-400">@{post.author.name || 'creator'}</span>
+            <span
+              role={onAuthorClick ? 'button' : undefined}
+              tabIndex={onAuthorClick ? 0 : undefined}
+              onClick={(event) => {
+                if (!onAuthorClick) return;
+                event.stopPropagation();
+                onAuthorClick(post.author);
+              }}
+              onKeyDown={(event) => {
+                if (!onAuthorClick || (event.key !== 'Enter' && event.key !== ' ')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onAuthorClick(post.author);
+              }}
+              className={`inline-flex min-w-0 items-center gap-2 truncate font-bold text-zinc-400 ${onAuthorClick ? 'hover:text-orange-200' : ''}`}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-zinc-900">
+                {canRenderAuthorAvatar ? (
+                  <img
+                    src={authorAvatarUrl}
+                    alt={post.author.name || 'creator'}
+                    className="h-full w-full object-cover"
+                    onError={() => setAvatarFailed(true)}
+                  />
+                ) : (
+                  <User className="h-3.5 w-3.5 text-zinc-600" />
+                )}
+              </span>
+              <span className="min-w-0 truncate">@{post.author.name || 'creator'}</span>
+            </span>
           </div>
         </div>
       </button>

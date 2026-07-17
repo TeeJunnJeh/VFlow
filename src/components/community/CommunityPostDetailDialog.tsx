@@ -1,7 +1,7 @@
 import React from 'react';
 import { Bookmark, ChevronLeft, ChevronRight, Flag, Heart, Library, Loader2, Reply, Send, Sparkles, Trash2, User, UserPlus, X } from 'lucide-react';
 import { assetsApi } from '../../services/assets';
-import { communityApi, type CommunityComment, type CommunityPost, type CommunitySharedSkill } from '../../services/community';
+import { communityApi, type CommunityAuthor, type CommunityComment, type CommunityPost, type CommunitySharedSkill } from '../../services/community';
 import { useRequireAuth } from '../../utils/useRequireAuth';
 
 const formatSharedSkill = (skill: CommunitySharedSkill): string => {
@@ -52,6 +52,9 @@ interface CommunityPostDetailDialogProps {
   onCollectMaterial?: (post: CommunityPost, materialId: string) => void;
   onReport?: (post: CommunityPost) => void;
   onCommentCountChange?: (postId: string, count: number) => void;
+  onAuthorClick?: (author: CommunityAuthor) => void;
+  onFollowAuthor?: (author: CommunityAuthor, value: boolean) => void;
+  currentUserId?: string;
 }
 
 export const CommunityPostDetailDialog = ({
@@ -63,6 +66,9 @@ export const CommunityPostDetailDialog = ({
   onCollectMaterial,
   onReport,
   onCommentCountChange,
+  onAuthorClick,
+  onFollowAuthor,
+  currentUserId = '',
 }: CommunityPostDetailDialogProps) => {
   const { requireAuth } = useRequireAuth();
   const [savingSkill, setSavingSkill] = React.useState(false);
@@ -281,8 +287,10 @@ export const CommunityPostDetailDialog = ({
   const activeMedia = post.media[activeMediaIndex] || post.media[0];
   const mediaCount = post.media.length;
   const hasMultipleMedia = mediaCount > 1;
-  const goToPreviousMedia = () => setActiveMediaIndex((current) => (mediaCount ? (current - 1 + mediaCount) % mediaCount : 0));
-  const goToNextMedia = () => setActiveMediaIndex((current) => (mediaCount ? (current + 1) % mediaCount : 0));
+  const canGoPreviousMedia = activeMediaIndex > 0;
+  const canGoNextMedia = activeMediaIndex < mediaCount - 1;
+  const goToPreviousMedia = () => setActiveMediaIndex((current) => Math.max(0, current - 1));
+  const goToNextMedia = () => setActiveMediaIndex((current) => Math.min(Math.max(mediaCount - 1, 0), current + 1));
   const authorMeta = post.author as typeof post.author & {
     post_count?: number;
     works_count?: number;
@@ -292,30 +300,39 @@ export const CommunityPostDetailDialog = ({
   const authorName = post.author.name || 'creator';
   const authorPostCount = Number(authorMeta.post_count ?? authorMeta.works_count ?? 1);
   const authorFollowerCount = Number(authorMeta.follower_count ?? authorMeta.fans_count ?? 0);
+  const isOwnPostAuthor = Boolean(currentUserId && post.author.id && String(currentUserId) === String(post.author.id));
+  const isFollowingAuthor = Boolean(post.author.is_following);
   const postTypeLabel = post.post_type === 'experience' ? '创作经验' : '素材分享';
   const currentCommentTotal = Number(commentsTotal || post.comment_count || 0);
 
-  const renderAvatar = (name: string, avatarUrl?: string) => {
+  const renderAvatar = (name: string, avatarUrl?: string, author?: CommunityAuthor, sizeClass = 'h-9 w-9') => {
     const normalizedUrl = String(avatarUrl || '').trim();
     const canRenderImage = Boolean(normalizedUrl) && !brokenAvatarUrls[normalizedUrl];
-    return (
-    <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-white/10 bg-zinc-900">
-      {canRenderImage ? (
-        <img
-          src={normalizedUrl}
-          alt={name}
-          className="h-full w-full object-cover"
-          onError={() => {
-            setBrokenAvatarUrls((prev) => (prev[normalizedUrl] ? prev : { ...prev, [normalizedUrl]: true }));
-          }}
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center">
-          <User className="h-4 w-4 text-zinc-700" />
-        </div>
-      )}
-    </div>
-  );
+    const content = canRenderImage ? (
+      <img
+        src={normalizedUrl}
+        alt={name}
+        className="h-full w-full object-cover"
+        onError={() => {
+          setBrokenAvatarUrls((prev) => (prev[normalizedUrl] ? prev : { ...prev, [normalizedUrl]: true }));
+        }}
+      />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center">
+        <User className="h-4 w-4 text-zinc-700" />
+      </div>
+    );
+    const className = `${sizeClass} shrink-0 overflow-hidden rounded-full border border-white/10 bg-zinc-900`;
+
+    if (author && onAuthorClick) {
+      return (
+        <button type="button" onClick={() => onAuthorClick(author)} className={`${className} hover:border-orange-300/50`}>
+          {content}
+        </button>
+      );
+    }
+
+    return <div className={className}>{content}</div>;
   };
 
   const threadIncludesReplyTarget = (comment: CommunityComment) => (
@@ -410,7 +427,7 @@ export const CommunityPostDetailDialog = ({
           {comments.map((comment) => (
             <article key={comment.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <div className="flex items-start gap-3">
-                {renderAvatar(comment.author.name || 'creator', comment.author.avatar_url)}
+                {renderAvatar(comment.author.name || 'creator', comment.author.avatar_url, comment.author)}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="text-sm font-black text-zinc-100">{comment.author.name || '创作者'}</span>
@@ -452,7 +469,7 @@ export const CommunityPostDetailDialog = ({
                     <div className="mt-4 space-y-3 rounded-xl border border-white/8 bg-black/20 p-3">
                       {comment.replies.map((reply) => (
                         <div key={reply.id} className="flex items-start gap-3">
-                          {renderAvatar(reply.author.name || 'creator', reply.author.avatar_url)}
+                          {renderAvatar(reply.author.name || 'creator', reply.author.avatar_url, reply.author)}
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="text-sm font-bold text-zinc-100">{reply.author.name || '创作者'}</span>
@@ -525,22 +542,26 @@ export const CommunityPostDetailDialog = ({
               <div className="pointer-events-none absolute right-4 top-4 rounded-full bg-black/55 px-3 py-1.5 text-sm font-black text-white opacity-0 backdrop-blur transition-opacity group-hover/media:opacity-100">
                 {activeMediaIndex + 1}/{mediaCount}
               </div>
-              <button
-                type="button"
-                aria-label="上一张"
-                onClick={goToPreviousMedia}
-                className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition hover:bg-black/65 group-hover/media:opacity-100"
-              >
-                <ChevronLeft className="h-6 w-6" />
-              </button>
-              <button
-                type="button"
-                aria-label="下一张"
-                onClick={goToNextMedia}
-                className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition hover:bg-black/65 group-hover/media:opacity-100"
-              >
-                <ChevronRight className="h-6 w-6" />
-              </button>
+              {canGoPreviousMedia ? (
+                <button
+                  type="button"
+                  aria-label="上一张"
+                  onClick={goToPreviousMedia}
+                  className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition hover:bg-black/65 group-hover/media:opacity-100"
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+              ) : null}
+              {canGoNextMedia ? (
+                <button
+                  type="button"
+                  aria-label="下一张"
+                  onClick={goToNextMedia}
+                  className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition hover:bg-black/65 group-hover/media:opacity-100"
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              ) : null}
               <div className="absolute inset-x-0 bottom-4 flex items-center justify-center gap-1.5">
                 {post.media.map((item, index) => (
                   <button
@@ -559,15 +580,7 @@ export const CommunityPostDetailDialog = ({
         <aside className="flex min-h-0 flex-col border-l border-white/10">
           <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-5">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-white/10 bg-zinc-900">
-                {post.author.avatar_url ? (
-                  <img src={post.author.avatar_url} alt={authorName} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <User className="h-6 w-6 text-zinc-700" />
-                  </div>
-                )}
-              </div>
+              {renderAvatar(authorName, post.author.avatar_url, post.author, 'h-12 w-12')}
               <div className="min-w-0">
                 <div className="truncate text-base font-black text-zinc-100">{authorName}</div>
                 <div className="mt-1 flex items-center gap-3 text-xs font-bold text-zinc-500">
@@ -578,10 +591,16 @@ export const CommunityPostDetailDialog = ({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-orange-500 px-3 text-xs font-black text-white shadow-sm shadow-orange-950/20 hover:bg-orange-400">
-                <UserPlus className="h-4 w-4" />
-                关注
-              </button>
+              {!isOwnPostAuthor ? (
+                <button
+                  type="button"
+                  onClick={() => onFollowAuthor?.(post.author, !isFollowingAuthor)}
+                  className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-black shadow-sm transition ${isFollowingAuthor ? 'border border-white/10 bg-white/10 text-zinc-100 hover:bg-white/15' : 'bg-orange-500 text-white shadow-orange-950/20 hover:bg-orange-400'}`}
+                >
+                  <UserPlus className="h-4 w-4" />
+                  {isFollowingAuthor ? '已关注' : '关注'}
+                </button>
+              ) : null}
               <button type="button" title={labels.close} aria-label={labels.close} onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white">
                 <X className="h-5 w-5" />
               </button>
@@ -589,27 +608,27 @@ export const CommunityPostDetailDialog = ({
           </div>
 
           <div className="custom-scroll flex-1 overflow-y-auto px-5 py-5">
-            <section className="border-b border-white/10 pb-5">
+            <section>
               <h2 className="community-text-wrap text-2xl font-black leading-8 text-white">{post.title || '未命名作品'}</h2>
               {post.body ? <p className="community-text-wrap mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-100">{post.body}</p> : null}
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-zinc-500">
                 <span>{postTypeLabel}</span>
                 {post.created_at ? <span>{post.created_at}</span> : null}
               </div>
-              <div className="mt-4 inline-flex rounded-xl border border-white/10 bg-white/[0.03] p-1">
+              <div className="mt-5 flex items-end gap-8 border-b border-white/10">
                 <button
                   type="button"
                   onClick={() => setActiveTab('detail')}
-                  className={`rounded-lg px-3 py-2 text-sm font-black transition ${activeTab === 'detail' ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  className={`community-detail-tab ${activeTab === 'detail' ? 'community-detail-tab-active' : ''}`}
                 >
                   {labels.detailTab}
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveTab('comments')}
-                  className={`rounded-lg px-3 py-2 text-sm font-black transition ${activeTab === 'comments' ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  className={`community-detail-tab ${activeTab === 'comments' ? 'community-detail-tab-active' : ''}`}
                 >
-                  {labels.commentsTab} {currentCommentTotal}
+                  {labels.commentsTab} ({currentCommentTotal})
                 </button>
               </div>
             </section>
@@ -617,7 +636,7 @@ export const CommunityPostDetailDialog = ({
             {activeTab === 'detail' ? (
               <section className="pt-5">
                 {post.shared_skill ? (
-                  <div className="border-t border-dashed border-white/15 pt-4 first:border-t-0 first:pt-0">
+                  <div>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-200">
                         <Sparkles className="h-3.5 w-3.5" /> 分享的创作 Skill
@@ -642,7 +661,7 @@ export const CommunityPostDetailDialog = ({
                 ) : null}
 
                 {post.materials.length > 0 ? (
-                  <div className="mt-5 grid gap-2 border-t border-dashed border-white/15 pt-4">
+                  <div className={`${post.shared_skill ? 'mt-5 border-t border-dashed border-white/15 pt-4' : 'mt-0'} grid gap-2`}>
                     <div className="text-xs font-black text-zinc-400">可收集素材</div>
                     {post.materials.map((material) => (
                       <button

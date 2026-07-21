@@ -3,8 +3,8 @@ import { createPortal, flushSync } from 'react-dom';
 import {
   UploadCloud, Plus, X, CheckCircle, FolderPlus, Folder, Eye,
   Wand2, Loader2, Clapperboard, BookmarkPlus, FolderOpen,
-  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send, Cpu,
-  Zap, Layers, Layers3, Video, Lock, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
+  MonitorPlay, Film, SkipBack, Play, Pause, SkipForward, FileJson, Send,
+  Layers, Layers3, Info, Check, Sparkles, List, MoreHorizontal, Pencil, Trash2, Gift, ImagePlus,
   SlidersHorizontal, Music, Languages, HelpCircle, AlertCircle, ChevronDown, ChevronUp, ChevronsDown, Library,
   Download, Volume2, VolumeX, Maximize
 } from 'lucide-react';
@@ -268,6 +268,8 @@ const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
   sora2pro: 'sora-2-pro',
   'seedance2.0': 'seedance-2.0',
 };
+
+const WORKBENCH_VIDEO_MODEL = 'seedance2.0' as const;
 
 const IMAGE_MODEL_PRICING_ALIASES: Record<string, string> = {
   'gpt-image-1.5': 'gpt-image-1.5',
@@ -651,11 +653,7 @@ const createWorkspaceState = (params?: {
     assetQueue: [],
     scriptQueue: [],
     selectedTemplateId: null,
-    selectedModelId:
-      prefs.selectedModelId === 'kling' ||
-        prefs.selectedModelId === 'seedance2.0'
-        ? prefs.selectedModelId
-        : null,
+    selectedModelId: WORKBENCH_VIDEO_MODEL,
     generatedVideoUrl: null,
   };
 };
@@ -963,17 +961,6 @@ const mergeGuestStoreIntoTarget = (
   };
 };
 
-const SoraStarIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-    <path
-      d="M12 2.5l2.2 7.3 7.3 2.2-7.3 2.2-2.2 7.3-2.2-7.3-7.3-2.2 7.3-2.2L12 2.5Z"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
 const RATIO_TO_RES: Record<string, string> = {
   '16:9': '1280*720',
   '9:16': '720*1280',
@@ -1115,7 +1102,7 @@ type RegionLabelKey =
   | 'wb_region_cn'
   | 'wb_region_mx';
 
-type GuideStepKey = 'mode' | 'upload' | 'config' | 'scripts' | 'preview';
+type GuideStepKey = 'upload' | 'config' | 'scripts' | 'preview';
 
 const TARGET_LANGUAGE_OPTIONS: Array<{ value: string; labelKey: LangLabelKey }> = [
   { value: 'en', labelKey: 'lang_en' },
@@ -1197,13 +1184,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const { requireAuth } = useRequireAuth();
   const { tasks, addTask, updateTask, upsertTask } = useTasks();
   const { model: selectedModel, setModel: setSelectedModel } = useWorkbenchModel();
+  useEffect(() => {
+    if (selectedModel !== WORKBENCH_VIDEO_MODEL) {
+      setSelectedModel(WORKBENCH_VIDEO_MODEL);
+    }
+  }, [selectedModel, setSelectedModel]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const seedanceReplayFileInputRef = useRef<HTMLInputElement>(null);
   const backgroundAudioInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
   const assetLibraryUploadInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const modeSectionRef = useRef<HTMLDivElement | null>(null);
   const uploadSectionRef = useRef<HTMLDivElement | null>(null);
   const configSectionRef = useRef<HTMLDivElement | null>(null);
   const audioConfigSectionRef = useRef<HTMLDivElement | null>(null);
@@ -1254,7 +1245,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
   const guideSteps = useMemo<Array<{ key: GuideStepKey; title: string; description: string }>>(
     () => [
-      { key: 'mode', title: t.wb_guide_mode_title, description: t.wb_guide_mode_desc },
       { key: 'upload', title: t.wb_guide_upload_title, description: t.wb_guide_upload_desc },
       { key: 'config', title: t.wb_guide_config_title, description: t.wb_guide_config_desc },
       { key: 'scripts', title: t.wb_guide_scripts_title, description: t.wb_guide_scripts_desc },
@@ -1477,7 +1467,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [replayBatchRun, setReplayBatchRun] = useState<ReplayBatchRun | null>(null);
   const [reuseQueueEnabled, setReuseQueueEnabled] = useState(false);
   const [billingPricing, setBillingPricing] = useState<BillingPricingCatalog | null>(null);
-  const [isModelSectionCollapsed, setIsModelSectionCollapsed] = useState(false);
   const [isUploadSectionCollapsed, setIsUploadSectionCollapsed] = useState(false);
   const [isAiRecognizing, setIsAiRecognizing] = useState(false);
   const [hasAiRecognized, setHasAiRecognized] = useState(false);
@@ -1576,7 +1565,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         soundSetting,
         scriptVariantCount,
         creationMode: 'fast',
-        selectedModelId: selectedModel,
+        selectedModelId: WORKBENCH_VIDEO_MODEL,
       }, user?.id ?? null);
     }, 400);
 
@@ -2188,16 +2177,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (backup && !backup.startsWith('blob:')) return backup;
       return primary || backup || null;
     };
-    const restoredModelId =
-      workspace.selectedModelId === 'kling' ||
-        workspace.selectedModelId === 'seedance2.0'
-        ? workspace.selectedModelId
-        : (
-          initialPrefs.selectedModelId === 'kling' ||
-            initialPrefs.selectedModelId === 'seedance2.0'
-            ? initialPrefs.selectedModelId
-            : 'seedance2.0'
-        );
+    const restoredModelId = WORKBENCH_VIDEO_MODEL;
 
     isApplyingProjectWorkspaceRef.current = true;
     skipNextKlingNormalizeRef.current = true;
@@ -2724,12 +2704,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       if (isApplyingProjectWorkspaceRef.current && elapsed < MAX_WAIT) return;
       window.clearInterval(poller);
 
-      // 2a. Switch model (only Sora-family models are supported for transfer)
+      // 2a. Normalize all transferred projects to the workbench video model.
       if (initialTransferModel) {
-        const nextModel = initialTransferModel === 'sora2' || initialTransferModel === 'sora2pro'
-          ? 'seedance2.0'
-          : initialTransferModel;
-        setSelectedModel(nextModel);
+        setSelectedModel(WORKBENCH_VIDEO_MODEL);
       }
 
       const finalizeTransfer = () => {
@@ -3039,7 +3016,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       assetQueue: persistedAssetQueue,
       scriptQueue,
       selectedTemplateId: selectedTemplate?.id || null,
-      selectedModelId: (selectedModel as string) || null,
+      selectedModelId: WORKBENCH_VIDEO_MODEL,
       generatedVideoUrl,
     };
 
@@ -5246,7 +5223,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const assetUrl = toDisplayUrl(rawUrl) || rawUrl;
     const assetName = String(initialFirstFrameVideoTransfer.imageName || '').trim() || (t.wb_kling_generated_first_frame_name || 'AI First Frame');
-    const targetModel = initialFirstFrameVideoTransfer.targetModel;
     const nextAsset: QueuedAsset = {
       id: `first-frame-video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name: assetName,
@@ -5260,29 +5236,15 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       mediaKind: 'image',
       uploadedPath: assetUrl,
       validationMessages: [],
-      frameRole: targetModel === 'seedance2.0' ? '首帧' : null,
+      frameRole: '首帧',
     };
 
-    if (targetModel === 'kling') {
-      setSelectedModel('kling');
-      setKlingGenerateMode('first_frame');
-      setAssetQueue((prev) => normalizeQueueSourcesForKlingMode([
-        nextAsset,
-        ...prev.map((item) => (
-          item.mediaKind === 'image' && item.source === 'product'
-            ? { ...item, source: 'preference' as const, isPrimaryFrame: false }
-            : item
-        )),
-      ], 'first_frame'));
-      setSelectedAssetSource('product');
-    } else {
-      setSelectedModel('seedance2.0');
-      setAssetQueue((prev) => [
-        ...prev.map((item) => (item.frameRole === '首帧' ? { ...item, frameRole: null } : item)),
-        nextAsset,
-      ]);
-      setSelectedAssetSource('product');
-    }
+    setSelectedModel(WORKBENCH_VIDEO_MODEL);
+    setAssetQueue((prev) => [
+      ...prev.map((item) => (item.frameRole === '首帧' ? { ...item, frameRole: null } : item)),
+      nextAsset,
+    ]);
+    setSelectedAssetSource('product');
 
     setUploadedFile(assetUrl);
     setSelectedAssetUrl(assetUrl);
@@ -5295,7 +5257,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     onFirstFrameVideoTransferHandled?.();
   }, [
     initialFirstFrameVideoTransfer,
-    normalizeQueueSourcesForKlingMode,
     onFirstFrameVideoTransferHandled,
     setGeneratedVideoUrl,
     setSelectedModel,
@@ -5530,7 +5491,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   const getGuideTargetElement = useCallback(() => {
     const map: Record<GuideStepKey, React.RefObject<HTMLDivElement | null>> = {
-      mode: modeSectionRef,
       upload: uploadSectionRef,
       config: configSectionRef,
       scripts: scriptsSectionRef,
@@ -10140,237 +10100,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   );
 
   const renderLeftColumn = () => {
-    const segmentBase =
-      'group/seg relative flex-1 py-2.5 rounded-lg text-[11px] tracking-tight font-bold transition select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60';
-    const activeSegment = 'bg-gradient-to-r from-purple-600 to-orange-500 text-white shadow-lg shadow-orange-500/15';
-    const inactiveSegment = 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5';
-    const soraOfflineLabel = language === 'zh' ? '已下线' : 'Discontinued';
-    const soraOfflineDesc = t.wb_model_sora_discontinued || (language === 'zh' ? 'Sora 系列产品已经下线' : 'Sora models are discontinued.');
-    const isSoraUnavailable = (id: string) => id === 'sora2' || id === 'sora2pro';
-
-    const tooltipBase =
-      'pointer-events-none absolute top-full mt-2 w-[250px] rounded-2xl border border-white/25 bg-zinc-950/90 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition group-hover/seg:opacity-100 group-focus-visible/seg:opacity-100 z-[200]';
-
-    const tooltipAlignClass = (align: 'left' | 'center' | 'right') => {
-      if (align === 'left') return 'left-0 translate-x-0';
-      if (align === 'right') return 'left-full translate-x-full';
-      return 'left-1/2 -translate-x-1/2';
-    };
-
-    const tooltip = (desc: string, align: 'left' | 'center' | 'right' = 'center') => (
-      <div className={`${tooltipBase} ${tooltipAlignClass(align)}`}>
-        <div className="text-[11px] font-bold text-white/90">{t.wb_model_tooltip_title}</div>
-        <div className="mt-1 text-[10px] leading-relaxed text-zinc-200/80">{desc}</div>
-      </div>
-    );
     const audioModeIndex = soundSetting === 'off' ? 1 : 0;
     const klingModeIndex = klingGenerateMode === 'subject' ? 1 : klingGenerateMode === 'first_last_frame' ? 2 : 0;
     const boundaryModelIndex = imageGenModel === 'flux-2-flex' ? 1 : imageGenModel === 'gpt-image-1.5' ? 2 : 0;
-
-    const legacyModelSelector = (
-      <div className="flex flex-col gap-3">
-        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <Cpu className="w-3 h-3" /> {t.wb_model_title}
-        </h2>
-        <div className="glass-panel rounded-xl p-1 border border-white/10 bg-black/20 relative z-[90]">
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'kling'}
-              onClick={() => setSelectedModel('kling')}
-              className={`${segmentBase} ${language === 'zh' ? 'text-[10px]' : ''} ${selectedModel === 'kling' ? activeSegment : inactiveSegment}`}
-            >
-              {t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1')}
-              {tooltip(t.wb_model_tip_sora_kling, 'left')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={false}
-              onClick={() => undefined}
-              disabled
-              className={`${segmentBase} cursor-not-allowed opacity-55 ${inactiveSegment}`}
-            >
-              Sora 2
-              <span className="ml-1 text-[9px] font-black text-zinc-500">{soraOfflineLabel}</span>
-              {tooltip(soraOfflineDesc, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={false}
-              onClick={() => undefined}
-              disabled
-              className={`${segmentBase} cursor-not-allowed opacity-55 ${inactiveSegment}`}
-            >
-              Sora 2 Pro
-              <span className="ml-1 text-[9px] font-black text-zinc-500">{soraOfflineLabel}</span>
-              {tooltip(soraOfflineDesc, 'center')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={selectedModel === 'seedance2.0'}
-              onClick={() => setSelectedModel('seedance2.0')}
-              className={`${segmentBase} ${selectedModel === 'seedance2.0' ? activeSegment : inactiveSegment}`}
-            >
-              Seedance 2.0
-              {tooltip(t.wb_model_tip_seedance, 'right')}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-
-    const modelOptions: Array<{
-      id: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
-      title: string;
-      desc: string;
-      Icon: React.ComponentType<{ className?: string }>;
-    }> = [
-        {
-          id: 'kling',
-          title: t.wb_model_kling_title || (language === 'zh' ? '可灵 o1' : 'Kling o1'),
-          desc: t.wb_model_kling_desc,
-          Icon: Zap,
-        },
-        {
-          id: 'sora2',
-          title: 'Sora 2',
-          desc: soraOfflineDesc,
-          Icon: SoraStarIcon,
-        },
-        {
-          id: 'sora2pro',
-          title: 'Sora 2 Pro',
-          desc: soraOfflineDesc,
-          Icon: Sparkles,
-        },
-        {
-          id: 'seedance2.0',
-          title: 'Seedance 2.0',
-          desc: t.wb_model_tip_seedance,
-          Icon: Video,
-        },
-
-      ];
-
-    const renderModelCard = (opt: typeof modelOptions[number]) => {
-      const active = selectedModel === opt.id;
-      const locked = isSoraUnavailable(opt.id);
-      const rateLabel = opt.id === 'seedance2.0'
-        ? (t.wb_usage_based_billing || '按量付费')
-        : formatVideoRateLabel(getVideoModelPricingEntry(billingPricing, opt.id, 'fast'));
-      return (
-        <button
-          key={opt.id}
-          type="button"
-          onClick={() => {
-            if (locked) return;
-            setSelectedModel(opt.id);
-          }}
-          disabled={locked}
-          className={[
-            'wb-fast-model-card w-full text-left rounded-2xl border p-3 transition flex items-center gap-4',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50',
-            active
-              ? 'border-orange-500/70 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-              : 'border-white/10 bg-black/20 hover:bg-white/5',
-            locked ? 'cursor-not-allowed opacity-55' : '',
-          ].join(' ')}
-          aria-pressed={active}
-        >
-          <div
-            className={[
-              'w-10 h-10 rounded-2xl flex items-center justify-center shrink-0',
-              active
-                ? 'bg-orange-500/20 border border-orange-500/30'
-                : 'bg-zinc-900/60 border border-white/10',
-            ].join(' ')}
-          >
-            <opt.Icon className={active ? 'w-5 h-5 text-orange-500' : 'w-5 h-5 text-zinc-400'} />
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <div className="text-[14px] font-black tracking-wide text-zinc-200 truncate">{opt.title}</div>
-              {locked ? (
-                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold tracking-wide text-zinc-400">
-                  {soraOfflineLabel}
-                </span>
-              ) : null}
-              <span className="relative inline-flex items-center group/model-tip shrink-0">
-                <Info className="h-3.5 w-3.5 text-zinc-500" />
-                <span className="pointer-events-none absolute bottom-full left-full z-20 mb-1 ml-2 w-52 whitespace-normal break-words rounded-lg border border-white/10 bg-zinc-900/95 px-2 py-1 text-[11px] font-medium leading-snug text-zinc-100 opacity-0 shadow-xl backdrop-blur transition group-hover/model-tip:opacity-100">
-                  {opt.desc}
-                </span>
-              </span>
-            </div>
-          </div>
-          {locked ? (
-            <Lock className="w-4 h-4 text-zinc-400 shrink-0" aria-hidden="true" />
-          ) : (
-            <div className="flex w-14 shrink-0 flex-col items-center gap-2">
-              <div
-                className={[
-                  'model-check w-4 h-4 rounded-full border flex items-center justify-center',
-                  active ? 'border-orange-500 bg-orange-500' : 'model-check--inactive border-white/25 bg-transparent',
-                ].join(' ')}
-                aria-hidden="true"
-              >
-                {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
-              </div>
-              <div
-                className={[
-                  'text-[8px] whitespace-nowrap',
-                  active ? 'font-bold text-orange-500' : 'font-medium text-zinc-500',
-                ].join(' ')}
-              >
-                {rateLabel}
-              </div>
-            </div>
-          )}
-        </button>
-      );
-    };
-
-    const modelSelector = (
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <h2 className="text-sm font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-            <Wand2 className="w-3 h-3" /> {t.wb_creation_mode_title}
-          </h2>
-          <button
-            type="button"
-            onClick={() => setIsModelSectionCollapsed(!isModelSectionCollapsed)}
-            className="p-1.5 text-zinc-600 hover:text-zinc-300 transition rounded"
-            title={isModelSectionCollapsed ? t.wb_expand : t.wb_collapse}
-          >
-            <ChevronsDown className={`w-4 h-4 transition-transform duration-200 ${isModelSectionCollapsed ? 'rotate-0' : 'rotate-180'}`} />
-          </button>
-        </div>
-
-        <div
-          className={[
-            'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300',
-            'ease-[cubic-bezier(0.22,1,0.36,1)]',
-            isModelSectionCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
-          ].join(' ')}
-          aria-hidden={isModelSectionCollapsed}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div
-              className={[
-                'flex flex-col gap-6 transition-[transform,opacity] duration-300',
-                'ease-[cubic-bezier(0.22,1,0.36,1)]',
-                isModelSectionCollapsed ? '-translate-y-3 opacity-0' : 'translate-y-0 opacity-100',
-              ].join(' ')}
-            >
-              <div className="space-y-3">
-                <div className="flex flex-col gap-3">{modelOptions.map(renderModelCard)}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
 
     const renderLeftColumnSettings = () => (
       <div ref={configSectionRef} className={`wb-config-form flex flex-col gap-3 flex-1 scroll-mt-4 transition-opacity duration-500 ${getGuideFocusClass('config')}`}>
@@ -10803,10 +10535,6 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     return (
       <div className="w-full flex flex-col gap-6 h-full overflow-y-auto overflow-x-visible custom-scroll px-2 py-2">
-        <div ref={modeSectionRef} className={getGuideFocusClass('mode')}>
-          {modelSelector}
-        </div>
-        {false && legacyModelSelector}
         {/* Upload Section */}
         <div ref={uploadSectionRef} className={`flex flex-col gap-3 border-t border-white/10 pt-4 ${getGuideFocusClass('upload')}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">

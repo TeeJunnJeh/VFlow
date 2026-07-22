@@ -3356,7 +3356,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, [generatedVideoUrl, tasks]);
 
   useEffect(() => {
-    const preferredProjectId = lastGeneratedProjectId || projectStore.currentProjectId;
+    const backendPreviewProjectId = String(lastGeneratedProjectId || '').trim();
+    const workbenchPreviewProjectId = String(projectStore.currentProjectId || '').trim();
 
     const nextSnapshot: Record<string, string> = {};
     const newlySucceeded = tasks.filter((task) => {
@@ -3367,10 +3368,17 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     });
     taskStatusSnapshotRef.current = nextSnapshot;
 
-    if (!preferredProjectId || newlySucceeded.length === 0) return;
+    if ((!backendPreviewProjectId && !workbenchPreviewProjectId) || newlySucceeded.length === 0) return;
 
     const candidates = newlySucceeded
-      .filter((task) => task.type === 'video_generation' && task.projectId === preferredProjectId)
+      .filter((task) => {
+        if (task.type !== 'video_generation') return false;
+        const backendProjectId = String(task.projectId || '').trim();
+        const workbenchProjectId = String(task.workbenchProjectId || '').trim();
+        const matchesBackendProject = Boolean(backendPreviewProjectId) && backendProjectId === backendPreviewProjectId;
+        const matchesWorkbenchProject = Boolean(workbenchPreviewProjectId) && workbenchProjectId === workbenchPreviewProjectId;
+        return matchesBackendProject || matchesWorkbenchProject;
+      })
       .map((task) => {
         const url = toDisplayUrl(task.result?.video_url || task.result?.url);
         return { task, url: typeof url === 'string' ? url : null };
@@ -3391,6 +3399,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     autoPreviewedTaskIdsRef.current[String(picked.task.id)] = true;
     setGeneratedVideoUrl(picked.url);
     setPreviewProjectId(picked.task.projectId || null);
+    if (picked.task.projectId) setLastGeneratedProjectId(picked.task.projectId);
   }, [tasks, lastGeneratedProjectId, projectStore.currentProjectId, setGeneratedVideoUrl]);
 
   const sortByCreatedAtDesc = useCallback(

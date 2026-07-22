@@ -2263,7 +2263,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setBatchGenerateCountsByPage({});
     setAssetQueue(restoredAssetQueue);
     setScriptQueue(Array.isArray(workspace.scriptQueue) ? workspace.scriptQueue : []);
-    setGeneratedVideoUrl(workspace.generatedVideoUrl || null);
+    setGeneratedVideoUrl(toDisplayUrl(workspace.generatedVideoUrl) || null);
 
     if (workspace.selectedTemplateId) {
       const matchedTemplate = templateList.find((tpl) => tpl.id === workspace.selectedTemplateId) || null;
@@ -3351,7 +3351,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
   useEffect(() => {
     if (!generatedVideoUrl) return;
-    const matched = tasks.find(t => (t.result?.video_url || t.result?.url) === generatedVideoUrl);
+    const matched = tasks.find(t => toDisplayUrl(t.result?.video_url || t.result?.url) === generatedVideoUrl);
     if (matched?.projectId) setPreviewProjectId(matched.projectId);
   }, [generatedVideoUrl, tasks]);
 
@@ -3372,7 +3372,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     const candidates = newlySucceeded
       .filter((task) => task.type === 'video_generation' && task.projectId === preferredProjectId)
       .map((task) => {
-        const url = task.result?.video_url || task.result?.url;
+        const url = toDisplayUrl(task.result?.video_url || task.result?.url);
         return { task, url: typeof url === 'string' ? url : null };
       })
       .filter((item) => Boolean(item.url) && !autoPreviewedTaskIdsRef.current[String(item.task.id)]);
@@ -11678,7 +11678,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                     <div className="mt-2 space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1">
                       {completedVideoTasks.slice(0, 12).map((task) => {
                         const rawUrl = task.result?.video_url || task.result?.url;
-                        const url = typeof rawUrl === 'string' ? rawUrl : '';
+                        const url = toDisplayUrl(rawUrl);
                         const canPreview = !!url;
                         const backendProjectId = String(task.projectId || '').trim();
                         const workbenchProjectId = String((task as any)?.workbenchProjectId || '').trim();
@@ -13347,7 +13347,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                         )}
                         {replayBatchProgress.items.map((item) => {
                           const task = item.taskId ? replayTaskById.get(String(item.taskId)) : null;
-                          const videoUrl = task?.result?.video_url || task?.result?.url;
+                          const videoUrl = toDisplayUrl(task?.result?.video_url || task?.result?.url);
                           return (
                             <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
                               <div className="min-w-0">

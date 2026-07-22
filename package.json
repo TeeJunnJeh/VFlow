@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "check:seed-skill": "node ./scripts/check-seed-skill-workflows.mjs",
     "check:workbench-seedance": "node ./scripts/check-workbench-seedance-only.mjs",
+    "check:workbench-preview-url": "node ./scripts/check-workbench-preview-url.mjs",
     "lint": "eslint .",
     "i18n:scan": "node ./scripts/check-i18n.mjs",
     "preview": "vite preview"

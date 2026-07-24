@@ -1,11 +1,11 @@
 import React from 'react';
-import { Check, Loader2, User, X } from 'lucide-react';
-import type { CommunityAuthor, CommunityInteractionTab } from '../../services/community';
+import { Check, Image, Loader2, Play, User, X } from 'lucide-react';
+import type { CommunityAuthor, CommunityInteractionItem, CommunityInteractionTab } from '../../services/community';
 
 interface CommunityInteractionsDialogProps {
   isOpen: boolean;
   activeTab: CommunityInteractionTab;
-  items: CommunityAuthor[];
+  items: CommunityInteractionItem[];
   isLoading: boolean;
   errorMessage?: string | null;
   total?: number;
@@ -24,11 +24,13 @@ interface CommunityInteractionsDialogProps {
     followersMeta: string;
     noMore: string;
     close: string;
+    likedYourPost: string;
   };
   currentUserId?: string;
   onClose: () => void;
   onTabChange: (tab: CommunityInteractionTab) => void;
   onAuthorClick?: (author: CommunityAuthor) => void;
+  onPostClick?: (postId: string) => void;
   onFollowAuthor?: (author: CommunityAuthor, value: boolean) => void;
 }
 
@@ -68,6 +70,64 @@ const CommunityInteractionAvatar = ({ author, onClick }: { author: CommunityAuth
   );
 };
 
+const formatInteractionDate = (value?: string) => {
+  if (!value) return '';
+  const matched = value.match(/^\d{4}-(\d{2})-(\d{2})/);
+  if (matched) return `${matched[1]}-${matched[2]}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const CommunityInteractionPostPreview = ({
+  item,
+  onClick,
+}: {
+  item: CommunityInteractionItem;
+  onClick?: () => void;
+}) => {
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const preview = item.post?.preview;
+  const isVideo = preview?.kind === 'video' && Boolean(preview.url);
+  const imageUrl = isVideo ? '' : (item.post?.cover_url || preview?.thumbnail_url || preview?.url || '');
+
+  const handleLoadedMetadata = React.useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    try { video.currentTime = 0.001; } catch { /* noop */ }
+  }, []);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="community-interaction-post-thumbnail relative flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-zinc-950"
+      title={item.post?.title}
+    >
+      {isVideo ? (
+        <>
+          <video
+            ref={videoRef}
+            src={preview!.url}
+            muted
+            playsInline
+            preload="metadata"
+            onLoadedMetadata={handleLoadedMetadata}
+            className="h-full w-full object-cover"
+          />
+          <span className="pointer-events-none absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white">
+            <Play className="h-3 w-3 fill-current" />
+          </span>
+        </>
+      ) : imageUrl ? (
+        <img src={imageUrl} alt={item.post?.title || 'post'} className="h-full w-full object-cover" />
+      ) : (
+        <Image className="h-7 w-7 text-zinc-600" />
+      )}
+    </button>
+  );
+};
+
 export const CommunityInteractionsDialog = ({
   isOpen,
   activeTab,
@@ -79,6 +139,7 @@ export const CommunityInteractionsDialog = ({
   onClose,
   onTabChange,
   onAuthorClick,
+  onPostClick,
   onFollowAuthor,
 }: CommunityInteractionsDialogProps) => {
   if (!isOpen) return null;
@@ -139,13 +200,40 @@ export const CommunityInteractionsDialog = ({
             </div>
           ) : items.length > 0 ? (
             <div className="px-6 py-5">
-              {items.map((author, index) => {
+              {items.map((item, index) => {
+                const author = item.author;
+                if (activeTab === 'likes' && item.post) {
+                  const interactionDate = formatInteractionDate(item.created_at);
+                  return (
+                    <div key={item.id || index} className="flex items-center gap-5 border-b border-white/10 py-5 last:border-b-0">
+                      <CommunityInteractionAvatar author={author} onClick={() => onAuthorClick?.(author)} />
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => onAuthorClick?.(author)}
+                          className="community-interaction-author-info block max-w-full truncate text-left text-base font-black text-zinc-100 hover:underline"
+                        >
+                          {author.name || 'creator'}
+                        </button>
+                        <div className="mt-1 flex items-center gap-2 text-sm font-bold text-zinc-400">
+                          <span>{labels.likedYourPost}</span>
+                          {interactionDate ? <span>{interactionDate}</span> : null}
+                        </div>
+                      </div>
+                      <CommunityInteractionPostPreview item={item} onClick={() => onPostClick?.(item.post!.id)} />
+                    </div>
+                  );
+                }
                 const isSelf = Boolean(currentUserId && author.id && String(currentUserId) === String(author.id));
                 const isFollowing = Boolean(author.is_following);
                 return (
                   <div key={author.id || index} className="flex items-center gap-5 border-b border-white/10 py-5 last:border-b-0">
                     <CommunityInteractionAvatar author={author} onClick={() => onAuthorClick?.(author)} />
-                    <button type="button" onClick={() => onAuthorClick?.(author)} className="min-w-0 flex-1 text-left">
+                    <button
+                      type="button"
+                      onClick={() => onAuthorClick?.(author)}
+                      className="community-interaction-author-info min-w-0 flex-1 text-left"
+                    >
                       <div className="truncate text-lg font-black text-zinc-100">{author.name || 'creator'}</div>
                       <div className="mt-2 flex items-center gap-4 text-sm font-bold text-zinc-400">
                         <span>{labels.posts}: {statNumber(author.post_count ?? author.works_count, 0)}</span>

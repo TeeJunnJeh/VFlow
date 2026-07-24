@@ -117,6 +117,28 @@ export interface CommunityAuthorListResponse {
   total?: number;
 }
 
+export interface CommunityInteractionItem {
+  id: string;
+  author: CommunityAuthor;
+  post?: {
+    id: string;
+    title: string;
+    cover_url?: string;
+    preview?: {
+      kind: CommunityMediaKind;
+      url: string;
+      thumbnail_url?: string;
+    };
+  };
+  created_at?: string;
+}
+
+export interface CommunityInteractionListResponse {
+  items: CommunityInteractionItem[];
+  nextCursor: string | null;
+  total?: number;
+}
+
 export interface CommunityMediaRef {
   kind: CommunityMediaKind;
   url: string;
@@ -400,7 +422,7 @@ export const communityApi = {
     return await response.json();
   },
 
-  listAuthorInteractions: async (authorId: string, tab: CommunityInteractionTab, cursor?: string, limit = 60): Promise<CommunityAuthorListResponse> => {
+  listAuthorInteractions: async (authorId: string, tab: CommunityInteractionTab, cursor?: string, limit = 60): Promise<CommunityInteractionListResponse> => {
     const search = new URLSearchParams();
     search.set('tab', tab);
     if (cursor) search.set('cursor', cursor);
@@ -417,7 +439,27 @@ export const communityApi = {
     if (!response.ok) await throwCommunityApiError(response, 'Request failed');
     const data = unwrapData(await response.json());
     return {
-      items: ((data.items || data.results || []) as any[]).map(normalizeCommunityAuthor),
+      items: ((data.items || data.results || []) as any[]).map((item) => {
+        if (tab === 'likes') {
+          return {
+            id: String(item?.id || ''),
+            author: normalizeCommunityAuthor(item?.author || {}),
+            post: item?.post ? {
+              id: String(item.post.id || ''),
+              title: String(item.post.title || ''),
+              cover_url: toDisplayUrl(item.post.cover_url || ''),
+              preview: item.post.preview ? {
+                kind: normalizeMediaKind(item.post.preview.kind),
+                url: toDisplayUrl(item.post.preview.url || ''),
+                thumbnail_url: toDisplayUrl(item.post.preview.thumbnail_url || ''),
+              } : undefined,
+            } : undefined,
+            created_at: String(item?.created_at || ''),
+          };
+        }
+        const author = normalizeCommunityAuthor(item);
+        return { id: author.id, author };
+      }),
       nextCursor: data.next_cursor || data.nextCursor || null,
       total: Number(data.total || 0),
     };

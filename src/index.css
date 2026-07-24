@@ -805,6 +805,14 @@ html.theme-light .creative-replay-ghost-pill {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+html.theme-light button.community-interaction-author-info,
+html.theme-light button.community-interaction-author-info:hover {
+  background-color: transparent !important;
+}
+html.theme-light button.community-interaction-post-thumbnail,
+html.theme-light button.community-interaction-post-thumbnail:hover {
+  background-color: #f1f5f9 !important;
+}
 button.agent-image-edit-result-trigger,
 html.theme-light button.agent-image-edit-result-trigger {
   background-color: transparent !important;

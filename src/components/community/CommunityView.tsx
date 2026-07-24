@@ -4,7 +4,7 @@ import Masonry from 'react-masonry-css';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRequireAuth } from '../../utils/useRequireAuth';
-import { communityApi, isCommunityApiUnavailableError, type CommunityAuthor, type CommunityCreateDraft, type CommunityInteractionTab, type CommunityPost, type CommunityPostType, type CommunityReactionAction } from '../../services/community';
+import { communityApi, isCommunityApiUnavailableError, type CommunityAuthor, type CommunityCreateDraft, type CommunityInteractionItem, type CommunityInteractionTab, type CommunityPost, type CommunityPostType, type CommunityReactionAction } from '../../services/community';
 import { CommunityComposerDialog } from './CommunityComposerDialog';
 import { CommunityPostCard } from './CommunityPostCard';
 import { CommunityPostDetailDialog } from './CommunityPostDetailDialog';
@@ -56,7 +56,7 @@ export const CommunityView = () => {
   const [isProfileLoading, setIsProfileLoading] = React.useState(false);
   const [profileErrorMessage, setProfileErrorMessage] = React.useState<string | null>(null);
   const [interactionDialogTab, setInteractionDialogTab] = React.useState<CommunityInteractionTab | null>(null);
-  const [interactionItems, setInteractionItems] = React.useState<CommunityAuthor[]>([]);
+  const [interactionItems, setInteractionItems] = React.useState<CommunityInteractionItem[]>([]);
   const [interactionTotal, setInteractionTotal] = React.useState(0);
   const [isInteractionsLoading, setIsInteractionsLoading] = React.useState(false);
   const [interactionsErrorMessage, setInteractionsErrorMessage] = React.useState<string | null>(null);
@@ -134,7 +134,7 @@ export const CommunityView = () => {
     interactionsTitle: (t as any).community_interactions_title || '我的互动',
     interactionsEmptyFollowers: (t as any).community_interactions_empty_followers || '暂无粉丝~',
     interactionsEmptyFollowing: (t as any).community_interactions_empty_following || '暂未关注任何人~',
-    interactionsEmptyLikes: (t as any).community_interactions_empty_likes || '获赞明细暂未同步~',
+    interactionsEmptyLikes: (t as any).community_interactions_empty_likes || '暂无获赞~',
   }), [t]);
 
   React.useEffect(() => {
@@ -730,12 +730,19 @@ export const CommunityView = () => {
           followersMeta: labels.profileFollowers,
           noMore: labels.noMore,
           close: labels.close,
+          likedYourPost: (t as any).community_interactions_liked_your_post || '赞了你的帖子',
         }}
         onClose={() => setInteractionDialogTab(null)}
         onTabChange={setInteractionDialogTab}
         onAuthorClick={(author) => {
           openAuthorProfile(author);
           setInteractionDialogTab(null);
+        }}
+        onPostClick={(postId) => {
+          setInteractionDialogTab(null);
+          void communityApi.getPostDetail(postId)
+            .then(setSelectedPost)
+            .catch((err) => setErrorMessage(getErrorMessage(err, labels.loadError)));
         }}
         onFollowAuthor={handleFollowAuthor}
       />

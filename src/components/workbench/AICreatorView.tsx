@@ -48,6 +48,7 @@ import {
 import { assetsApi } from '../../services/assets';
 import { ApiError, formatApiError } from '../../services/errors';
 import { AppDialog } from '../common/AppDialog';
+import { SmartDurationToggle } from '../common/SmartDurationToggle';
 import { AgentImageEditDialog } from '../../features/agentImageEditing/AgentImageEditDialog';
 import { AgentImageEditButton } from '../../features/agentImageEditing/AgentImageEditButton';
 import { AgentImageEditQueueCard } from '../../features/agentImageEditing/AgentImageEditQueueCard';
@@ -3407,7 +3408,16 @@ export const AICreatorView: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '时长（秒）' : 'Duration (seconds)'}</label>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <label className="block text-xs text-zinc-500">{isZh ? '时长（秒）' : 'Duration (seconds)'}</label>
+                      {String(confirmParams.model || 'seedance2.5').startsWith('seedance') && (
+                        <SmartDurationToggle
+                          checked={Number(confirmParams.duration) === -1}
+                          onChange={(checked) => setConfirmParams({ ...confirmParams, duration: checked ? -1 : 10 })}
+                          label={isZh ? '智能时长' : 'Smart duration'}
+                        />
+                      )}
+                    </div>
                     {String(confirmParams.model || 'seedance2.5').startsWith('sora') ? (
                       <select
                         className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
@@ -3421,18 +3431,15 @@ export const AICreatorView: React.FC = () => {
                     ) : (
                       <input
                         type="number"
-                        min={String(confirmParams.model || 'seedance2.5').startsWith('seedance') ? -1 : 5}
+                        min={String(confirmParams.model || 'seedance2.5').startsWith('seedance') ? 4 : 5}
                         max={String(confirmParams.model || 'seedance2.5').startsWith('seedance') ? 30 : 10}
                         step={String(confirmParams.model || 'seedance2.5').startsWith('seedance') ? 1 : 5}
-                        className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
-                        value={Number(confirmParams.duration || 10)}
+                        disabled={Number(confirmParams.duration) === -1}
+                        className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                        value={Number(confirmParams.duration) === -1 ? 10 : Number(confirmParams.duration || 10)}
                         onChange={(e) => {
                           const model = String(confirmParams.model || 'seedance2.5');
                           const raw = Number(e.target.value);
-                          if (model.startsWith('seedance') && raw === -1) {
-                            setConfirmParams({ ...confirmParams, duration: -1 });
-                            return;
-                          }
                           const min = model.startsWith('seedance') ? 4 : 5;
                           const max = model.startsWith('seedance') ? 30 : 10;
                           setConfirmParams({ ...confirmParams, duration: Math.max(min, Math.min(max, raw || min)) });

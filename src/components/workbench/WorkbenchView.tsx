@@ -30,6 +30,7 @@ import {
 } from './PromptLabWindow';
 import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import { DropdownSelect } from '../common/DropdownSelect';
+import { SmartDurationToggle } from '../common/SmartDurationToggle';
 import { VideoTypePicker } from './VideoTypePicker';
 import { migrateVideoType, getVideoTypeDef } from './videoTypes';
 import { type Template } from '../../services/templates';
@@ -10376,13 +10377,11 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                       <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
                       <div className="flex items-center gap-2">
                         {selectedModel === 'seedance2.5' && (
-                          <button
-                            type="button"
-                            onClick={() => setGenDuration((current) => current === -1 ? 10 : -1)}
-                            className={`rounded border px-2 py-0.5 text-[11px] font-bold ${genDuration === -1 ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 text-zinc-500 hover:text-zinc-300'}`}
-                          >
-                            智能
-                          </button>
+                          <SmartDurationToggle
+                            checked={genDuration === -1}
+                            onChange={(checked) => setGenDuration(checked ? -1 : 10)}
+                            label="智能时长"
+                          />
                         )}
                         <span className="text-[12px] font-bold text-orange-400">{genDuration === -1 ? '4-30s' : `${genDuration}s`}</span>
                       </div>

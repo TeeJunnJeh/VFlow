@@ -5,6 +5,7 @@ import { useLanguage } from '../../../../context/LanguageContext';
 import type { CanvasNodeData, VideoNodeData, CanvasNode, TextNodeData, ScriptNodeData, ImageNodeData } from '../canvasTypes';
 import { CanvasModelChips, type CanvasModelChipOption } from './CanvasModelChips';
 import { setCanvasToGalleryTransfer } from '../../canvasToGalleryTransfer';
+import { SmartDurationToggle } from '../../../common/SmartDurationToggle';
 
 const MODEL_OPTIONS: CanvasModelChipOption[] = [
   { value: 'kling', label: 'Kling', color: 'purple' },
@@ -20,7 +21,7 @@ const IMAGE_MODEL_OPTIONS: CanvasModelChipOption[] = [
   { value: 'gpt-image-1.5', label: 'GPT image 1.5', color: 'blue' },
 ];
 
-const DURATION_OPTIONS = [-1, 5, 10, 15, 20, 30];
+const DURATION_OPTIONS = [4, 5, 10, 15, 20, 30];
 const RATIO_OPTIONS: VideoNodeData['aspectRatio'][] = ['adaptive', '21:9', '9:16', '16:9', '4:3', '1:1', '3:4'];
 
 let nodeIdCounter = 0;
@@ -499,7 +500,10 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
             <label className="text-[10px] text-zinc-500 mb-1.5 block">{t.canvas_node_video}</label>
             <CanvasModelChips
               value={batchModel}
-              onChange={setBatchModel}
+              onChange={(next) => {
+                setBatchModel(next);
+                if (next !== 'seedance2.5' && batchDuration === -1) setBatchDuration(10);
+              }}
               options={MODEL_OPTIONS}
               size="sm"
             />
@@ -509,13 +513,23 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-[10px] text-zinc-500 mb-1 block">{t.canvas_btn_generate}</label>
+              {batchModel === 'seedance2.5' && (
+                <div className="mb-1.5">
+                  <SmartDurationToggle
+                    checked={batchDuration === -1}
+                    onChange={(checked) => setBatchDuration(checked ? -1 : 10)}
+                    label="智能时长"
+                  />
+                </div>
+              )}
               <select
-                value={batchDuration}
+                value={batchDuration === -1 ? 10 : batchDuration}
                 onChange={(e) => setBatchDuration(Number(e.target.value))}
-                className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
+                disabled={batchDuration === -1}
+                className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {DURATION_OPTIONS.map((d) => (
-                  <option key={d} value={d}>{d === -1 ? '智能时长' : `${d}s`}</option>
+                  <option key={d} value={d}>{d}s</option>
                 ))}
               </select>
             </div>
@@ -717,7 +731,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
                 className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
               >
                 {[5, 10, 15, 30, 60].map((d) => (
-                  <option key={d} value={d}>{d === -1 ? '智能时长' : `${d}s`}</option>
+                  <option key={d} value={d}>{d}s</option>
                 ))}
               </select>
             </div>

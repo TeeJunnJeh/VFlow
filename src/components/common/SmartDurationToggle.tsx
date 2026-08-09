@@ -22,12 +22,9 @@ export const SmartDurationToggle: React.FC<SmartDurationToggleProps> = ({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${checked
-        ? 'border-orange-500 bg-orange-500'
-        : 'border-white/15 bg-zinc-700'
-      } disabled:opacity-50`}
+      className={`smart-duration-toggle relative h-5 w-9 shrink-0 rounded-full border transition-colors ${checked ? 'is-checked' : ''} disabled:opacity-50`}
     >
-      <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-[17px]' : 'translate-x-0.5'}`} />
+      <span className={`smart-duration-toggle__thumb absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full shadow-sm transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`} />
     </button>
   </div>
 );

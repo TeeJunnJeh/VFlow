@@ -266,10 +266,10 @@ const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
   kling: 'kling',
   sora2: 'sora-2',
   sora2pro: 'sora-2-pro',
-  'seedance2.0': 'seedance-2.0',
+  'seedance2.5': 'seedance-2.5',
 };
 
-const WORKBENCH_VIDEO_MODEL = 'seedance2.0' as const;
+const WORKBENCH_VIDEO_MODEL = 'seedance2.5' as const;
 
 const IMAGE_MODEL_PRICING_ALIASES: Record<string, string> = {
   'gpt-image-1.5': 'gpt-image-1.5',
@@ -309,7 +309,7 @@ const getImageModelPricingEntry = (
 const isSeedanceModel = (modelId: string | null | undefined) => {
   const normalized = String(modelId || '').trim();
   const modelKey = VIDEO_MODEL_PRICING_ALIASES[normalized] || normalized;
-  return modelKey === 'seedance-2.0';
+  return modelKey === 'seedance-2.5';
 };
 
 const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null, options: { allowAudio?: boolean } = {}) => {
@@ -331,12 +331,13 @@ const getSeedanceReplayLocalAccept = (mediaKind?: SeedanceReplayMediaKind | null
 // The state `enableStoryboardEditor` replaces the old `enableStoryboardEditor` const.
 
 // Types specific to Workbench View
-type WorkbenchAspectRatio = '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
+type WorkbenchAspectRatio = 'adaptive' | '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
 
 const DEFAULT_WORKBENCH_ASPECT_RATIO: WorkbenchAspectRatio = '9:16';
 
 const normalizeWorkbenchAspectRatio = (value: string | null | undefined): WorkbenchAspectRatio => {
   if (
+    value === 'adaptive' ||
     value === '9:16' ||
     value === '16:9' ||
     value === '1:1' ||
@@ -1139,7 +1140,7 @@ interface WorkbenchViewProps {
   onInitialLibraryAssetHandled?: () => void;
   initialTransferRole?: 'first_frame' | 'asset_apply' | null;
   initialTransferProjectName?: string | null;
-  initialTransferModel?: 'sora2' | 'sora2pro' | 'seedance2.0' | null;
+  initialTransferModel?: 'sora2' | 'sora2pro' | 'seedance2.5' | null;
   onTransferRoleHandled?: () => void;
   initialFirstFrameVideoTransfer?: FirstFrameToVideoTransferPayload | null;
   onFirstFrameVideoTransferHandled?: () => void;
@@ -1365,7 +1366,8 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ), allowed[1]);
     }
 
-    return Math.min(15, Math.max(4, Math.round(numeric)));
+    if (numeric === -1) return -1;
+    return Math.min(30, Math.max(4, Math.round(numeric)));
   }, []);
 
   const [productName, setProductName] = useState('');
@@ -1457,7 +1459,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   const [translatingShots, setTranslatingShots] = useState<Record<number, boolean>>({});
   const creationMode = 'fast' as 'fast' | 'replay';
   const isSeedanceReplayMode = false;
-  const isSeedanceFastMode = selectedModel === 'seedance2.0';
+  const isSeedanceFastMode = selectedModel === 'seedance2.5';
   const isSeedanceMode = isSeedanceReplayMode || isSeedanceFastMode;
   const [seedanceReplayUploadIntent, setSeedanceReplayUploadIntent] = useState<SeedanceReplayUploadIntent>({ targetMediaKind: null });
   const [seedanceReplayFocusTarget, setSeedanceReplayFocusTarget] = useState<SeedanceReplayMediaKind | null>(null);
@@ -3678,7 +3680,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       }
 
       await reloadAssetLibraryItems();
-      const shouldAutoAddForSeedance = creationMode === 'replay' && selectedModel === 'seedance2.0' && assetLibraryTab !== 'model';
+      const shouldAutoAddForSeedance = creationMode === 'replay' && selectedModel === 'seedance2.5' && assetLibraryTab !== 'model';
       if (shouldAutoAddForSeedance && assetLibraryPickMode === 'default' && successfulUploadedAssetIds.length > 0 && user) {
         setPendingSeedanceAutoAddPayload({
           ids: successfulUploadedAssetIds,
@@ -3803,7 +3805,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   }, []);
 
   const isKlingOmniMode = selectedModel === 'kling';
-  const isSeedanceMultiAssetMode = selectedModel === 'seedance2.0';
+  const isSeedanceMultiAssetMode = selectedModel === 'seedance2.5';
 
   const hasSubjectOtherViews = useCallback((asset: LibraryAsset | QueuedAsset | null | undefined) => {
     if (!asset) return false;
@@ -5573,7 +5575,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
   };
 
 
-  const hasActiveScriptConcept = selectedModel === 'seedance2.0'
+  const hasActiveScriptConcept = selectedModel === 'seedance2.5'
     ? Boolean(activeVisibleScriptPrompt.trim())
     : Boolean((activeFullScript || '').trim())
       || Boolean((activeCreativeCardText || '').trim())
@@ -6196,7 +6198,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         };
         if (imgAsset.materialType === 'model') {
           const seedanceId = imgAsset.seedanceAssetId;
-          if (selectedModel === 'seedance2.0' && !seedanceId) {
+          if (selectedModel === 'seedance2.5' && !seedanceId) {
             throw new Error(t.wb_seedance_replay_user_model_unavailable || '自行上传模特不可用');
           }
           if (seedanceId) {
@@ -6210,19 +6212,25 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     // 参考视频：取第一个（Kling/Sora 兼容）+ 收集所有视频路径（Seedance 多视频参考）
     let resolvedVideoPath: string | null = null;
     const allVideoPaths: string[] = [];
+    const allVideoDurations: number[] = [];
     for (const vidAsset of videoAssetsInQueue) {
       const p = await resolveQueueAssetPath(vidAsset);
       if (p) {
         allVideoPaths.push(p);
+        if (typeof vidAsset.durationSeconds === 'number') allVideoDurations.push(vidAsset.durationSeconds);
         if (!resolvedVideoPath) resolvedVideoPath = p;
       }
     }
 
     // 参考音频：收集所有音频路径
     const singleAudioPaths: string[] = [];
+    const allAudioDurations: number[] = [];
     for (const audioAsset of audioAssetsInQueue) {
       const aPath = await resolveQueueAssetPath(audioAsset);
-      if (aPath) singleAudioPaths.push(aPath);
+      if (aPath) {
+        singleAudioPaths.push(aPath);
+        if (typeof audioAsset.durationSeconds === 'number') allAudioDurations.push(audioAsset.durationSeconds);
+      }
     }
 
     // 如果队列为空，回退到当前选中素材（兼容非 Replay 模式）
@@ -6238,10 +6246,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
     const payload: GeneratePayload = {
       model: backendModel,
-      prompt: selectedModel === 'seedance2.0'
+      prompt: selectedModel === 'seedance2.5'
         ? activeVisibleScriptPrompt
         : buildCombinedScriptPrompt(activeFullScript, activeCreativeCard, scripts, activeCreativeCardText),
-      ...(selectedModel === 'seedance2.0' ? { prompt_is_final: true, disable_prompt_mutation: true } : {}),
+      ...(selectedModel === 'seedance2.5' ? { prompt_is_final: true, disable_prompt_mutation: true } : {}),
       product_name: productName,
       duration: genDuration,
       aspect_ratio: aspectRatio,
@@ -6264,8 +6272,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       ...(imageAssetsMeta.length > 0 ? { image_assets_meta: imageAssetsMeta } : {}),
       ...(resolvedVideoPath ? { motion_video_path: resolvedVideoPath } : {}),
       ...(allVideoPaths.length > 1 ? { video_paths: allVideoPaths } : {}),
+      ...(allVideoDurations.length > 0 ? { video_durations: allVideoDurations } : {}),
       ...(singleAudioPaths.length > 0 ? { audio_paths: singleAudioPaths } : {}),
-      ...(selectedModel === 'seedance2.0' ? { aspect_ratio: aspectRatio } : {}),
+      ...(allAudioDurations.length > 0 ? { audio_durations: allAudioDurations } : {}),
+      ...(selectedModel === 'seedance2.5' ? { aspect_ratio: aspectRatio } : {}),
       ...(activeSeedSkill ? { seed_skill: activeSeedSkill } : {}),
       ...(promptOverridesPayload ? { prompt_overrides: promptOverridesPayload } : {}),
     };
@@ -9219,7 +9229,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         issues.push(t.wb_kling_validation_reference_max || 'Kling allows at most 7 total reference images.');
       }
     }
-    if (selectedModel === 'seedance2.0' && uploadDisplayAssets.some((asset) => asset.materialType === 'model' && !asset.seedanceAssetId)) {
+    if (selectedModel === 'seedance2.5' && uploadDisplayAssets.some((asset) => asset.materialType === 'model' && !asset.seedanceAssetId)) {
       issues.push(t.wb_seedance_replay_user_model_unavailable || '自行上传模特不可用');
     }
     if (!hasActiveScriptConcept) {
@@ -9275,7 +9285,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
       issues.push(t.wb_gen_req_issue_login || 'Account: please sign in.');
     }
     items.forEach((item) => {
-      const hasScriptConcept = selectedModel === 'seedance2.0'
+      const hasScriptConcept = selectedModel === 'seedance2.5'
         ? Boolean(buildVisibleScriptPromptForPage(item.page, item.pageIndex).trim())
         : Boolean((item.page.fullScript || '').trim())
           || Boolean((item.page.creativeCardText || '').trim())
@@ -9343,7 +9353,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (!newProjectId) throw new Error('Failed to create project');
         }
 
-        const combinedScriptPrompt = selectedModel === 'seedance2.0'
+        const combinedScriptPrompt = selectedModel === 'seedance2.5'
           ? buildVisibleScriptPromptForPage(page, job.pageIndex)
           : buildCombinedScriptPrompt(
             scriptPack.fullScript || '',
@@ -9355,7 +9365,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         const requestPayload: GeneratePayload = {
           ...basePayload,
           prompt: combinedScriptPrompt,
-          ...(selectedModel === 'seedance2.0' ? { prompt_is_final: true, disable_prompt_mutation: true } : {}),
+          ...(selectedModel === 'seedance2.5' ? { prompt_is_final: true, disable_prompt_mutation: true } : {}),
           duration: scriptPack.duration,
           project_id: String(newProjectId),
         };
@@ -9618,12 +9628,12 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (!newProjectId) throw new Error('Failed to create project');
 
           const requestPayload: GeneratePayload = {
-            model: 'seedance-2.0',
+            model: 'seedance-2.5',
             prompt: params.prompt,
             prompt_is_final: true,
             disable_prompt_mutation: true,
             product_name: productName,
-            duration: Math.max(4, Math.min(15, Math.round(Number(genDuration) || 8))),
+            duration: genDuration === -1 ? -1 : Math.max(4, Math.min(30, Math.round(Number(genDuration) || 8))),
             aspect_ratio: aspectRatio,
             sound: soundSetting,
             asset_source: 'product',
@@ -9652,7 +9662,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
           if (!taskId) throw new Error(t.wb_popup_batch_no_task_id || '任务提交成功但没有返回 task_id');
 
           const estimatedSeconds = await fetchEstimatedSeconds({
-            model: 'seedance-2.0',
+            model: 'seedance-2.5',
             duration: Number(requestPayload.duration ?? genDuration),
             sound: String(requestPayload.sound || '') === 'off' ? 'off' : 'on',
             aspect_ratio: String(requestPayload.aspect_ratio || ''),
@@ -10058,6 +10068,10 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
     setGenDuration((prev) => normalizeDurationForModel(prev, selectedModel));
   }, [normalizeDurationForModel, selectedModel]);
 
+  useEffect(() => {
+    if (enableStoryboardEditor && genDuration === -1) setGenDuration(10);
+  }, [enableStoryboardEditor, genDuration]);
+
   const backendModel =
     selectedModel === 'sora2pro'
       ? 'sora-2-pro'
@@ -10065,7 +10079,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
         ? 'sora-2'
         : selectedModel === 'kling'
           ? 'kling'
-          : 'seedance-2.0';
+          : 'seedance-2.5';
 
   const fetchEstimatedSeconds = useCallback(async (params: { model: string; duration: number; sound: 'on' | 'off'; aspect_ratio?: string; resolution?: string }) => {
     const model = String(params.model || '').trim();
@@ -10307,8 +10321,9 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   <label className="text-[12px] text-zinc-500 font-bold mb-2 block uppercase">{t.aspect_ratio}</label>
                   <DropdownSelect
                     value={aspectRatio}
-                    options={selectedModel === 'seedance2.0'
+                    options={selectedModel === 'seedance2.5'
                       ? [
+                        { value: 'adaptive', label: '智能适配' },
                         { value: '16:9', label: '16:9' },
                         { value: '4:3', label: '4:3' },
                         { value: '1:1', label: '1:1' },
@@ -10355,21 +10370,34 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
 
             <div className="flex flex-col gap-4">
               <div>
-                {selectedModel === 'kling' || selectedModel === 'seedance2.0' ? (
+                {selectedModel === 'kling' || selectedModel === 'seedance2.5' ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex justify-between items-center">
                       <label className="text-[12px] text-zinc-500 font-bold block uppercase">{t.wb_config_duration}</label>
-                      <span className="text-[12px] font-bold text-orange-400">{genDuration}s</span>
+                      <div className="flex items-center gap-2">
+                        {selectedModel === 'seedance2.5' && (
+                          <button
+                            type="button"
+                            onClick={() => setGenDuration((current) => current === -1 ? 10 : -1)}
+                            className={`rounded border px-2 py-0.5 text-[11px] font-bold ${genDuration === -1 ? 'border-orange-500/60 bg-orange-500/15 text-orange-300' : 'border-white/10 text-zinc-500 hover:text-zinc-300'}`}
+                          >
+                            智能
+                          </button>
+                        )}
+                        <span className="text-[12px] font-bold text-orange-400">{genDuration === -1 ? '4-30s' : `${genDuration}s`}</span>
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min={selectedModel === 'kling' ? 3 : 4}
-                      max={selectedModel === 'kling' ? 10 : 15}
-                      step={1}
-                      value={genDuration}
-                      onChange={(e) => setGenDuration(normalizeDurationForModel(Number(e.target.value), selectedModel))}
-                      className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
-                    />
+                    {genDuration !== -1 && (
+                      <input
+                        type="range"
+                        min={selectedModel === 'kling' ? 3 : 4}
+                        max={selectedModel === 'kling' ? 10 : 30}
+                        step={1}
+                        value={genDuration}
+                        onChange={(e) => setGenDuration(normalizeDurationForModel(Number(e.target.value), selectedModel))}
+                        className="wb-range w-full h-2 rounded-lg cursor-pointer accent-orange-500"
+                      />
+                    )}
                   </div>
                 ) : (
                   <>
@@ -13203,7 +13231,7 @@ export const WorkbenchView: React.FC<WorkbenchViewProps> = ({
                   </div>
                 </div>
                 )}
-                {false && selectedModel === 'seedance2.0' && !isSeedanceReplayMode && (
+                {false && selectedModel === 'seedance2.5' && !isSeedanceReplayMode && (
                   <div className="flex items-center gap-1 border-l border-white/10 pl-3">
                     <button
                       type="button"

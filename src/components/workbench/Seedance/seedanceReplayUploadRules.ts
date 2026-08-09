@@ -49,16 +49,17 @@ export const SEEDANCE_REPLAY_UPLOAD_ACCEPT = [
   ...SEEDANCE_REPLAY_VIDEO_EXTS.map((ext) => `.${ext}`),
   ...SEEDANCE_REPLAY_AUDIO_EXTS.map((ext) => `.${ext}`),
 ].join(',');
-export const SEEDANCE_REPLAY_IMAGE_LIMIT = 9;
-export const SEEDANCE_REPLAY_VIDEO_LIMIT = 3;
-export const SEEDANCE_REPLAY_AUDIO_LIMIT = 3;
+export const SEEDANCE_REPLAY_IMAGE_LIMIT = 30;
+export const SEEDANCE_REPLAY_VIDEO_LIMIT = 10;
+export const SEEDANCE_REPLAY_AUDIO_LIMIT = 10;
+export const SEEDANCE_REPLAY_TOTAL_LIMIT = 50;
 export const SEEDANCE_REPLAY_IMAGE_MAX_BYTES = 30 * FILE_SIZE_MB;
 export const SEEDANCE_REPLAY_IMAGE_TOTAL_BYTES_LIMIT = 64 * FILE_SIZE_MB;
 export const SEEDANCE_REPLAY_VIDEO_MAX_BYTES = 50 * FILE_SIZE_MB;
 export const SEEDANCE_REPLAY_AUDIO_MAX_BYTES = 15 * FILE_SIZE_MB;
 export const SEEDANCE_REPLAY_AUDIO_TOTAL_BYTES_LIMIT = 64 * FILE_SIZE_MB;
 export const SEEDANCE_REPLAY_DURATION_MIN = 2;
-export const SEEDANCE_REPLAY_DURATION_MAX = 15;
+export const SEEDANCE_REPLAY_DURATION_MAX = 30;
 export const SEEDANCE_REPLAY_DIMENSION_MIN = 300;
 export const SEEDANCE_REPLAY_DIMENSION_MAX = 6000;
 export const SEEDANCE_REPLAY_RATIO_MIN = 0.4;
@@ -411,6 +412,7 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
   const totalVideoDuration = sumDuration(videoAssets);
   const totalAudioDuration = sumDuration(audioAssets);
   const totalAudioBytes = sumSizeBytes(audioAssets);
+  const totalAssetCount = imageAssets.length + videoAssets.length + audioAssets.length;
   const imageKindLabel = getSeedanceReplayKindLabel(t, 'image');
   const videoKindLabel = getSeedanceReplayKindLabel(t, 'video');
   const audioKindLabel = getSeedanceReplayKindLabel(t, 'audio');
@@ -480,10 +482,18 @@ export const buildSeedanceReplayValidationSummary = <T extends SeedanceReplayVal
   ]);
   const hasMinimumAssets = mode === 'viral_replay'
     ? productImageAssets.length > 0 && videoAssets.length === 1
-    : imageAssets.length > 0 || videoAssets.length > 0;
-  const globalErrors = hasMinimumAssets || mode === 'viral_replay'
-    ? []
-    : [t?.wb_seedance_replay_error_min_assets || 'Please upload at least 1 image or 1 video'];
+    : imageAssets.length > 0 || videoAssets.length > 0 || audioAssets.length > 0;
+  const globalErrors = [
+    ...(!hasMinimumAssets && mode !== 'viral_replay'
+      ? [t?.wb_seedance_replay_error_min_assets || 'Please upload at least 1 image, video, or audio file']
+      : []),
+    ...(totalAssetCount > SEEDANCE_REPLAY_TOTAL_LIMIT
+      ? [formatSeedanceReplayText(
+          t?.wb_seedance_replay_error_count || 'Total reference count exceeds limit ({count}/{limit})',
+          { kind: 'Reference', count: totalAssetCount, limit: SEEDANCE_REPLAY_TOTAL_LIMIT },
+        )]
+      : []),
+  ];
 
   return {
     imageErrors,

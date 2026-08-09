@@ -417,7 +417,7 @@ export const CreativeLabReplayView: React.FC = () => {
   const buildPrompt = (mode: 'direct' | 'script', script?: string, requirementText = input.trim()) => {
     const modelLine = modelAssets.length > 0 ? '可使用已选虚拟模特展示穿着/使用效果；虚拟模特以 Seedance asset:// 资产提供。' : '未选择虚拟模特，仅使用商品图片作为视觉参考。';
     const base = [
-      '基于 Seedance 2.0 生成一条商品广告视频。',
+      '基于 Seedance 2.5 生成一条商品广告视频。',
       `用户生成要求：${requirementText}`,
       '只展示用户提供的商品，不虚构品牌授权、价格承诺或夸张效果。',
       modelLine,
@@ -460,7 +460,7 @@ export const CreativeLabReplayView: React.FC = () => {
     if (!projectId) throw new Error('创建项目失败');
 
     const payload: any = {
-      model: 'seedance-2.0',
+      model: 'seedance-2.5',
       prompt: buildPrompt(mode, script, requirementText),
       product_name: '创意实验室爆款复刻',
       duration: 8,

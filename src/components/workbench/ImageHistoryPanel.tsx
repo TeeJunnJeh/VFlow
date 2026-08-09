@@ -66,7 +66,7 @@ interface UnifiedImageHistoryItem {
 
 const HISTORY_PAGE_SIZE = 16;
 
-type ApplyModel = 'sora2' | 'sora2pro' | 'seedance2.0';
+type ApplyModel = 'sora2' | 'sora2pro' | 'seedance2.5';
 
 const FIRST_FRAME_TRANSFER_KEY = 'vflow_apply_first_frame';
 const GALLERY_RESTORE_KEY = 'vflow_gallery_restore_settings';
@@ -353,8 +353,8 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
 
     try {
       const storedModel = localStorage.getItem('vflow_workbench_model');
-      if (storedModel === 'sora2' || storedModel === 'sora2pro' || storedModel === 'seedance2.0') {
-        setApplyModel(storedModel);
+      if (storedModel === 'sora2' || storedModel === 'sora2pro' || storedModel === 'seedance2.0' || storedModel === 'seedance2.5') {
+        setApplyModel(storedModel === 'seedance2.0' ? 'seedance2.5' : storedModel);
       } else {
         setApplyModel('sora2');
       }
@@ -899,7 +899,7 @@ export const ImageHistoryPanel: React.FC<ImageHistoryPanelProps> = ({ onNavigate
                 {([
                   { id: 'sora2' as ApplyModel, title: 'Sora 2', Icon: Sparkles },
                   { id: 'sora2pro' as ApplyModel, title: 'Sora 2 Pro', Icon: Sparkles },
-                  { id: 'seedance2.0' as ApplyModel, title: 'Seedance 2.0', Icon: Video },
+                  { id: 'seedance2.5' as ApplyModel, title: 'Seedance 2.5', Icon: Video },
                 ] as const).map((option) => {
                   const active = applyModel === option.id;
                   return (

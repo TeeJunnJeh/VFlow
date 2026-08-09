@@ -519,9 +519,9 @@ export const FirstFrameResult: React.FC<FirstFrameResultProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTargetVideoModel('seedance2.0')}
-                  aria-pressed={targetVideoModel === 'seedance2.0'}
-                  className={`flex min-h-[48px] items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm font-bold transition ${targetVideoModel === 'seedance2.0' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-500/40 hover:bg-white/5'}`}
+                  onClick={() => setTargetVideoModel('seedance2.5')}
+                  aria-pressed={targetVideoModel === 'seedance2.5'}
+                  className={`flex min-h-[48px] items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm font-bold transition ${targetVideoModel === 'seedance2.5' ? 'border-orange-500/70 bg-orange-500/10 text-orange-200' : 'border-white/10 bg-black/20 text-zinc-300 hover:border-orange-500/40 hover:bg-white/5'}`}
                 >
                   <span>{seedanceLabel}</span>
                 </button>

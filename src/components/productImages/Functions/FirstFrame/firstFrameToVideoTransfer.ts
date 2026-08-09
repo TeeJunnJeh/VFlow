@@ -1,6 +1,6 @@
 export const FIRST_FRAME_TO_VIDEO_TRANSFER_KEY = 'vflow_first_frame_to_video_transfer_v1';
 
-export type FirstFrameVideoTargetModel = 'kling' | 'seedance2.0';
+export type FirstFrameVideoTargetModel = 'kling' | 'seedance2.5';
 
 export interface FirstFrameToVideoTransferPayload {
   source: 'first_frame_result_to_video';
@@ -21,7 +21,10 @@ export function readFirstFrameToVideoTransfer(): FirstFrameToVideoTransferPayloa
 
   const parsed = JSON.parse(raw) as Partial<FirstFrameToVideoTransferPayload>;
   const imageUrl = String(parsed.imageUrl || '').trim();
-  const targetModel = parsed.targetModel === 'seedance2.0' ? 'seedance2.0' : parsed.targetModel === 'kling' ? 'kling' : null;
+  const rawTargetModel = String(parsed.targetModel || '');
+  const targetModel = rawTargetModel === 'seedance2.0' || rawTargetModel === 'seedance2.5'
+    ? 'seedance2.5'
+    : rawTargetModel === 'kling' ? 'kling' : null;
   if (parsed.source !== 'first_frame_result_to_video' || !imageUrl || !targetModel) {
     return null;
   }

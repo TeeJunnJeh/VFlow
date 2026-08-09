@@ -4,11 +4,11 @@ export type WorkbenchPreferences = {
   deliveryRegion: string;
   targetLanguage: string;
   videoType: string;
-  aspectRatio: '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
+  aspectRatio: 'adaptive' | '9:16' | '16:9' | '1:1' | '4:3' | '3:4' | '21:9';
   genDuration: number;
   soundSetting: 'on' | 'off';
   creationMode: 'fast' | 'replay';
-  selectedModelId: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
+  selectedModelId: 'kling' | 'sora2' | 'sora2pro' | 'seedance2.5';
   scriptVariantCount: number;
   theme: ThemeMode;
 };
@@ -17,7 +17,7 @@ const STORAGE_KEY_PREFIX = 'vflow_workbench_preferences_v1';
 const LEGACY_STORAGE_KEY = 'vflow_workbench_preferences_v1';
 const LEGACY_OWNER_KEY = 'vflow_workbench_preferences_v1_owner';
 
-const ALLOWED_DURATIONS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+const ALLOWED_DURATIONS = new Set([-1, 3, ...Array.from({ length: 27 }, (_, index) => index + 4)]);
 
 const isBrowser = () => typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
@@ -40,6 +40,7 @@ const parsePreferences = (raw: string | null): Partial<WorkbenchPreferences> => 
     if (typeof parsed.targetLanguage === 'string') next.targetLanguage = parsed.targetLanguage;
     if (typeof parsed.videoType === 'string') next.videoType = parsed.videoType;
     if (
+      parsed.aspectRatio === 'adaptive' ||
       parsed.aspectRatio === '9:16' ||
       parsed.aspectRatio === '16:9' ||
       parsed.aspectRatio === '1:1' ||
@@ -55,13 +56,9 @@ const parsePreferences = (raw: string | null): Partial<WorkbenchPreferences> => 
     if (parsed.soundSetting === 'on' || parsed.soundSetting === 'off') next.soundSetting = parsed.soundSetting;
 
     if (parsed.creationMode === 'fast' || parsed.creationMode === 'replay') next.creationMode = parsed.creationMode;
-    if (
-      parsed.selectedModelId === 'kling' ||
-      parsed.selectedModelId === 'sora2' ||
-      parsed.selectedModelId === 'sora2pro' ||
-      parsed.selectedModelId === 'seedance2.0'
-    ) {
-      next.selectedModelId = parsed.selectedModelId;
+    const rawSelectedModel = String(parsed.selectedModelId || '');
+    if (rawSelectedModel === 'kling' || rawSelectedModel === 'sora2' || rawSelectedModel === 'sora2pro' || rawSelectedModel === 'seedance2.5' || rawSelectedModel === 'seedance2.0') {
+      next.selectedModelId = rawSelectedModel === 'seedance2.0' ? 'seedance2.5' : rawSelectedModel;
     }
 
     if (typeof parsed.scriptVariantCount === 'number' && Number.isFinite(parsed.scriptVariantCount)) {

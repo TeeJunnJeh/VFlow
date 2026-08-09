@@ -104,7 +104,7 @@ export interface VideoNodeData extends BaseNodeData {
   prompt: string;
   model: string;
   duration: number;
-  aspectRatio: '9:16' | '16:9' | '1:1';
+  aspectRatio: 'adaptive' | '21:9' | '9:16' | '16:9' | '4:3' | '1:1' | '3:4';
   imageInputPath?: string[];
 }
 
@@ -124,7 +124,7 @@ export interface ScriptNodeData extends BaseNodeData {
   shots: ScriptShot[];
   productCategory: string;
   visualStyle: string;
-  aspectRatio: '9:16' | '16:9' | '1:1';
+  aspectRatio: 'adaptive' | '21:9' | '9:16' | '16:9' | '4:3' | '1:1' | '3:4';
   totalDuration: number;
   shotCount: number;
   sourceImagePaths: string[];

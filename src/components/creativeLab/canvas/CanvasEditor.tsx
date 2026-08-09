@@ -697,10 +697,10 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         // Model mapping (WV:4114-4121, 9303 for seedance)
         const backendModel = model === 'sora2pro' ? 'sora-2-pro'
           : model === 'sora2' ? 'sora-2'
-          : model === 'seedance2.0' ? 'seedance-2.0'
+          : model === 'seedance2.5' ? 'seedance-2.5'
           : model; // 'kling' stays as-is
         const isKling = backendModel === 'kling';
-        const isSeedance = backendModel === 'seedance-2.0';
+        const isSeedance = backendModel === 'seedance-2.5';
 
         let generatePayload: Record<string, unknown>;
 
@@ -727,10 +727,10 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
             project_id: projectId,
           };
         } else if (isSeedance) {
-          // Seedance 2.0 payload (mirrors WorkbenchView.tsx:9302-9327 minimal subset).
+          // Seedance 2.5 payload (mirrors the Workbench minimal subset).
           // Seedance prefers image_path + optional image_paths for multi-frame, and
           // accepts standard sound/aspect_ratio. Duration clamped to its own range.
-          const seedanceDuration = Math.max(4, Math.min(15, Math.round(duration)));
+          const seedanceDuration = duration === -1 ? -1 : Math.max(4, Math.min(30, Math.round(duration)));
           generatePayload = {
             model: backendModel,
             prompt: fullPrompt,
@@ -1212,10 +1212,10 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
         const aspectRatio = targetData.aspectRatio;
         const backendModel = model === 'sora2pro' ? 'sora-2-pro'
           : model === 'sora2' ? 'sora-2'
-          : model === 'seedance2.0' ? 'seedance-2.0'
+          : model === 'seedance2.5' ? 'seedance-2.5'
           : model;
         const isKling = backendModel === 'kling';
-        const isSeedance = backendModel === 'seedance-2.0';
+        const isSeedance = backendModel === 'seedance-2.5';
 
         let generatePayload: Record<string, unknown>;
         if (isKling && uploadedPaths.length > 0) {
@@ -1240,7 +1240,7 @@ function CanvasEditorInner({ onNavigate }: CanvasEditorProps) {
             project_id: projectId,
           };
         } else if (isSeedance) {
-          const seedanceDuration = Math.max(4, Math.min(15, Math.round(duration)));
+          const seedanceDuration = duration === -1 ? -1 : Math.max(4, Math.min(30, Math.round(duration)));
           generatePayload = {
             model: backendModel,
             prompt,

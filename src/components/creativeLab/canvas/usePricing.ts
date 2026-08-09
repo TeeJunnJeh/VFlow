@@ -21,7 +21,7 @@ const VIDEO_MODEL_PRICING_ALIASES: Record<string, string> = {
   kling: 'kling',
   sora2: 'sora-2',
   sora2pro: 'sora-2-pro',
-  'seedance2.0': 'seedance-2.0',
+  'seedance2.5': 'seedance-2.5',
 };
 
 const IMAGE_MODEL_PRICING_ALIASES: Record<string, string> = {
@@ -37,7 +37,7 @@ const IMAGE_MODEL_PRICING_ALIASES: Record<string, string> = {
 
 const isSeedance = (modelId: string) => {
   const n = String(modelId || '').toLowerCase();
-  return n === 'seedance2.0' || n === 'seedance-2.0';
+  return n === 'seedance2.5' || n === 'seedance-2.5';
 };
 
 export interface CanvasPricingState {

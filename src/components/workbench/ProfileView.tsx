@@ -155,13 +155,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     const creationMode = stored.creationMode === 'replay' ? 'replay' : 'fast';
     const selectedModelId =
       creationMode === 'replay'
-        ? 'seedance2.0'
+        ? 'seedance2.5'
         : stored.selectedModelId === 'sora2' || stored.selectedModelId === 'sora2pro' || stored.selectedModelId === 'kling'
           ? stored.selectedModelId
           : 'kling';
 
     const rawDuration = typeof stored.genDuration === 'number' ? stored.genDuration : 10;
-    const duration = rawDuration === 5 || rawDuration === 10 || rawDuration === 15 ? rawDuration : 10;
+    const duration = rawDuration === -1 || (rawDuration >= 4 && rawDuration <= 30) ? rawDuration : 10;
 
     return {
       deliveryRegion: stored.deliveryRegion || '中国',
@@ -316,7 +316,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
     const next: WorkbenchPreferences = {
       ...prefsDraft,
       creationMode: prefsDraft.creationMode === 'replay' ? 'replay' : 'fast',
-      selectedModelId: prefsDraft.creationMode === 'replay' ? 'seedance2.0' : prefsDraft.selectedModelId,
+      selectedModelId: prefsDraft.creationMode === 'replay' ? 'seedance2.5' : prefsDraft.selectedModelId,
       genDuration: (() => {
         const raw = Number(prefsDraft.genDuration) || 10;
         const rounded = Math.round(raw);
@@ -1134,7 +1134,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                                  setPrefsDraft((prev) => ({
                                    ...prev,
                                    creationMode: v as any,
-                                   selectedModelId: v === 'replay' ? 'seedance2.0' : prev.selectedModelId,
+                                   selectedModelId: v === 'replay' ? 'seedance2.5' : prev.selectedModelId,
                                  }));
                                }}
                                buttonClassName="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-zinc-200 hover:bg-white/5"
@@ -1146,11 +1146,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ theme, setTheme, isDeb
                            <div className="space-y-2">
                              <div className="text-[11px] text-zinc-500 font-bold uppercase tracking-widest">{t.profile_pref_model}</div>
                              <DropdownSelect
-                               value={prefsDraft.creationMode === 'replay' ? 'seedance2.0' : prefsDraft.selectedModelId}
+                               value={prefsDraft.creationMode === 'replay' ? 'seedance2.5' : prefsDraft.selectedModelId}
                                disabled={prefsDraft.creationMode === 'replay'}
                                options={
                                  prefsDraft.creationMode === 'replay'
-                                   ? [{ value: 'seedance2.0', label: 'SeeDance 2.0' }]
+                                   ? [{ value: 'seedance2.5', label: 'Seedance 2.5' }]
                                    : [
                                        { value: 'kling', label: 'Kling' },
                                        { value: 'sora2', label: 'Sora 2' },

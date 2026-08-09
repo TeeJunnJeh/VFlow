@@ -6,7 +6,7 @@
  * The panel renders three sub-forms depending on the active node kind:
  *   - ImageNode   → feature chip (first_frame/smart_repair/clothing_swap/ai_model)
  *                    + secondary params + prompt + Generate (runs imageGenHandlers)
- *   - VideoNode   → model chip (kling/sora2/sora2pro/seedance2.0) + duration
+ *   - VideoNode   → model chip (kling/sora2/sora2pro/seedance2.5) + duration
  *                    + aspect ratio + prompt + Generate (dispatches
  *                    `canvas:generate-inline` for CanvasEditor to handle)
  *   - TextNode    → script kind chip (master/full) + style/shotCount/duration
@@ -59,7 +59,7 @@ const VIDEO_MODEL_CHIPS: CanvasModelChipOption[] = [
   { value: 'kling', label: 'Kling', color: 'purple' },
   { value: 'sora2', label: 'Sora 2', color: 'purple' },
   { value: 'sora2pro', label: 'Sora 2 Pro', color: 'purple' },
-  { value: 'seedance2.0', label: 'Seedance', color: 'purple' },
+  { value: 'seedance2.5', label: 'Seedance', color: 'purple' },
 ];
 
 const IMAGE_MODEL_CHIPS: CanvasModelChipOption[] = [
@@ -68,8 +68,8 @@ const IMAGE_MODEL_CHIPS: CanvasModelChipOption[] = [
   { value: 'gpt-image-1.5', label: 'GPT image 1.5', color: 'blue' },
 ];
 
-const DURATION_OPTIONS = [5, 10, 15];
-const RATIO_OPTIONS: VideoNodeData['aspectRatio'][] = ['9:16', '16:9', '1:1'];
+const DURATION_OPTIONS = [-1, 5, 10, 15, 20, 30];
+const RATIO_OPTIONS: VideoNodeData['aspectRatio'][] = ['adaptive', '21:9', '9:16', '16:9', '4:3', '1:1', '3:4'];
 
 export const BottomInputPanel: React.FC<BottomInputPanelProps> = ({
   activeNode,
@@ -408,7 +408,7 @@ const VideoPanelBody: React.FC<VideoPanelBodyProps> = ({ nodeId, data, updateNod
           onChange={(e) => updateNodeData(nodeId, { duration: Number(e.target.value) })}
           className="px-2 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
         >
-          {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d}s</option>)}
+          {DURATION_OPTIONS.map((d) => <option key={d} value={d}>{d === -1 ? '智能时长' : `${d}s`}</option>)}
         </select>
         <select
           value={data.aspectRatio}
@@ -509,7 +509,7 @@ const TextPanelBody: React.FC<TextPanelBodyProps> = ({ data, isRunning, onGenera
           className="px-2 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
         >
           {[5, 10, 15, 20, 30].map((d) => (
-            <option key={d} value={d}>{d}s</option>
+            <option key={d} value={d}>{d === -1 ? '智能时长' : `${d}s`}</option>
           ))}
         </select>
         <select

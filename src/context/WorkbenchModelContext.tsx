@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-export type WorkbenchModel = 'kling' | 'sora2' | 'sora2pro' | 'seedance2.0';
+export type WorkbenchModel = 'kling' | 'sora2' | 'sora2pro' | 'seedance2.5';
 
 type WorkbenchModelContextType = {
   model: WorkbenchModel;
@@ -14,8 +14,8 @@ const WorkbenchModelContext = createContext<WorkbenchModelContextType | undefine
 
 const normalizeModel = (value: string | null): WorkbenchModel => {
   if (value === 'kling') return 'kling';
-  if (value === 'seedance2.0') return 'seedance2.0';
-  return 'seedance2.0';
+  if (value === 'seedance2.0' || value === 'seedance-2.0' || value === 'seedance2.5') return 'seedance2.5';
+  return 'seedance2.5';
 };
 
 export const WorkbenchModelProvider = ({ children }: { children: React.ReactNode }) => {

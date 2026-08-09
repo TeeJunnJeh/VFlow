@@ -13,7 +13,7 @@ const rejectText = (source, text, label) => {
   if (source.includes(text)) throw new Error(`${label}: still contains ${JSON.stringify(text)}`);
 };
 
-requireText(workbench, "const WORKBENCH_VIDEO_MODEL = 'seedance2.0' as const;", 'fixed workbench model');
+requireText(workbench, "const WORKBENCH_VIDEO_MODEL = 'seedance2.5' as const;", 'fixed workbench model');
 requireText(workbench, 'setSelectedModel(WORKBENCH_VIDEO_MODEL)', 'model normalization');
 requireText(workbench, 'selectedModelId: WORKBENCH_VIDEO_MODEL', 'persisted workbench model');
 rejectText(workbench, 'const modelSelector', 'creation mode selector');

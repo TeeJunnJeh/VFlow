@@ -10,7 +10,7 @@ const MODEL_OPTIONS: CanvasModelChipOption[] = [
   { value: 'kling', label: 'Kling', color: 'purple' },
   { value: 'sora2', label: 'Sora 2', color: 'purple' },
   { value: 'sora2pro', label: 'Sora 2 Pro', color: 'purple' },
-  { value: 'seedance2.0', label: 'Seedance', color: 'purple' },
+  { value: 'seedance2.5', label: 'Seedance', color: 'purple' },
 ];
 
 // Image gen models match productImages/Common/ModelSelectorChips so node + workspace stay in sync.
@@ -20,8 +20,8 @@ const IMAGE_MODEL_OPTIONS: CanvasModelChipOption[] = [
   { value: 'gpt-image-1.5', label: 'GPT image 1.5', color: 'blue' },
 ];
 
-const DURATION_OPTIONS = [5, 10, 15];
-const RATIO_OPTIONS: VideoNodeData['aspectRatio'][] = ['9:16', '16:9', '1:1'];
+const DURATION_OPTIONS = [-1, 5, 10, 15, 20, 30];
+const RATIO_OPTIONS: VideoNodeData['aspectRatio'][] = ['adaptive', '21:9', '9:16', '16:9', '4:3', '1:1', '3:4'];
 
 let nodeIdCounter = 0;
 function nextId() {
@@ -515,7 +515,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
                 className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
               >
                 {DURATION_OPTIONS.map((d) => (
-                  <option key={d} value={d}>{d}s</option>
+                  <option key={d} value={d}>{d === -1 ? '智能时长' : `${d}s`}</option>
                 ))}
               </select>
             </div>
@@ -717,7 +717,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({ onBatchG
                 className="w-full px-1.5 py-1 text-[11px] bg-zinc-800 border border-white/10 rounded text-zinc-300 focus:outline-none"
               >
                 {[5, 10, 15, 30, 60].map((d) => (
-                  <option key={d} value={d}>{d}s</option>
+                  <option key={d} value={d}>{d === -1 ? '智能时长' : `${d}s`}</option>
                 ))}
               </select>
             </div>

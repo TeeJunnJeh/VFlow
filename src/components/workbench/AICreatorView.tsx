@@ -3380,7 +3380,7 @@ export const AICreatorView: React.FC = () => {
                     <label className="block text-xs text-zinc-500 mb-1">{isZh ? '模型' : 'Model'}</label>
                     <select
                       className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
-                      value={String(confirmParams.model || 'seedance2.0')}
+                      value={String(confirmParams.model || 'seedance2.5')}
                       onChange={(e) => {
                         const newModel = e.target.value;
                         let newDuration = Number(confirmParams.duration || 10);
@@ -3390,7 +3390,7 @@ export const AICreatorView: React.FC = () => {
                             Math.abs(curr - newDuration) < Math.abs(prev - newDuration) ? curr : prev
                           );
                         } else if (newModel.startsWith('seedance')) {
-                          newDuration = Math.max(4, Math.min(15, newDuration));
+                          newDuration = newDuration === -1 ? -1 : Math.max(4, Math.min(30, newDuration));
                         } else {
                           newDuration = newDuration <= 7 ? 5 : 10;
                         }
@@ -3400,7 +3400,7 @@ export const AICreatorView: React.FC = () => {
                       <option value="kling">Kling</option>
                       <option value="sora2" disabled>{isZh ? 'Sora 2（已下线）' : 'Sora 2 (Discontinued)'}</option>
                       <option value="sora2pro" disabled>{isZh ? 'Sora 2 Pro（已下线）' : 'Sora 2 Pro (Discontinued)'}</option>
-                      <option value="seedance2.0">Seedance 2.0</option>
+                      <option value="seedance2.5">Seedance 2.5</option>
                     </select>
                     <div className="mt-1 text-[11px] text-zinc-500">
                       {isZh ? 'Sora 系列产品已经下线。' : 'Sora models are discontinued.'}
@@ -3408,7 +3408,7 @@ export const AICreatorView: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs text-zinc-500 mb-1">{isZh ? '时长（秒）' : 'Duration (seconds)'}</label>
-                    {String(confirmParams.model || 'seedance2.0').startsWith('sora') ? (
+                    {String(confirmParams.model || 'seedance2.5').startsWith('sora') ? (
                       <select
                         className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         value={Number(confirmParams.duration || 8)}
@@ -3421,16 +3421,21 @@ export const AICreatorView: React.FC = () => {
                     ) : (
                       <input
                         type="number"
-                        min={String(confirmParams.model || 'seedance2.0').startsWith('seedance') ? 4 : 5}
-                        max={String(confirmParams.model || 'seedance2.0').startsWith('seedance') ? 15 : 10}
-                        step={String(confirmParams.model || 'seedance2.0').startsWith('seedance') ? 1 : 5}
+                        min={String(confirmParams.model || 'seedance2.5').startsWith('seedance') ? -1 : 5}
+                        max={String(confirmParams.model || 'seedance2.5').startsWith('seedance') ? 30 : 10}
+                        step={String(confirmParams.model || 'seedance2.5').startsWith('seedance') ? 1 : 5}
                         className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
                         value={Number(confirmParams.duration || 10)}
                         onChange={(e) => {
-                          const model = String(confirmParams.model || 'seedance2.0');
+                          const model = String(confirmParams.model || 'seedance2.5');
+                          const raw = Number(e.target.value);
+                          if (model.startsWith('seedance') && raw === -1) {
+                            setConfirmParams({ ...confirmParams, duration: -1 });
+                            return;
+                          }
                           const min = model.startsWith('seedance') ? 4 : 5;
-                          const max = model.startsWith('seedance') ? 15 : 10;
-                          setConfirmParams({ ...confirmParams, duration: Math.max(min, Math.min(max, Number(e.target.value) || min)) });
+                          const max = model.startsWith('seedance') ? 30 : 10;
+                          setConfirmParams({ ...confirmParams, duration: Math.max(min, Math.min(max, raw || min)) });
                         }}
                       />
                     )}
@@ -3442,9 +3447,13 @@ export const AICreatorView: React.FC = () => {
                       value={String(confirmParams.aspect_ratio || '9:16')}
                       onChange={(e) => setConfirmParams({ ...confirmParams, aspect_ratio: e.target.value })}
                     >
+                      <option value="adaptive">{isZh ? '智能适配' : 'Adaptive'}</option>
+                      <option value="21:9">21:9</option>
                       <option value="9:16">9:16</option>
                       <option value="16:9">16:9</option>
                       <option value="1:1">1:1</option>
+                      <option value="4:3">4:3</option>
+                      <option value="3:4">3:4</option>
                     </select>
                   </div>
                   <div>
@@ -3456,6 +3465,17 @@ export const AICreatorView: React.FC = () => {
                     >
                       <option value="off">Off</option>
                       <option value="on">On</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">{isZh ? '分辨率' : 'Resolution'}</label>
+                    <select
+                      className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-orange-500/50"
+                      value={String(confirmParams.resolution || '720p')}
+                      onChange={(e) => setConfirmParams({ ...confirmParams, resolution: e.target.value })}
+                    >
+                      <option value="480p">480p</option>
+                      <option value="720p">720p</option>
                     </select>
                   </div>
                 </div>

@@ -559,8 +559,8 @@ const Workbench = () => {
       }
 
       // Transfer model selection (Sora-family only)
-      if (parsed.model && ['sora2', 'sora2pro', 'seedance2.0'].includes(parsed.model)) {
-        setTransferModel(parsed.model as 'sora2' | 'sora2pro' | 'seedance2.0');
+      if (parsed.model && ['sora2', 'sora2pro', 'seedance2.0', 'seedance2.5'].includes(parsed.model)) {
+        setTransferModel((parsed.model === 'seedance2.0' ? 'seedance2.5' : parsed.model) as 'sora2' | 'sora2pro' | 'seedance2.5');
       } else {
         setTransferModel(null);
       }
@@ -578,7 +578,7 @@ const Workbench = () => {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [transferRole, setTransferRole] = useState<'first_frame' | 'asset_apply' | null>(null);
   const [transferProjectName, setTransferProjectName] = useState<string | null>(null);
-  const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.0' | null>(null);
+  const [transferModel, setTransferModel] = useState<'sora2' | 'sora2pro' | 'seedance2.5' | null>(null);
   const [firstFrameVideoTransfer, setFirstFrameVideoTransfer] = useState<FirstFrameToVideoTransferPayload | null>(null);
 
   useEffect(() => {

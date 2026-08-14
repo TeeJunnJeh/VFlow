@@ -26,6 +26,9 @@ import {
   Square,
   Check,
   Paintbrush,
+  UserRound,
+  Images,
+  Type,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -44,6 +47,7 @@ import {
   type AgentStreamStatus,
   type AgentNextSuggestion,
   type AgentContextUsage,
+  type AgentRunReadiness,
 } from '../../services/agentRuntime';
 import { assetsApi } from '../../services/assets';
 import { ApiError, formatApiError } from '../../services/errors';
@@ -67,13 +71,29 @@ import type {
   AgentImageEditQueueJob,
   AgentImageEditSource,
 } from '../../features/agentImageEditing/types';
+import { AgentProductImageActionCard } from '../../features/agentProductImages/AgentProductImageActionCard';
+import { AgentProductImageResultCard } from '../../features/agentProductImages/AgentProductImageResultCard';
+import { AgentPosterEditorDialog } from '../../features/agentProductImages/AgentPosterEditorDialog';
+import type { AgentPosterEditorData } from '../../features/agentProductImages/posterEditorData';
+import {
+  canonicalProductImageToolName,
+  isProductImageAction,
+  normalizeGalleryOutputItems,
+  PRODUCT_IMAGE_TOOL_NAMES,
+  readAgentAssetRef,
+  type AgentConversationImage,
+} from '../../features/agentProductImages/types';
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
   generate_video: <Film className="w-5 h-5" />,
   generate_script: <FileText className="w-5 h-5" />,
   generate_image: <ImageIcon className="w-5 h-5" />,
   generate_first_frame: <ImageIcon className="w-5 h-5" />,
+  generate_clothing_swap: <Shirt className="w-5 h-5" />,
   clothing_swap: <Shirt className="w-5 h-5" />,
+  generate_ai_model: <UserRound className="w-5 h-5" />,
+  generate_product_gallery: <Images className="w-5 h-5" />,
+  edit_product_poster: <Type className="w-5 h-5" />,
   chat: <Sparkles className="w-5 h-5" />,
 };
 
@@ -82,7 +102,11 @@ const ACTION_LABELS_EN: Record<string, string> = {
   generate_script: 'Generate Script',
   generate_image: 'Generate Image',
   generate_first_frame: 'Generate First Frame',
+  generate_clothing_swap: 'AI Clothing Swap',
   clothing_swap: 'Clothing Swap',
+  generate_ai_model: 'AI Model',
+  generate_product_gallery: 'AI Product Gallery',
+  edit_product_poster: 'AI Poster Editor',
   chat: 'Chat',
 };
 
@@ -91,7 +115,11 @@ const ACTION_LABELS_ZH: Record<string, string> = {
   generate_script: '生成脚本',
   generate_image: '生成图片',
   generate_first_frame: '生成首帧图',
+  generate_clothing_swap: 'AI 换装',
   clothing_swap: 'AI 换装',
+  generate_ai_model: 'AI 模特',
+  generate_product_gallery: 'AI 商品套图',
+  edit_product_poster: 'AI 海报编辑',
   chat: '对话',
 };
 
@@ -114,6 +142,10 @@ const PLANNER_GENERATION_TOOL_NAMES = new Set([
   'generate_image',
   'generate_first_frame',
   'generate_video',
+  'generate_clothing_swap',
+  'generate_ai_model',
+  'generate_product_gallery',
+  'edit_product_poster',
 ]);
 
 type PlannerProcessEntry = {
@@ -320,6 +352,7 @@ export const AICreatorView: React.FC = () => {
   const [statusPhraseIndex, setStatusPhraseIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
+  const [productSubmittingRunIds, setProductSubmittingRunIds] = useState<Set<string>>(() => new Set());
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTitle, setDialogTitle] = useState('');
@@ -329,6 +362,7 @@ export const AICreatorView: React.FC = () => {
   const [previewImage, setPreviewImage] = useState<AgentAttachment | null>(null);
   const [previewImageSource, setPreviewImageSource] = useState<AgentImageEditSource | null>(null);
   const [savingPreviewAsset, setSavingPreviewAsset] = useState(false);
+  const [posterEditorData, setPosterEditorData] = useState<AgentPosterEditorData | null>(null);
 
   // Sidebar editing states
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -362,6 +396,7 @@ export const AICreatorView: React.FC = () => {
   const pendingUploadRoleRef = useRef<AgentAttachment['role']>('reference_image');
   const pendingUploadMaxFilesRef = useRef(0);
   const highlightTimerRef = useRef<number | null>(null);
+  const productSubmittingRunIdsRef = useRef<Set<string>>(new Set());
 
   // 按会话缓存临时状态（待发送上传图片），切回时恢复（持久化到 localStorage）
   const uploadedImagesRef = useRef<UploadedImage[]>([]);
@@ -948,6 +983,23 @@ export const AICreatorView: React.FC = () => {
       setPreviewImageSource(source);
     },
   });
+
+  const conversationProductImages = React.useMemo<AgentConversationImage[]>(() => {
+    const seen = new Set<string>();
+    return [...messages].reverse().flatMap((message) => (
+      getMessageEditableImageSources(message).flatMap((source) => {
+        if (!source.messageId || !source.url || seen.has(source.url)) return [];
+        seen.add(source.url);
+        return [{
+          source: 'conversation' as const,
+          url: source.url,
+          name: source.name,
+          role: source.role,
+          message_id: source.messageId,
+        }];
+      })
+    ));
+  }, [messages]);
 
   const getActionLabel = (type: string) => {
     const map = isZh ? ACTION_LABELS_ZH : ACTION_LABELS_EN;
@@ -1623,20 +1675,76 @@ export const AICreatorView: React.FC = () => {
 
   const createPendingToolMessage = (action: AiCreatorAction, params: Record<string, unknown>): AiCreatorMessage => {
     const localId = `local_tool_${action.run_id || action.type}_${Date.now()}`;
-    const isImageTool = action.type === 'generate_image' || action.type === 'generate_first_frame';
+    const productToolName = canonicalProductImageToolName(action.type);
+    const isImageTool = action.type === 'generate_image' || Boolean(productToolName);
     const isVideoTool = action.type === 'generate_video';
-    const pendingAsset = isImageTool
-      ? [{
+    let pendingImageAssets: Array<Record<string, unknown>> = [];
+    if (productToolName === 'generate_product_gallery') {
+      let sortOrder = 0;
+      pendingImageAssets = normalizeGalleryOutputItems(params.output_items)
+        .filter((item) => item.enabled)
+        .flatMap((item) => Array.from({ length: item.count }, () => {
+          const index = sortOrder;
+          sortOrder += 1;
+          return {
+            type: 'pending_image',
+            media_kind: 'image',
+            role: item.output_type,
+            output_type: item.output_type,
+            aspect_ratio: item.aspect_ratio,
+            resolution: item.resolution,
+            request_id: `${localId}_${index}`,
+            status: 'running',
+            sort_order: index,
+          };
+        }));
+    } else if (productToolName === 'edit_product_poster') {
+      const sourceImage = readAgentAssetRef(params.source_image);
+      pendingImageAssets = [
+        ...(sourceImage?.url ? [{
+          type: 'image',
+          media_kind: 'image',
+          role: 'poster_original',
+          url: sourceImage.url,
+          name: sourceImage.name || '',
+          asset_id: sourceImage.asset_id || '',
+          request_id: `${localId}_original`,
+          status: 'succeeded',
+          sort_order: 0,
+        }] : []),
+        {
           type: 'pending_image',
           media_kind: 'image',
-          role: action.type === 'generate_first_frame'
-            ? 'first_frame'
+          role: 'poster_clean',
+          request_id: `${localId}_clean`,
+          status: 'running',
+          sort_order: sourceImage?.url ? 1 : 0,
+        },
+      ];
+    } else if (isImageTool) {
+      const imageCount = productToolName
+        ? Math.max(1, Math.min(4, Number(params.output_count || (productToolName === 'generate_first_frame' ? 4 : 1))))
+        : 1;
+      const imageRole = productToolName === 'generate_first_frame'
+        ? 'first_frame'
+        : productToolName === 'generate_clothing_swap'
+          ? 'clothing_swap'
+          : productToolName === 'generate_ai_model'
+            ? (String(params.mode || 'virtual') === 'real' ? 'real_person' : 'ai_model')
             : String(params.mode || '') === 'edit'
               ? 'edited_image'
-              : 'generated_image',
-          request_id: localId,
-          status: 'running',
-        }]
+              : 'generated_image';
+      pendingImageAssets = Array.from({ length: imageCount }, (_, index) => ({
+        type: 'pending_image',
+        media_kind: 'image',
+        role: imageRole,
+        request_id: `${localId}_${index}`,
+        status: 'running',
+        sort_order: index,
+      }));
+    }
+    const pendingAsset = isImageTool
+      ? pendingImageAssets
       : isVideoTool
         ? [{
             type: 'pending_video',
@@ -1649,12 +1757,15 @@ export const AICreatorView: React.FC = () => {
     return {
       id: localId,
       role: 'tool',
-      content: action.type === 'generate_image'
-        ? (isZh ? '正在生成图片…' : 'Generating image...')
+      content: productToolName === 'edit_product_poster'
+        ? (isZh ? '正在分离海报文字…' : 'Separating poster text...')
+        : isImageTool
+          ? (isZh ? '正在生成图片…' : 'Generating image...')
         : action.type === 'generate_video'
           ? (isZh ? '正在生成视频…' : 'Generating video...')
         : (isZh ? '正在执行…' : 'Running...'),
       attachments: [],
+      action: { ...action, params },
       run_id: action.run_id || null,
       metadata: {
         local_pending: true,
@@ -1666,7 +1777,7 @@ export const AICreatorView: React.FC = () => {
         step_id: 0,
         tool_name: action.type,
         status: 'running',
-        display_type: action.type === 'generate_image' ? 'image' : action.type === 'generate_video' ? 'video' : action.type,
+        display_type: productToolName || (action.type === 'generate_image' ? 'image' : action.type === 'generate_video' ? 'video' : action.type),
         assets: pendingAsset,
         task_ids: [],
         project_id: '',
@@ -1722,6 +1833,50 @@ export const AICreatorView: React.FC = () => {
     }
   };
 
+  const handleProductRunUpdated = (
+    runId: string,
+    params: Record<string, unknown>,
+    readiness?: AgentRunReadiness | null,
+  ) => {
+    setMessages((previous) => previous.map((message) => {
+      if (message.action?.run_id !== runId) return message;
+      return {
+        ...message,
+        action: { ...message.action, params },
+        metadata: { ...(message.metadata || {}), run_readiness: readiness || null },
+      };
+    }));
+  };
+
+  const runProductImageGeneration = (action: AiCreatorAction, params: Record<string, unknown>) => {
+    const runId = String(action.run_id || '').trim();
+    if (!runId || productSubmittingRunIdsRef.current.has(runId)) return;
+    resetNextSuggestion();
+    productSubmittingRunIdsRef.current.add(runId);
+    setProductSubmittingRunIds(new Set(productSubmittingRunIdsRef.current));
+    const pendingMessage = createPendingToolMessage(action, params);
+    const targetConversationId = activeConversationIdRef.current || '';
+    setMessages((previous) => [...previous, pendingMessage]);
+
+    void agentRuntimeApi.confirmRun(runId, params)
+      .then(async (run) => {
+        if (run.conversation_id && run.conversation_id === activeConversationIdRef.current) {
+          await loadConversation(run.conversation_id, { skipStateRestore: true, silent: true, preserveScroll: true });
+        }
+        await loadConversations();
+      })
+      .catch((error) => {
+        const message = formatApiError(error, t.ai_creator_error || 'Generation failed. Please try again.');
+        if (!targetConversationId || targetConversationId === activeConversationIdRef.current) {
+          markPendingToolMessageFailed(pendingMessage.id || '', message);
+        }
+      })
+      .finally(() => {
+        productSubmittingRunIdsRef.current.delete(runId);
+        setProductSubmittingRunIds(new Set(productSubmittingRunIdsRef.current));
+      });
+  };
+
   const submitConfirmedAction = async () => {
     if (!confirmAction) return;
     setConfirmAction(null);
@@ -1732,6 +1887,10 @@ export const AICreatorView: React.FC = () => {
   const executeActionDirectly = async (action: AiCreatorAction) => {
     if (action.type === 'generate_image' && String(action.params?.mode || 'create') === 'edit') {
       openImageEditorForAction(action);
+      return;
+    }
+    if (isProductImageAction(action)) {
+      runProductImageGeneration(action, action.params || {});
       return;
     }
     if (generatingType) return;
@@ -1841,12 +2000,65 @@ export const AICreatorView: React.FC = () => {
     return [...attachments, ...toolAssets];
   };
 
+  const getProductToolAssets = (msg: AiCreatorMessage): Array<Record<string, unknown>> => {
+    const primary: unknown[] = Array.isArray(msg.tool_result?.assets) && msg.tool_result.assets.length > 0
+      ? msg.tool_result.assets
+      : Array.isArray(msg.attachments) ? msg.attachments : [];
+    return primary
+      .filter((asset): asset is Record<string, unknown> => Boolean(asset && typeof asset === 'object'))
+      .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0));
+  };
+
   const getToolVisualState = (msg: AiCreatorMessage): 'running' | 'failed' | 'succeeded' => {
     const status = String(msg.tool_result?.status || 'succeeded').trim().toLowerCase();
     const rawPreviewItems = getToolRawPreviewItems(msg);
+    const productToolName = canonicalProductImageToolName(getToolName(msg));
+    if (productToolName) {
+      const productAssets = getProductToolAssets(msg);
+      if (['pending', 'running'].includes(status) || productAssets.some(isPendingToolAsset)) return 'running';
+      if (productAssets.some((asset) => Boolean(readAssetUrl(asset)))) return 'succeeded';
+      if (status === 'failed' || productAssets.some(isFailedToolAsset)) return 'failed';
+    }
     if (status === 'failed' || rawPreviewItems.some(isFailedToolAsset)) return 'failed';
     if (['pending', 'running'].includes(status) || rawPreviewItems.some(isPendingToolAsset)) return 'running';
     return 'succeeded';
+  };
+
+  const findProductActionForRun = (runId: string): AiCreatorAction | null => {
+    const message = [...messages].reverse().find((item) => item.action?.run_id === runId && isProductImageAction(item.action));
+    return message?.action || null;
+  };
+
+  const retryProductToolResult = (msg: AiCreatorMessage) => {
+    const runId = String(msg.tool_result?.run_id || msg.run_id || '').trim();
+    const action = findProductActionForRun(runId);
+    const toolName = canonicalProductImageToolName(getToolName(msg));
+    if (!runId || !action || !toolName) return;
+    const failedAssets = getProductToolAssets(msg).filter(isFailedToolAsset);
+    const failedCount = Math.max(1, failedAssets.length);
+    let params: Record<string, unknown> = { ...(action.params || {}) };
+    if (toolName === 'generate_product_gallery') {
+      const grouped = new Map<string, { output_type: string; enabled: boolean; count: number; aspect_ratio: string; resolution: string }>();
+      failedAssets.forEach((asset) => {
+        const outputType = String(asset.output_type || asset.role || 'white_bg');
+        const current = grouped.get(outputType);
+        if (current) {
+          current.count += 1;
+        } else {
+          grouped.set(outputType, {
+            output_type: outputType,
+            enabled: true,
+            count: 1,
+            aspect_ratio: String(asset.aspect_ratio || '1:1'),
+            resolution: String(asset.resolution || '1k'),
+          });
+        }
+      });
+      if (grouped.size > 0) params = { ...params, output_items: Array.from(grouped.values()) };
+    } else if (toolName !== 'generate_clothing_swap' && toolName !== 'edit_product_poster') {
+      params = { ...params, output_count: failedCount };
+    }
+    runProductImageGeneration({ ...action, type: toolName, params }, params);
   };
 
   const getToolImageAttachments = (msg: AiCreatorMessage) => {
@@ -1959,7 +2171,7 @@ export const AICreatorView: React.FC = () => {
     if (msg.role !== 'tool' && !(msg.role === 'developer' && msg.tool_result)) return false;
     const toolName = getToolName(msg);
     const displayType = String(msg.tool_result?.display_type || '').trim().toLowerCase();
-    if (toolName === 'generate_image' || toolName === 'generate_first_frame') return true;
+    if (toolName === 'generate_image' || PRODUCT_IMAGE_TOOL_NAMES.has(toolName)) return true;
     if (displayType === 'image' || displayType === 'first_frame') return true;
     return getToolRawPreviewItems(msg).some((item) => getPreviewMediaKind(item) === 'image');
   };
@@ -2012,6 +2224,31 @@ export const AICreatorView: React.FC = () => {
   const renderToolMessage = (msg: AiCreatorMessage, options?: { embedded?: boolean }) => {
     const toolResult = msg.tool_result || null;
     const toolName = getToolName(msg);
+    const productToolName = canonicalProductImageToolName(toolName);
+    if (productToolName) {
+      const runId = String(toolResult?.run_id || msg.run_id || '');
+      return (
+        <AgentProductImageResultCard
+          message={msg}
+          language={language}
+          embedded={options?.embedded}
+          submitting={Boolean(runId && productSubmittingRunIds.has(runId))}
+          editLabel={imageEditingCopy.edit}
+          loadFailedLabel={imageEditingCopy.resultLoadFailed}
+          retryLoadLabel={imageEditingCopy.retry}
+          openOriginalLabel={imageEditingCopy.openOriginal}
+          onOpen={(attachment, source) => {
+            setPreviewImage(attachment);
+            setPreviewImageSource(source);
+          }}
+          onEdit={openImageEditorForSource}
+          onRetry={() => retryProductToolResult(msg)}
+          onSaveRecipe={() => void saveToolResultAsRecipe(msg)}
+          onOpenPosterEditor={setPosterEditorData}
+          onError={openInfo}
+        />
+      );
+    }
     const visualState = getToolVisualState(msg);
     const isRunning = visualState === 'running';
     const isFailed = visualState === 'failed';
@@ -3106,7 +3343,27 @@ export const AICreatorView: React.FC = () => {
 
                     {/* Action card inside assistant message */}
                     {item.message.role === 'assistant' && item.message.action && item.message.action.type !== 'chat' && (
-                      <div
+                      isProductImageAction(item.message.action) ? (
+                        <div className={item.message.content ? 'mt-4 border-t border-white/10 pt-4' : ''}>
+                          <AgentProductImageActionCard
+                            action={item.message.action}
+                            conversationId={activeConversationId || ''}
+                            language={language}
+                            conversationImages={conversationProductImages}
+                            submitting={Boolean(item.message.action.run_id && productSubmittingRunIds.has(item.message.action.run_id))}
+                            superseded={isSupersededActionMessage(item.message)}
+                            highlighted={Boolean(item.message.action.run_id && highlightedRunId === item.message.action.run_id)}
+                            disabled={
+                              !item.message.action.run_id
+                              || isSupersededActionMessage(item.message)
+                              || Boolean(item.message.run_status && item.message.run_status !== 'waiting_confirmation')
+                            }
+                            onRunUpdated={handleProductRunUpdated}
+                            onConfirm={runProductImageGeneration}
+                          />
+                        </div>
+                      ) : (
+                        <div
                         id={item.message.action.run_id ? `agent-action-${item.message.action.run_id}` : undefined}
                         className={`${item.message.content && !isLocalImageEditAction(item.message.action) ? 'mt-4 pt-4 border-t border-white/10' : ''} rounded-lg transition-shadow duration-300 ${
                           item.message.action.run_id && highlightedRunId === item.message.action.run_id
@@ -3184,7 +3441,8 @@ export const AICreatorView: React.FC = () => {
                             </button>
                           )}
                         </div>
-                      </div>
+                        </div>
+                      )
                     )}
                   </div>
                   </div>
@@ -3591,6 +3849,14 @@ export const AICreatorView: React.FC = () => {
             )}
           </div>
         </AppDialog>
+      )}
+
+      {posterEditorData && (
+        <AgentPosterEditorDialog
+          data={posterEditorData}
+          isZh={isZh}
+          onClose={() => setPosterEditorData(null)}
+        />
       )}
 
       {previewImage && (

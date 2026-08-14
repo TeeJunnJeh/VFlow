@@ -6,6 +6,10 @@ export type AgentActionType =
   | 'generate_image'
   | 'generate_first_frame'
   | 'generate_video'
+  | 'generate_clothing_swap'
+  | 'generate_ai_model'
+  | 'generate_product_gallery'
+  | 'edit_product_poster'
   | 'clothing_swap'
   | 'chat';
 
@@ -19,7 +23,17 @@ export interface AgentAttachment {
   url: string;
   name?: string;
   media_kind: 'image' | 'video' | 'document' | string;
-  role?: 'product_image' | 'reference_image' | 'model_image' | 'garment_image' | 'video_reference' | 'document' | string;
+  role?: 'product_image' | 'reference_image' | 'model_image' | 'real_person_image' | 'garment_image' | 'background_image' | 'video_reference' | 'document' | string;
+  asset_id?: string;
+}
+
+export interface AgentAssetRef {
+  source: 'conversation' | 'library' | 'temp_upload';
+  url: string;
+  name?: string;
+  role?: string;
+  message_id?: string;
+  asset_id?: string;
 }
 
 export interface AgentSkill {
@@ -108,6 +122,11 @@ export interface AgentStep {
 
 export type AgentRunStatus = 'pending' | 'running' | 'waiting_confirmation' | 'succeeded' | 'failed' | 'cancelled';
 
+export interface AgentRunReadiness {
+  can_confirm: boolean;
+  missing_fields: string[];
+}
+
 export interface AgentRun {
   id: string;
   conversation_id: string;
@@ -116,7 +135,14 @@ export interface AgentRun {
   output_payload?: Record<string, any>;
   error_message?: string;
   requires_confirmation: boolean;
+  readiness?: AgentRunReadiness | null;
   steps: AgentStep[];
+}
+
+export interface AgentProductAnalysisResult {
+  product_name: string;
+  product_category: string;
+  core_selling_points: string[];
 }
 
 export interface AgentChatResponse {
@@ -253,6 +279,36 @@ export const agentRuntimeApi = {
       source: data.source === 'model' || data.source === 'fallback' ? data.source : 'none',
       stage: typeof data.stage === 'string' ? data.stage : null,
       can_apply: data.can_apply !== false && typeof data.suggestion === 'string',
+    };
+  },
+
+  analyzeProductImages: async (
+    conversationId: string,
+    payload: {
+      run_id: string;
+      language: AgentSuggestionLanguage;
+      product_images: AgentAssetRef[];
+      existing_info: {
+        product_name?: string;
+        product_category?: string;
+        core_selling_points?: string[];
+      };
+    },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AgentProductAnalysisResult> => {
+    const json = await apiRequest(`/api/agent/conversations/${conversationId}/product-image-analysis/`, {
+      method: 'POST',
+      body: payload,
+      fallbackMessage: 'Failed to recognize product information',
+      fetchOptions: { signal: options.signal },
+    });
+    const data = json?.data || {};
+    return {
+      product_name: String(data.product_name || ''),
+      product_category: String(data.product_category || ''),
+      core_selling_points: Array.isArray(data.core_selling_points)
+        ? data.core_selling_points.map((item: unknown) => String(item || '').trim()).filter(Boolean).slice(0, 5)
+        : [],
     };
   },
 
@@ -423,6 +479,15 @@ export const agentRuntimeApi = {
     const json = await apiRequest(`/api/agent/runs/${id}/`, {
       method: 'GET',
       fallbackMessage: 'Failed to load run',
+    });
+    return json?.data;
+  },
+
+  updateRun: async (id: string, params: Record<string, unknown>): Promise<AgentRun> => {
+    const json = await apiRequest(`/api/agent/runs/${id}/`, {
+      method: 'PATCH',
+      body: { params },
+      fallbackMessage: 'Failed to update agent run',
     });
     return json?.data;
   },

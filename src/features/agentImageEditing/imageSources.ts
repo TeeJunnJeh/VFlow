@@ -47,16 +47,31 @@ export const isFailedAgentImageAsset = (value: unknown): boolean => {
   return ['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(status);
 };
 
-export const hasPendingAgentImageAssets = (messages: AgentMessage[]): boolean => (
-  messages.some((message) => {
-    if (message.role !== 'tool') return false;
-    const status = String(message.tool_result?.status || '').trim().toLowerCase();
-    if (['pending', 'running'].includes(status)) return true;
-    const assets = Array.isArray(message.tool_result?.assets) ? message.tool_result.assets : [];
-    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-    return [...assets, ...attachments].some(isPendingAgentImageAsset);
-  })
-);
+const messageHasPendingAgentImageAssets = (message: AgentMessage): boolean => {
+  const status = String(message.tool_result?.status || '').trim().toLowerCase();
+  if (['pending', 'running'].includes(status)) return true;
+  const assets = Array.isArray(message.tool_result?.assets) ? message.tool_result.assets : [];
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  return [...assets, ...attachments].some(isPendingAgentImageAsset);
+};
+
+export const hasPendingAgentImageAssets = (messages: AgentMessage[]): boolean => {
+  const latestMessageByRun = new Map<string, AgentMessage>();
+  const messagesWithoutRun: AgentMessage[] = [];
+
+  messages.forEach((message) => {
+    if (!message.tool_result || !['tool', 'developer'].includes(message.role)) return;
+    const runId = String(message.run_id || message.tool_result.run_id || '').trim();
+    if (runId) {
+      latestMessageByRun.set(runId, message);
+    } else {
+      messagesWithoutRun.push(message);
+    }
+  });
+
+  return [...latestMessageByRun.values(), ...messagesWithoutRun]
+    .some(messageHasPendingAgentImageAssets);
+};
 
 export const getMessageRunIds = (message: AgentMessage): string[] => [
   String(message.run_id || ''),

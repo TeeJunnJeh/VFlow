@@ -124,6 +124,7 @@ export const getCommunityPreviewPosts = (params?: CommunityListParams): Communit
   const keyword = (params?.q || '').trim().toLowerCase();
   const filtered = previewPosts.filter((post) => {
     if (params?.type && params.type !== 'all' && post.post_type !== params.type) return false;
+    if (params?.feed === 'following' && !post.author.is_following) return false;
     if (params?.authorId && post.author.id !== params.authorId) return false;
     if (!keyword) return true;
     const haystack = [
@@ -133,6 +134,15 @@ export const getCommunityPreviewPosts = (params?: CommunityListParams): Communit
       ...post.materials.map((item) => item.name),
     ].join(' ').toLowerCase();
     return haystack.includes(keyword);
+  });
+
+  filtered.sort((left, right) => {
+    if (params?.ordering === 'latest') {
+      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+    }
+    const heat = (post: CommunityPost) => post.like_count + post.favorite_count + post.collect_count + post.comment_count;
+    return heat(right) - heat(left)
+      || new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
   });
 
   const limit = Math.max(1, Number(params?.limit || filtered.length));

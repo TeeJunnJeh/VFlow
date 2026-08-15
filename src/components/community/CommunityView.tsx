@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ArrowDownUp, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import Masonry from 'react-masonry-css';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -13,6 +13,8 @@ import { CommunityInteractionsDialog } from './CommunityInteractionsDialog';
 import { getCommunityPreviewPosts } from './communityPreviewPosts';
 
 type CommunityFilter = 'all' | CommunityPostType;
+type CommunityFeed = 'recommended' | 'following';
+type CommunityOrdering = 'hot' | 'latest';
 
 type LoadOptions = {
   cursor?: string | null;
@@ -48,6 +50,8 @@ export const CommunityView = () => {
   const [query, setQuery] = React.useState('');
   const [debouncedQuery, setDebouncedQuery] = React.useState('');
   const [filter, setFilter] = React.useState<CommunityFilter>('all');
+  const [feed, setFeed] = React.useState<CommunityFeed>('recommended');
+  const [ordering, setOrdering] = React.useState<CommunityOrdering>('hot');
   const [posts, setPosts] = React.useState<CommunityPost[]>([]);
   const [selectedPost, setSelectedPost] = React.useState<CommunityPost | null>(null);
   const [profileAuthor, setProfileAuthor] = React.useState<CommunityAuthor | null>(null);
@@ -78,6 +82,10 @@ export const CommunityView = () => {
     all: (t as any).community_filter_all || 'All',
     material: (t as any).community_filter_material || 'Materials',
     experience: (t as any).community_filter_experience || 'Experience',
+    recommended: (t as any).community_feed_recommended || 'Recommended',
+    following: (t as any).community_feed_following || 'Following',
+    sortHot: (t as any).community_sort_hot || 'Most popular',
+    sortLatest: (t as any).community_sort_latest || 'Latest',
     publish: (t as any).community_publish || 'Publish',
     publishing: (t as any).community_publishing || 'Publishing...',
     empty: (t as any).community_empty || 'No posts',
@@ -190,6 +198,8 @@ export const CommunityView = () => {
     try {
       const response = await communityApi.listPosts({
         type: filter,
+        feed,
+        ordering,
         q: debouncedQuery,
         cursor: cursor || undefined,
         limit: PAGE_SIZE,
@@ -203,6 +213,8 @@ export const CommunityView = () => {
       if (isCommunityApiUnavailableError(err)) {
         const previewResponse = getCommunityPreviewPosts({
           type: filter,
+          feed,
+          ordering,
           q: debouncedQuery,
           cursor: cursor || undefined,
           limit: PAGE_SIZE,
@@ -223,7 +235,7 @@ export const CommunityView = () => {
         setIsLoadingMore(false);
       }
     }
-  }, [debouncedQuery, filter, labels.loadError]);
+  }, [debouncedQuery, feed, filter, labels.loadError, ordering]);
 
   React.useEffect(() => {
     void loadPosts({ append: false });
@@ -484,7 +496,7 @@ export const CommunityView = () => {
   return (
     <div className="relative z-10 flex h-full min-h-0 flex-col bg-[#050505]">
       {!profileAuthor ? (
-        <header className="shrink-0 border-b border-white/5 px-8 py-6">
+        <header className="shrink-0 border-b border-zinc-200 px-8 pb-2 pt-6 dark:border-white/5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-2xl font-black tracking-tight text-zinc-100">{labels.title}</h1>
           <button
@@ -501,7 +513,26 @@ export const CommunityView = () => {
         </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          <div className="relative w-full max-w-md">
+          <div className="inline-flex h-10 shrink-0 items-center rounded-lg border border-zinc-300 bg-zinc-100 p-1 shadow-sm dark:border-white/15 dark:bg-black/50">
+            {(['recommended', 'following'] as CommunityFeed[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  if (value === 'following' && !requireAuth()) return;
+                  setFeed(value);
+                }}
+                className={`community-feed-tab h-8 rounded-md px-4 text-sm font-bold transition ${
+                  feed === value
+                    ? 'community-feed-tab-active bg-zinc-300 text-zinc-950 shadow-sm ring-1 ring-zinc-400/70 dark:bg-zinc-700 dark:text-white dark:ring-white/10'
+                    : 'community-feed-tab-inactive text-zinc-500 hover:bg-white/60 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-zinc-100'
+                }`}
+              >
+                {value === 'recommended' ? labels.recommended : labels.following}
+              </button>
+            ))}
+          </div>
+          <div className="relative min-w-[240px] flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
             <input
               value={query}
@@ -510,16 +541,27 @@ export const CommunityView = () => {
               className="h-10 w-full rounded-lg border border-white/10 bg-black/35 pl-9 pr-3 text-sm text-zinc-100 outline-none transition focus:border-orange-400/70"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setOrdering((current) => (current === 'hot' ? 'latest' : 'hot'))}
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm font-bold text-zinc-200 transition hover:bg-white/10"
+            title={ordering === 'hot' ? labels.sortHot : labels.sortLatest}
+          >
+            <ArrowDownUp className="h-4 w-4" />
+            {ordering === 'hot' ? labels.sortHot : labels.sortLatest}
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center">
+          <div className="flex items-center gap-6">
             {FILTERS.map((value) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => setFilter(value)}
-                className={`h-10 rounded-lg border px-3 text-xs font-bold transition ${
+                className={`community-filter-tab h-9 border-b-2 px-0.5 text-sm font-bold transition ${
                   filter === value
-                    ? 'border-orange-400/60 bg-orange-500/15 text-orange-200'
-                    : 'border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/10'
+                    ? 'community-filter-tab-active border-orange-500 text-zinc-950 dark:text-white'
+                    : 'community-filter-tab-inactive border-transparent text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300'
                 }`}
               >
                 {filterLabel(value)}

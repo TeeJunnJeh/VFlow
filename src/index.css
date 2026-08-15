@@ -805,6 +805,35 @@ html.theme-light .creative-replay-ghost-pill {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+
+/* Community feed/filter tabs intentionally override the broad light-mode button reset above. */
+html.theme-light button.community-feed-tab-active,
+html.theme-light button.community-feed-tab-active:hover {
+  background-color: rgba(251, 146, 60, 0.28) !important;
+  color: #d9480f !important;
+  box-shadow: 0 8px 20px rgba(251, 146, 60, 0.18) !important;
+}
+html.theme-light button.community-feed-tab-inactive {
+  background-color: transparent !important;
+  color: #52525b !important;
+}
+html.theme-light button.community-feed-tab-inactive:hover {
+  background-color: rgba(255, 255, 255, 0.65) !important;
+  color: #27272a !important;
+}
+html.theme-light button.community-filter-tab,
+html.theme-light button.community-filter-tab:hover {
+  background-color: transparent !important;
+}
+html.theme-light button.community-filter-tab-active {
+  color: #18181b !important;
+}
+html.theme-light button.community-filter-tab-inactive {
+  color: #71717a !important;
+}
+html.theme-light button.community-filter-tab-inactive:hover {
+  color: #52525b !important;
+}
 html.theme-light button.community-interaction-author-info,
 html.theme-light button.community-interaction-author-info:hover {
   background-color: transparent !important;

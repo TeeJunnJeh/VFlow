@@ -99,6 +99,8 @@ export interface CommunityCommentDraft {
 
 export interface CommunityListParams {
   type?: CommunityPostType | 'all';
+  feed?: 'recommended' | 'following';
+  ordering?: 'hot' | 'latest';
   q?: string;
   authorId?: string;
   cursor?: string;
@@ -271,6 +273,8 @@ export const communityApi = {
   listPosts: async (params?: CommunityListParams): Promise<CommunityListResponse> => {
     const search = new URLSearchParams();
     if (params?.type && params.type !== 'all') search.set('type', params.type);
+    if (params?.feed) search.set('feed', params.feed);
+    if (params?.ordering) search.set('ordering', params.ordering);
     if (params?.q) search.set('q', params.q);
     if (params?.authorId) search.set('author_id', params.authorId);
     if (params?.cursor) search.set('cursor', params.cursor);

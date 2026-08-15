@@ -613,7 +613,11 @@ export const CommunityPostDetailDialog = ({
               {post.body ? <p className="community-text-wrap mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-100">{post.body}</p> : null}
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-zinc-500">
                 <span>{postTypeLabel}</span>
-                {post.created_at ? <span>{post.created_at}</span> : null}
+                {post.edited_at ? (
+                  <span>编辑于 {post.edited_at}</span>
+                ) : post.created_at ? (
+                  <span>发布于 {post.created_at}</span>
+                ) : null}
               </div>
               <div className="mt-5 flex items-end gap-8 border-b border-white/10">
                 <button

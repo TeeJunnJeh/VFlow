@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, ArrowDownUp, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ArrowDownUp, Loader2, NotebookPen, Plus, RefreshCw, Search } from 'lucide-react';
 import Masonry from 'react-masonry-css';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ import { CommunityPostCard } from './CommunityPostCard';
 import { CommunityPostDetailDialog } from './CommunityPostDetailDialog';
 import { CommunityAuthorProfileView } from './CommunityAuthorProfileView';
 import { CommunityInteractionsDialog } from './CommunityInteractionsDialog';
+import { CommunityPostManager } from './CommunityPostManager';
 import { getCommunityPreviewPosts } from './communityPreviewPosts';
 
 type CommunityFilter = 'all' | CommunityPostType;
@@ -65,6 +66,12 @@ export const CommunityView = () => {
   const [isInteractionsLoading, setIsInteractionsLoading] = React.useState(false);
   const [interactionsErrorMessage, setInteractionsErrorMessage] = React.useState<string | null>(null);
   const [isComposerOpen, setIsComposerOpen] = React.useState(false);
+  const [editingPost, setEditingPost] = React.useState<CommunityPost | null>(null);
+  const [isManagingPosts, setIsManagingPosts] = React.useState(false);
+  const [managedPosts, setManagedPosts] = React.useState<CommunityPost[]>([]);
+  const [managerFilter, setManagerFilter] = React.useState<CommunityFilter>('all');
+  const [managerQuery, setManagerQuery] = React.useState('');
+  const [isManagerLoading, setIsManagerLoading] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [isSubmittingPost, setIsSubmittingPost] = React.useState(false);
@@ -465,11 +472,15 @@ export const CommunityView = () => {
     setIsSubmittingPost(true);
     setErrorMessage(null);
     try {
-      const created = await communityApi.createPost(draft);
-      if (created.id) {
-        setPosts((prev) => [created, ...prev.filter((post) => post.id !== created.id)]);
+      const saved = editingPost
+        ? await communityApi.updatePost(editingPost.id, draft)
+        : await communityApi.createPost(draft);
+      if (saved.id) {
+        setPosts((prev) => editingPost ? prev.map((post) => post.id === saved.id ? saved : post) : [saved, ...prev.filter((post) => post.id !== saved.id)]);
+        setManagedPosts((prev) => editingPost ? prev.map((post) => post.id === saved.id ? saved : post) : [saved, ...prev]);
       }
       setIsComposerOpen(false);
+      setEditingPost(null);
       showToast(labels.publishSuccess);
     } catch (err) {
       const message = getErrorMessage(err, labels.publishError);
@@ -478,7 +489,36 @@ export const CommunityView = () => {
     } finally {
       setIsSubmittingPost(false);
     }
-  }, [labels.publishError, labels.publishSuccess, requireAuth, showToast]);
+  }, [editingPost, labels.publishError, labels.publishSuccess, requireAuth, showToast]);
+
+  const openPostManager = React.useCallback(async () => {
+    if (!requireAuth() || !user?.id) return;
+    setIsManagingPosts(true);
+    setManagerFilter('all');
+    setManagerQuery('');
+    setIsManagerLoading(true);
+    try {
+      const response = await communityApi.listPosts({ authorId: String(user.id), ordering: 'latest', limit: 60 });
+      setManagedPosts(response.items);
+    } catch (err) {
+      setManagedPosts([]);
+      setErrorMessage(getErrorMessage(err, labels.loadError));
+    } finally {
+      setIsManagerLoading(false);
+    }
+  }, [labels.loadError, requireAuth, user?.id]);
+
+  const deleteManagedPost = React.useCallback(async (post: CommunityPost) => {
+    if (!window.confirm(`确定删除“${post.title || '无标题'}”吗？删除后无法恢复。`)) return;
+    try {
+      await communityApi.deletePost(post.id);
+      setManagedPosts((prev) => prev.filter((item) => item.id !== post.id));
+      setPosts((prev) => prev.filter((item) => item.id !== post.id));
+      showToast('帖子已删除');
+    } catch (err) {
+      setErrorMessage(getErrorMessage(err, labels.actionError));
+    }
+  }, [labels.actionError, showToast]);
 
   // 稳定引用，避免每次父组件渲染都让所有卡片重渲染（滚动流畅、防卡顿）
   const cardLabels = React.useMemo(() => ({
@@ -495,14 +535,19 @@ export const CommunityView = () => {
 
   return (
     <div className="relative z-10 flex h-full min-h-0 flex-col bg-[#050505]">
-      {!profileAuthor ? (
+      {!profileAuthor && !isManagingPosts ? (
         <header className="shrink-0 border-b border-zinc-200 px-8 pb-2 pt-6 dark:border-white/5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-2xl font-black tracking-tight text-zinc-100">{labels.title}</h1>
+          <div className="flex items-center gap-2">
+          <button type="button" onClick={() => void openPostManager()} className="community-manage-entry inline-flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm font-bold text-zinc-200 hover:bg-white/10">
+            <NotebookPen className="h-4 w-4" />笔记管理
+          </button>
           <button
             type="button"
             onClick={() => {
               if (!requireAuth()) return;
+              setEditingPost(null);
               setIsComposerOpen(true);
             }}
             className="inline-flex h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white shadow-lg shadow-orange-950/30 hover:bg-orange-400"
@@ -510,6 +555,7 @@ export const CommunityView = () => {
             <Plus className="h-4 w-4" />
             {labels.publish}
           </button>
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -573,7 +619,19 @@ export const CommunityView = () => {
       ) : null}
 
       <main className="custom-scroll flex-1 overflow-y-auto px-8 py-6">
-        {profileAuthor ? (
+        {isManagingPosts ? (
+          <CommunityPostManager
+            posts={managedPosts}
+            isLoading={isManagerLoading}
+            filter={managerFilter}
+            query={managerQuery}
+            onBack={() => setIsManagingPosts(false)}
+            onFilterChange={setManagerFilter}
+            onQueryChange={setManagerQuery}
+            onEdit={(post) => { setEditingPost(post); setIsComposerOpen(true); }}
+            onDelete={(post) => void deleteManagedPost(post)}
+          />
+        ) : profileAuthor ? (
           <CommunityAuthorProfileView
             author={profileAuthor}
             posts={profilePosts}
@@ -606,6 +664,7 @@ export const CommunityView = () => {
             }}
             onPublish={() => {
               if (!requireAuth()) return;
+              setEditingPost(null);
               setIsComposerOpen(true);
             }}
             onFollowAuthor={handleFollowAuthor}
@@ -631,7 +690,7 @@ export const CommunityView = () => {
             </div>
             <button type="button" onClick={() => void loadPosts({ append: false })} className="shrink-0 text-xs font-bold text-red-100 hover:text-white">
               {labels.retry}
-            </button>
+          </button>
           </div>
         ) : null}
 
@@ -696,6 +755,7 @@ export const CommunityView = () => {
 
       <CommunityComposerDialog
         isOpen={isComposerOpen}
+        initialPost={editingPost}
         isSubmitting={isSubmittingPost}
         labels={{
           close: labels.close,
@@ -713,7 +773,7 @@ export const CommunityView = () => {
           assetsLabel: labels.assetsLabel,
           assetPickerTitle: labels.assetPickerTitle,
         }}
-        onClose={() => setIsComposerOpen(false)}
+        onClose={() => { setIsComposerOpen(false); setEditingPost(null); }}
         onSubmit={handleSubmitPost}
       />
 

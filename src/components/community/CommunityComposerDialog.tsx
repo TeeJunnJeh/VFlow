@@ -3,7 +3,7 @@ import { Film, Image as ImageIcon, Library, Loader2, Sparkles, Trash2, X } from 
 import { AssetLibraryPickerDialog, type AssetLibraryPickedAsset, type AssetLibraryPickerTabConfig } from '../productImages/Common/AssetLibraryPickerDialog';
 import { CommunityHistoryPicker, type CommunityHistoryPicked } from './CommunityHistoryPicker';
 import { videoApi } from '../../services/video';
-import type { CommunityCreateDraft, CommunityMediaRef, CommunityPostType, CommunitySharedSkill } from '../../services/community';
+import type { CommunityCreateDraft, CommunityMediaRef, CommunityPost, CommunityPostType, CommunitySharedSkill } from '../../services/community';
 
 type CommunityAssetTab = 'product' | 'motion' | 'audio' | 'script' | 'model' | 'scene';
 
@@ -37,6 +37,7 @@ interface ComposerHistoryItem {
 interface CommunityComposerDialogProps {
   isOpen: boolean;
   isSubmitting?: boolean;
+  initialPost?: CommunityPost | null;
   labels: {
     close: string;
     cancel: string;
@@ -65,6 +66,7 @@ const viewableKindOf = (assetType: string): 'image' | 'video' | 'audio' | null =
 export const CommunityComposerDialog = ({
   isOpen,
   isSubmitting = false,
+  initialPost = null,
   labels,
   onClose,
   onSubmit,
@@ -92,7 +94,25 @@ export const CommunityComposerDialog = ({
   React.useEffect(() => {
     if (!isOpen) return;
     setError('');
-  }, [isOpen]);
+    if (!initialPost) {
+      reset();
+      return;
+    }
+    setTitle(initialPost.title);
+    setBody(initialPost.body);
+    setPostTypeOverride(initialPost.post_type);
+    setLibraryAssets([]);
+    setHistoryItems(initialPost.media
+      .filter((media) => media.kind === 'image' || media.kind === 'video')
+      .map((media) => ({
+        kind: media.kind as 'image' | 'video',
+        url: media.url,
+        name: initialPost.title,
+        thumbnail_url: media.thumbnail_url,
+        skill: initialPost.shared_skill || null,
+      })));
+    setShareSkill(Boolean(initialPost.shared_skill));
+  }, [initialPost?.id, isOpen]);
 
   if (!isOpen) return null;
 

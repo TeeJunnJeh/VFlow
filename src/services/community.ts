@@ -65,10 +65,12 @@ export interface CommunityPost {
   favorite_count: number;
   collect_count: number;
   comment_count: number;
+  view_count?: number;
   is_liked: boolean;
   is_favorited: boolean;
   is_collected: boolean;
   created_at: string;
+  edited_at?: string;
 }
 
 export interface CommunityComment {
@@ -231,10 +233,12 @@ export const normalizeCommunityPost = (item: any): CommunityPost => ({
   favorite_count: Number(item.favorite_count || item.star_count || 0),
   collect_count: Number(item.collect_count || 0),
   comment_count: Number(item.comment_count || 0),
+  view_count: Number(item.view_count || 0),
   is_liked: Boolean(item.is_liked),
   is_favorited: Boolean(item.is_favorited || item.is_starred),
   is_collected: Boolean(item.is_collected || item.has_collected || item.already_collected),
   created_at: String(item.created_at || ''),
+  edited_at: String(item.edited_at || ''),
 });
 
 export const normalizeCommunityComment = (item: any): CommunityComment => ({
@@ -330,6 +334,33 @@ export const communityApi = {
     if (!response.ok) await throwCommunityApiError(response, 'Request failed');
     const data = unwrapData(await response.json());
     return normalizeCommunityPost(data.post || data.item || data);
+  },
+
+  updatePost: async (postId: string, draft: CommunityCreateDraft): Promise<CommunityPost> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || '',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ title: draft.title, body: draft.body, post_type: draft.postType }),
+    });
+    if (!response.ok) await throwCommunityApiError(response, 'Update failed');
+    const data = unwrapData(await response.json());
+    return normalizeCommunityPost(data.post || data.item || data);
+  },
+
+  deletePost: async (postId: string): Promise<void> => {
+    const csrftoken = getCookie('csrftoken');
+    const response = await fetch(`${API_BASE_URL}/posts/${postId}/`, {
+      method: 'DELETE',
+      headers: { 'X-CSRFToken': csrftoken || '', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'include',
+    });
+    if (!response.ok) await throwCommunityApiError(response, 'Delete failed');
   },
 
   getPostDetail: async (postId: string): Promise<CommunityPost> => {

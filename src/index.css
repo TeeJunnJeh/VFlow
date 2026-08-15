@@ -834,6 +834,33 @@ html.theme-light button.community-filter-tab-inactive {
 html.theme-light button.community-filter-tab-inactive:hover {
   color: #52525b !important;
 }
+html.theme-light button.community-manage-entry,
+html.theme-light button.community-manager-ghost-btn,
+html.theme-light button.community-manager-edit-btn {
+  background-color: #ffffff !important;
+  color: #3f3f46 !important;
+}
+html.theme-light button.community-manager-delete-btn {
+  background-color: #ffffff !important;
+  color: #ef4444 !important;
+}
+html.theme-light button.community-manager-delete-btn:hover {
+  background-color: #fef2f2 !important;
+}
+html.theme-light button.community-manager-filter {
+  color: #71717a !important;
+}
+html.theme-light button.community-manager-filter-active {
+  background-color: #e4e4e7 !important;
+  color: #18181b !important;
+}
+html.theme-light button.community-manager-filter-inactive {
+  background-color: transparent !important;
+}
+html.theme-light .community-manager-title,
+html.theme-light .community-manager-post-title {
+  color: #18181b !important;
+}
 html.theme-light button.community-interaction-author-info,
 html.theme-light button.community-interaction-author-info:hover {
   background-color: transparent !important;

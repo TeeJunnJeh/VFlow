@@ -1,9 +1,10 @@
 import React from 'react';
-import { Film, Image as ImageIcon, Library, Loader2, Sparkles, Trash2, X } from 'lucide-react';
+import { Film, Image as ImageIcon, Library, Loader2, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { AssetLibraryPickerDialog, type AssetLibraryPickedAsset, type AssetLibraryPickerTabConfig } from '../productImages/Common/AssetLibraryPickerDialog';
 import { CommunityHistoryPicker, type CommunityHistoryPicked } from './CommunityHistoryPicker';
 import { videoApi } from '../../services/video';
-import type { CommunityCreateDraft, CommunityMediaRef, CommunityPost, CommunityPostType, CommunitySharedSkill } from '../../services/community';
+import { getImageHistoryDetail } from '../../utils/imageHistory';
+import type { CommunityCreateDraft, CommunityCreationDetails, CommunityMediaRef, CommunityPost, CommunityPostType } from '../../services/community';
 
 type CommunityAssetTab = 'product' | 'motion' | 'audio' | 'script' | 'model' | 'scene';
 
@@ -30,9 +31,81 @@ interface ComposerHistoryItem {
   name: string;
   thumbnail_url?: string;
   source_project_id?: string;
-  skill?: CommunitySharedSkill | null;
-  skillLoading?: boolean;
+  source_history_id?: string;
+  feature_type?: string;
+  creationDetails?: CommunityCreationDetails | null;
+  detailsLoading?: boolean;
+  detailsError?: boolean;
 }
+
+const asRecord = (value: unknown): Record<string, any> => (
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
+);
+
+const firstValue = (...values: unknown[]) => values.find((value) => value !== undefined && value !== null && value !== '');
+
+const IMAGE_FEATURE_LABELS: Record<string, string> = {
+  first_frame: '首帧生成',
+  gallery: '商品套图',
+  text_separation: '文字分离',
+  smart_repair: '智能修复',
+  clothing_swap: 'AI 换装',
+  ai_model: 'AI 模特',
+};
+
+const extractCreationDetails = (detail: any): CommunityCreationDetails | null => {
+  const requestPayload = asRecord(detail?.request_payload);
+  const modelRequest = asRecord(detail?.model_request);
+  const scriptContent = asRecord(detail?.script_content);
+  const nestedScript = asRecord(requestPayload.script_content);
+  const workflow = asRecord(scriptContent.workflow);
+  const recipe = asRecord(workflow.recipe);
+  const inputSnapshot = asRecord(detail?.input_snapshot);
+  const outputSnapshot = asRecord(detail?.output_snapshot);
+  const imageSettings = asRecord(firstValue(detail?.settings, inputSnapshot.settings, inputSnapshot));
+  const imageMetadata = asRecord(firstValue(detail?.metadata, outputSnapshot.metadata, outputSnapshot));
+  const imagePlan = asRecord(firstValue(inputSnapshot.plan, imageSettings.plan));
+  const outputRequests = Array.isArray(outputSnapshot.requests) ? outputSnapshot.requests : [];
+  const firstOutputRequest = asRecord(outputRequests[0]);
+  const constraints = firstValue(recipe.constraint_terms, requestPayload.constraints, nestedScript.constraints);
+  const prompt = String(firstValue(
+    workflow.final_prompt,
+    requestPayload.prompt,
+    requestPayload.video_prompt,
+    requestPayload.video_description,
+    nestedScript.video_description,
+    nestedScript.prompt,
+    modelRequest.prompt,
+    imageSettings.prompt,
+    inputSnapshot.prompt,
+    imagePlan.prompt,
+    firstOutputRequest.prompt,
+  ) || '').trim();
+  const width = Number(firstValue(imageSettings.width, inputSnapshot.width));
+  const height = Number(firstValue(imageSettings.height, inputSnapshot.height));
+  const derivedSize = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0 ? `${width}×${height}` : '';
+  const details: CommunityCreationDetails = {
+    feature_type: String(firstValue(detail?.feature_type, imageSettings.feature_type) || '').trim() || undefined,
+    model: String(firstValue(requestPayload.model, requestPayload.generation_model, modelRequest.model, workflow.model, imageSettings.generationModel, imageSettings.generation_model, imageSettings.model, imageMetadata.model, workflow.id ? 'seedance2.5' : '') || '').trim() || undefined,
+    aspect_ratio: String(firstValue(requestPayload.aspect_ratio, nestedScript.aspect_ratio, modelRequest.aspect_ratio, workflow.aspect_ratio, recipe.aspect_ratio, imageSettings.aspectRatio, imageSettings.aspect_ratio) || '').trim() || undefined,
+    duration: firstValue(requestPayload.duration, nestedScript.duration, modelRequest.duration, workflow.duration, recipe.duration) as number | string | undefined,
+    resolution: String(firstValue(requestPayload.resolution, modelRequest.resolution, workflow.resolution, imageSettings.resolution, derivedSize) || '').trim() || undefined,
+    language: String(firstValue(requestPayload.language, nestedScript.language, workflow.language, recipe.language, imageSettings.copyLanguage, imageSettings.target_language) || '').trim() || undefined,
+    sound: firstValue(requestPayload.sound, nestedScript.sound, modelRequest.sound, workflow.sound) as boolean | string | undefined,
+    prompt_type: String(firstValue(requestPayload.prompt_type, nestedScript.prompt_type, recipe.prompt_type) || '').trim() || undefined,
+    style: String(firstValue(requestPayload.visual_style, requestPayload.style, nestedScript.visual_style, recipe.quality_style, recipe.narrative?.style_name, imageSettings.style, imageSettings.targetScene, imageSettings.target_scene) || '').trim() || undefined,
+    shot_count: firstValue(requestPayload.shot_count, nestedScript.shot_count, recipe.shot_count, recipe.temporal_count) as number | string | undefined,
+    output_count: firstValue(imageSettings.outputCount, imageSettings.output_count, detail?.image_count) as number | string | undefined,
+    negative_prompt: String(firstValue(requestPayload.negative_prompt, modelRequest.negative_prompt, imageSettings.negativePrompt, imageSettings.negative_prompt) || '').trim() || undefined,
+    camera: String(firstValue(requestPayload.camera, requestPayload.camera_movement, recipe.camera_energy) || '').trim() || undefined,
+    pacing: String(firstValue(requestPayload.pacing, recipe.transition_style, recipe.shot_detail_level) || '').trim() || undefined,
+    constraints: Array.isArray(constraints) ? constraints.map(String).filter(Boolean) : undefined,
+    prompt_public: false,
+    prompt: prompt || undefined,
+  };
+  const hasContent = Object.entries(details).some(([key, value]) => key !== 'prompt_public' && value !== undefined && value !== '');
+  return hasContent ? details : null;
+};
 
 interface CommunityComposerDialogProps {
   isOpen: boolean;
@@ -75,8 +148,8 @@ export const CommunityComposerDialog = ({
   const [body, setBody] = React.useState('');
   const [libraryAssets, setLibraryAssets] = React.useState<PickedLibraryAsset[]>([]);
   const [historyItems, setHistoryItems] = React.useState<ComposerHistoryItem[]>([]);
-  const [shareSkill, setShareSkill] = React.useState(true);
-  const [postTypeOverride, setPostTypeOverride] = React.useState<'' | CommunityPostType>('');
+  const [sharePrompt, setSharePrompt] = React.useState(false);
+  const [postType, setPostType] = React.useState<CommunityPostType>('material_share');
   const [isLibraryOpen, setIsLibraryOpen] = React.useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -86,8 +159,8 @@ export const CommunityComposerDialog = ({
     setBody('');
     setLibraryAssets([]);
     setHistoryItems([]);
-    setShareSkill(true);
-    setPostTypeOverride('');
+    setSharePrompt(false);
+    setPostType('material_share');
     setError('');
   };
 
@@ -100,7 +173,7 @@ export const CommunityComposerDialog = ({
     }
     setTitle(initialPost.title);
     setBody(initialPost.body);
-    setPostTypeOverride(initialPost.post_type);
+    setPostType(initialPost.post_type);
     setLibraryAssets([]);
     setHistoryItems(initialPost.media
       .filter((media) => media.kind === 'image' || media.kind === 'video')
@@ -109,18 +182,34 @@ export const CommunityComposerDialog = ({
         url: media.url,
         name: initialPost.title,
         thumbnail_url: media.thumbnail_url,
-        skill: initialPost.shared_skill || null,
+        creationDetails: initialPost.creation_details || null,
       })));
-    setShareSkill(Boolean(initialPost.shared_skill));
+    setSharePrompt(Boolean(initialPost.creation_details?.prompt_public));
   }, [initialPost?.id, isOpen]);
 
   if (!isOpen) return null;
 
-  const skillVideos = historyItems.filter((h) => h.kind === 'video' && h.skill && (h.skill.seed || h.skill.name));
-  const hasSkill = skillVideos.length > 0;
-  const anySkillLoading = historyItems.some((h) => h.kind === 'video' && h.skillLoading);
-  const sharingSkill = hasSkill && shareSkill;
-  const effectivePostType: CommunityPostType = postTypeOverride || (sharingSkill ? 'experience' : 'material_share');
+  const detailItem = historyItems.find((item) => item.creationDetails);
+  const creationDetails = detailItem?.creationDetails || null;
+  const anyDetailsLoading = historyItems.some((item) => item.detailsLoading);
+  const detailsReadFailed = historyItems.some((item) => item.detailsError);
+  const effectivePostType = postType;
+  const creationDetailRows = creationDetails ? [
+    ['生成类型', IMAGE_FEATURE_LABELS[creationDetails.feature_type || ''] || creationDetails.feature_type],
+    ['模型', creationDetails.model],
+    ['画面比例', creationDetails.aspect_ratio],
+    ['时长', creationDetails.duration !== undefined ? `${creationDetails.duration} 秒` : undefined],
+    ['分辨率', creationDetails.resolution],
+    ['语言', creationDetails.language],
+    ['声音', creationDetails.sound === true || creationDetails.sound === 'on' ? '开启' : creationDetails.sound === false || creationDetails.sound === 'off' ? '关闭' : creationDetails.sound],
+    ['Prompt 类型', creationDetails.prompt_type],
+    ['风格', creationDetails.style],
+    ['镜头数', creationDetails.shot_count],
+    ['生成数量', creationDetails.output_count],
+    ['负面提示词', creationDetails.negative_prompt],
+    ['运镜', creationDetails.camera],
+    ['节奏', creationDetails.pacing],
+  ].filter((row): row is [string, string | number] => row[1] !== undefined && row[1] !== '') : [];
 
   const handleLibraryConfirm = (assets: AssetLibraryPickedAsset<CommunityAssetTab>[]) => {
     setLibraryAssets((prev) => {
@@ -133,31 +222,57 @@ export const CommunityComposerDialog = ({
     setIsLibraryOpen(false);
   };
 
+  const handlePostTypeChange = (value: CommunityPostType) => {
+    if (value === postType) return;
+    setPostType(value);
+    setError('');
+    if (value === 'material_share') {
+      setHistoryItems([]);
+      setSharePrompt(false);
+      setIsHistoryOpen(false);
+    } else {
+      setLibraryAssets([]);
+      setIsLibraryOpen(false);
+    }
+  };
+
   const handleHistoryConfirm = (picked: CommunityHistoryPicked[]) => {
     setHistoryItems((prev) => {
       const map = new Map(prev.map((it) => [`${it.kind}:${it.url}`, it]));
       picked.forEach((p) => {
         const k = `${p.kind}:${p.url}`;
         if (!map.has(k)) {
-          map.set(k, { ...p, skill: null, skillLoading: p.kind === 'video' && Boolean(p.source_project_id) });
+          map.set(k, {
+            ...p,
+            creationDetails: null,
+            detailsLoading: Boolean(p.kind === 'video' ? p.source_project_id : p.source_history_id),
+          });
         }
       });
       return Array.from(map.values());
     });
-    // 为历史视频回溯其创作 skill（用于「同时分享 skill」）
+    // 从历史详情提取可公开的生成参数；帖子保存的是快照，不依赖历史记录长期存在。
     picked
-      .filter((p) => p.kind === 'video' && p.source_project_id)
+      .filter((p) => (p.kind === 'video' && p.source_project_id) || (p.kind === 'image' && p.source_history_id))
       .forEach((p) => {
-        void videoApi
-          .getHistoryDetail(String(p.source_project_id))
+        const detailPromise = p.kind === 'video'
+          ? videoApi.getHistoryDetail(String(p.source_project_id))
+          : getImageHistoryDetail(String(p.source_history_id));
+        void detailPromise
           .then((detail) => {
-            const rp: any = detail?.request_payload || {};
-            const raw = rp.seed_skill || rp?.script_content?.seed_skill || rp?.seed_skill_data || null;
-            const skill = raw && typeof raw === 'object' && (raw.seed || raw.name) ? (raw as CommunitySharedSkill) : null;
-            setHistoryItems((prev) => prev.map((it) => (it.kind === 'video' && it.url === p.url ? { ...it, skill, skillLoading: false } : it)));
+            const nextDetails = extractCreationDetails({ ...detail, feature_type: detail?.feature_type || p.feature_type });
+            setHistoryItems((prev) => prev.map((it) => (
+              it.kind === p.kind && it.url === p.url
+                ? { ...it, creationDetails: nextDetails, detailsLoading: false, detailsError: false }
+                : it
+            )));
           })
           .catch(() => {
-            setHistoryItems((prev) => prev.map((it) => (it.kind === 'video' && it.url === p.url ? { ...it, skillLoading: false } : it)));
+            setHistoryItems((prev) => prev.map((it) => (
+              it.kind === p.kind && it.url === p.url
+                ? { ...it, detailsLoading: false, detailsError: true }
+                : it
+            )));
           });
       });
     setIsHistoryOpen(false);
@@ -173,6 +288,7 @@ export const CommunityComposerDialog = ({
       name: it.name,
       thumbnail_url: it.thumbnail_url,
       source_project_id: it.source_project_id,
+      source_history_id: it.source_history_id,
     }));
     const libraryMedia: CommunityMediaRef[] = libraryAssets
       .map((a): CommunityMediaRef | null => {
@@ -197,10 +313,14 @@ export const CommunityComposerDialog = ({
       await onSubmit?.({
         title: title.trim(),
         body: body.trim(),
-        postType: postTypeOverride,
+        postType,
         media,
         materialAssetIds,
-        sharedSkill: sharingSkill ? skillVideos[0].skill : null,
+        creationDetails: effectivePostType === 'experience' && creationDetails ? {
+          ...creationDetails,
+          prompt_public: Boolean(sharePrompt && creationDetails.prompt),
+          prompt: sharePrompt ? creationDetails.prompt : undefined,
+        } : null,
       });
       reset();
     } catch (err) {
@@ -227,15 +347,12 @@ export const CommunityComposerDialog = ({
                 key={value}
                 type="button"
                 disabled={isSubmitting}
-                onClick={() => setPostTypeOverride(value)}
+                onClick={() => handlePostTypeChange(value)}
                 className={`h-9 rounded-lg px-3 text-xs font-bold transition disabled:opacity-50 ${effectivePostType === value ? 'bg-orange-500 text-white' : 'bg-white/5 text-zinc-300 hover:bg-white/10'}`}
               >
                 {label}
               </button>
             ))}
-            {postTypeOverride ? (
-              <button type="button" onClick={() => setPostTypeOverride('')} className="text-[11px] font-bold text-zinc-500 underline hover:text-zinc-300">自动</button>
-            ) : null}
           </div>
           <button type="button" title={labels.close} aria-label={labels.close} disabled={isSubmitting} onClick={close} className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-40">
             <X className="h-5 w-5" />
@@ -258,27 +375,27 @@ export const CommunityComposerDialog = ({
             className="min-h-28 resize-none rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm leading-6 text-zinc-100 outline-none focus:border-orange-400/70 disabled:opacity-60"
           />
 
-          {/* 素材来源：仅支持素材库 / 生成历史（不再本地上传） */}
-          <div className="grid grid-cols-2 gap-3">
+          {effectivePostType === 'material_share' ? (
             <button
               type="button"
               disabled={isSubmitting}
               onClick={() => setIsLibraryOpen(true)}
-              className="flex h-20 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 bg-white/[0.03] text-xs font-bold text-zinc-300 hover:border-orange-400/50 disabled:opacity-60"
+              className="flex h-20 w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 bg-white/[0.03] text-xs font-bold text-zinc-300 hover:border-orange-400/50 disabled:opacity-60"
             >
               <Library className="h-5 w-5" />
               从素材库选择
             </button>
+          ) : (
             <button
               type="button"
               disabled={isSubmitting}
               onClick={() => setIsHistoryOpen(true)}
-              className="flex h-20 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 bg-white/[0.03] text-xs font-bold text-zinc-300 hover:border-orange-400/50 disabled:opacity-60"
+              className="flex h-20 w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 bg-white/[0.03] text-xs font-bold text-zinc-300 hover:border-orange-400/50 disabled:opacity-60"
             >
               <ImageIcon className="h-5 w-5" />
               从生成历史选择
             </button>
-          </div>
+          )}
 
           {totalSelected > 0 ? (
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
@@ -290,7 +407,7 @@ export const CommunityComposerDialog = ({
                     <img src={it.url} alt={it.name} className="h-full w-full object-cover" />
                   )}
                   {it.kind === 'video' ? <Film className="absolute left-1 top-1 h-3.5 w-3.5 text-white drop-shadow" /> : null}
-                  {it.skill ? <Sparkles className="absolute right-1 top-1 h-3.5 w-3.5 text-amber-300 drop-shadow" /> : null}
+                  {it.creationDetails ? <SlidersHorizontal className="absolute right-1 top-1 h-3.5 w-3.5 text-orange-300 drop-shadow" /> : null}
                   <button type="button" onClick={() => removeHistory(it.url, it.kind)} className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition group-hover:opacity-100">
                     <Trash2 className="h-4 w-4 text-red-300" />
                   </button>
@@ -312,19 +429,34 @@ export const CommunityComposerDialog = ({
             </div>
           ) : null}
 
-          {/* 分享 skill 选项：仅当选中的历史视频含可分享 skill 时出现，默认开启 */}
-          {hasSkill ? (
-            <label className="flex items-start gap-3 rounded-lg border border-amber-300/25 bg-amber-400/10 px-4 py-3">
-              <input type="checkbox" checked={shareSkill} disabled={isSubmitting} onChange={(e) => setShareSkill(e.target.checked)} className="mt-0.5 h-4 w-4 accent-orange-500" />
-              <span className="text-xs font-bold leading-5 text-amber-100">
-                同时分享创作该视频的 Skill「{String(skillVideos[0].skill?.name || 'Skill')}」
-                <span className="mt-0.5 block font-normal text-amber-200/80">开启后，Skill 将以文本形式展示在帖子中，其他用户可保存到素材库；分享 Skill 的帖子默认标记为「经验分享」。</span>
-              </span>
-            </label>
-          ) : anySkillLoading ? (
-            <div className="inline-flex items-center gap-2 text-xs font-bold text-zinc-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在检测所选视频是否含可分享的 Skill...</div>
-          ) : historyItems.some((h) => h.kind === 'video') ? (
-            <div className="text-xs font-bold text-zinc-500">所选历史视频生成于 Skill 功能上线前，无可分享的 Skill。</div>
+          {effectivePostType === 'experience' && creationDetails ? (
+            <div className="rounded-lg border border-orange-300/20 bg-orange-400/[0.07] px-4 py-3">
+              <div className="flex items-center gap-2 text-xs font-black text-orange-100">
+                <SlidersHorizontal className="h-4 w-4" /> 创作详情
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">
+                {creationDetailRows.map(([label, value]) => (
+                  <div key={label} className="min-w-0">
+                    <div className="text-[10px] font-bold text-zinc-500">{label}</div>
+                    <div className="mt-0.5 truncate text-xs font-bold text-zinc-200">{String(value)}</div>
+                  </div>
+                ))}
+              </div>
+              {creationDetails.prompt ? (
+                <label className="mt-3 flex items-start gap-2 border-t border-white/10 pt-3 text-xs font-bold text-zinc-200">
+                  <input type="checkbox" checked={sharePrompt} disabled={isSubmitting} onChange={(event) => setSharePrompt(event.target.checked)} className="mt-0.5 h-4 w-4 accent-orange-500" />
+                  <span>公开本次生成 Prompt<span className="mt-0.5 block font-normal text-zinc-500">关闭时，帖子不会保存或返回 Prompt。</span></span>
+                </label>
+              ) : (
+                <div className="mt-3 border-t border-white/10 pt-3 text-[11px] text-zinc-500">这条历史记录没有可读取的 Prompt。</div>
+              )}
+            </div>
+          ) : effectivePostType === 'experience' && anyDetailsLoading ? (
+            <div className="inline-flex items-center gap-2 text-xs font-bold text-zinc-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在读取生成参数...</div>
+          ) : effectivePostType === 'experience' && detailsReadFailed ? (
+            <div className="text-xs font-bold text-amber-300">创作详情读取失败，仍可发布帖子，但不会附带生成参数。</div>
+          ) : effectivePostType === 'experience' && historyItems.length > 0 ? (
+            <div className="text-xs font-bold text-zinc-500">这条历史记录没有可公开的生成参数。</div>
           ) : null}
 
           {error ? <div className="text-xs font-bold text-red-300">{error}</div> : null}

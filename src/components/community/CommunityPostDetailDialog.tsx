@@ -1,8 +1,17 @@
 import React from 'react';
-import { Bookmark, ChevronLeft, ChevronRight, Flag, Heart, Library, Loader2, Reply, Send, Sparkles, Trash2, User, UserPlus, X } from 'lucide-react';
+import { Bookmark, ChevronLeft, ChevronRight, Flag, Heart, Library, Loader2, Reply, Send, SlidersHorizontal, Sparkles, Trash2, User, UserPlus, X } from 'lucide-react';
 import { assetsApi } from '../../services/assets';
 import { communityApi, type CommunityAuthor, type CommunityComment, type CommunityPost, type CommunitySharedSkill } from '../../services/community';
 import { useRequireAuth } from '../../utils/useRequireAuth';
+
+const CREATION_FEATURE_LABELS: Record<string, string> = {
+  first_frame: '首帧生成',
+  gallery: '商品套图',
+  text_separation: '文字分离',
+  smart_repair: '智能修复',
+  clothing_swap: 'AI 换装',
+  ai_model: 'AI 模特',
+};
 
 const formatSharedSkill = (skill: CommunitySharedSkill): string => {
   const lines: string[] = [];
@@ -304,6 +313,23 @@ export const CommunityPostDetailDialog = ({
   const isFollowingAuthor = Boolean(post.author.is_following);
   const postTypeLabel = post.post_type === 'experience' ? '创作经验' : '素材分享';
   const currentCommentTotal = Number(commentsTotal || post.comment_count || 0);
+  const creationDetails = post.creation_details;
+  const creationDetailRows: Array<[string, string]> = creationDetails ? [
+    ['生成类型', CREATION_FEATURE_LABELS[creationDetails.feature_type || ''] || creationDetails.feature_type],
+    ['生成模型', creationDetails.model],
+    ['画面比例', creationDetails.aspect_ratio],
+    ['视频时长', creationDetails.duration !== undefined ? `${creationDetails.duration} 秒` : undefined],
+    ['分辨率', creationDetails.resolution],
+    ['语言', creationDetails.language],
+    ['声音', creationDetails.sound === true || creationDetails.sound === 'on' ? '开启' : creationDetails.sound === false || creationDetails.sound === 'off' ? '关闭' : creationDetails.sound],
+    ['Prompt 类型', creationDetails.prompt_type],
+    ['风格', creationDetails.style],
+    ['镜头数', creationDetails.shot_count !== undefined ? String(creationDetails.shot_count) : undefined],
+    ['生成数量', creationDetails.output_count !== undefined ? String(creationDetails.output_count) : undefined],
+    ['运镜', creationDetails.camera],
+    ['节奏', creationDetails.pacing],
+    ['负面提示词', creationDetails.negative_prompt],
+  ].filter((row): row is [string, string] => typeof row[1] === 'string' && row[1].trim().length > 0) : [];
 
   const renderAvatar = (name: string, avatarUrl?: string, author?: CommunityAuthor, sizeClass = 'h-9 w-9') => {
     const normalizedUrl = String(avatarUrl || '').trim();
@@ -639,8 +665,44 @@ export const CommunityPostDetailDialog = ({
 
             {activeTab === 'detail' ? (
               <section className="pt-5">
+                {creationDetails ? (
+                  <div className="rounded-lg border border-orange-300/20 bg-orange-400/[0.06] px-4 py-4">
+                    <div className="flex items-center gap-2 text-xs font-black text-orange-100">
+                      <SlidersHorizontal className="h-4 w-4" /> 创作详情
+                    </div>
+                    {creationDetailRows.length > 0 ? (
+                      <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3">
+                        {creationDetailRows.map(([label, value]) => (
+                          <div key={label} className="min-w-0">
+                            <div className="text-[10px] font-bold text-zinc-500">{label}</div>
+                            <div className="community-text-wrap mt-1 text-xs font-bold text-zinc-200">{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {creationDetails.constraints?.length ? (
+                      <div className="mt-4 border-t border-white/10 pt-3">
+                        <div className="text-[10px] font-bold text-zinc-500">生成约束</div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {creationDetails.constraints.map((constraint, index) => (
+                            <span key={`${constraint}-${index}`} className="rounded bg-white/[0.05] px-2 py-1 text-[11px] text-zinc-300">{constraint}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {creationDetails.prompt_public && creationDetails.prompt ? (
+                      <div className="mt-4 border-t border-white/10 pt-3">
+                        <div className="text-[10px] font-bold text-zinc-500">公开 Prompt</div>
+                        <div className="community-text-wrap mt-2 whitespace-pre-wrap rounded-lg bg-black/25 px-3 py-3 text-xs leading-6 text-zinc-300">{creationDetails.prompt}</div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 border-t border-white/10 pt-3 text-[11px] text-zinc-500">作者未公开 Prompt</div>
+                    )}
+                  </div>
+                ) : null}
+
                 {post.shared_skill ? (
-                  <div>
+                  <div className={creationDetails ? 'mt-5' : ''}>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-200">
                         <Sparkles className="h-3.5 w-3.5" /> 分享的创作 Skill
@@ -665,7 +727,7 @@ export const CommunityPostDetailDialog = ({
                 ) : null}
 
                 {post.materials.length > 0 ? (
-                  <div className={`${post.shared_skill ? 'mt-5 border-t border-dashed border-white/15 pt-4' : 'mt-0'} grid gap-2`}>
+                  <div className={`${post.shared_skill || creationDetails ? 'mt-5 border-t border-dashed border-white/15 pt-4' : 'mt-0'} grid gap-2`}>
                     <div className="text-xs font-black text-zinc-400">可收集素材</div>
                     {post.materials.map((material) => (
                       <button

@@ -9,6 +9,8 @@ export interface CommunityHistoryPicked {
   name: string;
   thumbnail_url?: string;
   source_project_id?: string; // 视频来源的历史项目 id（用于回溯其 skill）
+  source_history_id?: string; // 图片来源的历史记录 id（用于读取生成参数）
+  feature_type?: string;
 }
 
 type HistoryTab = 'video' | 'image';
@@ -53,7 +55,13 @@ export const CommunityHistoryPicker = ({ isOpen, onClose, onConfirm }: Community
         const list: CommunityHistoryPicked[] = [];
         (res.items || []).forEach((it) => {
           (it.images || []).forEach((url, idx) => {
-            if (url) list.push({ kind: 'image', url, name: `${it.featureType || '图片'}-${idx + 1}` });
+            if (url) list.push({
+              kind: 'image',
+              url,
+              name: `${it.featureType || '图片'}-${idx + 1}`,
+              source_history_id: String(it.id),
+              feature_type: it.featureType,
+            });
           });
         });
         setImages(list);

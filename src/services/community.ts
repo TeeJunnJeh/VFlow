@@ -50,6 +50,26 @@ export interface CommunitySharedSkill {
   [key: string]: unknown;
 }
 
+export interface CommunityCreationDetails {
+  feature_type?: string;
+  model?: string;
+  aspect_ratio?: string;
+  duration?: number | string;
+  resolution?: string;
+  language?: string;
+  sound?: boolean | string;
+  prompt_type?: string;
+  style?: string;
+  shot_count?: number | string;
+  output_count?: number | string;
+  negative_prompt?: string;
+  camera?: string;
+  pacing?: string;
+  constraints?: string[];
+  prompt_public?: boolean;
+  prompt?: string;
+}
+
 export interface CommunityPost {
   id: string;
   is_placeholder?: boolean;
@@ -61,6 +81,7 @@ export interface CommunityPost {
   media: CommunityMedia[];
   materials: CommunityMaterial[];
   shared_skill?: CommunitySharedSkill | null;
+  creation_details?: CommunityCreationDetails | null;
   like_count: number;
   favorite_count: number;
   collect_count: number;
@@ -150,6 +171,7 @@ export interface CommunityMediaRef {
   thumbnail_url?: string;
   source_asset_id?: string;
   source_project_id?: string;
+  source_history_id?: string;
 }
 
 export interface CommunityCreateDraft {
@@ -163,6 +185,8 @@ export interface CommunityCreateDraft {
   materialAssetIds?: string[];
   // 同时分享的创作 skill（seed_skill）
   sharedSkill?: CommunitySharedSkill | null;
+  // 发布时从生成历史提取的公开创作参数快照
+  creationDetails?: CommunityCreationDetails | null;
 }
 
 const toDisplayUrl = (pathOrUrl: string | null | undefined): string => {
@@ -229,6 +253,7 @@ export const normalizeCommunityPost = (item: any): CommunityPost => ({
     can_collect: material.can_collect !== false,
   })),
   shared_skill: (item.shared_skill && typeof item.shared_skill === 'object') ? (item.shared_skill as CommunitySharedSkill) : null,
+  creation_details: (item.creation_details && typeof item.creation_details === 'object') ? (item.creation_details as CommunityCreationDetails) : null,
   like_count: Number(item.like_count || 0),
   favorite_count: Number(item.favorite_count || item.star_count || 0),
   collect_count: Number(item.collect_count || 0),
@@ -314,11 +339,13 @@ export const communityApi = {
         thumbnail_url: m.thumbnail_url || '',
         source_asset_id: m.source_asset_id,
         source_project_id: m.source_project_id,
+        source_history_id: m.source_history_id,
       })),
       material_asset_ids: draft.materialAssetIds || [],
     };
     if (draft.postType) payload.post_type = draft.postType;
     if (draft.sharedSkill && typeof draft.sharedSkill === 'object') payload.shared_skill = draft.sharedSkill;
+    if (draft.creationDetails && typeof draft.creationDetails === 'object') payload.creation_details = draft.creationDetails;
 
     const response = await fetch(`${API_BASE_URL}/posts/`, {
       method: 'POST',
@@ -346,7 +373,12 @@ export const communityApi = {
         'X-Requested-With': 'XMLHttpRequest',
       },
       credentials: 'include',
-      body: JSON.stringify({ title: draft.title, body: draft.body, post_type: draft.postType }),
+      body: JSON.stringify({
+        title: draft.title,
+        body: draft.body,
+        post_type: draft.postType,
+        creation_details: draft.creationDetails || null,
+      }),
     });
     if (!response.ok) await throwCommunityApiError(response, 'Update failed');
     const data = unwrapData(await response.json());
